@@ -47,21 +47,46 @@ DOC_TAIL = u"""
 </w:document>"""
 
 
+#: ``w:rPr`` 子元素的顺序（OOXML 里是固定序列，夹具也照这个顺序写，别造出 Word 不认的 XML）
+RPR_ORDER = ("rstyle", "rfonts", "color", "highlight", "sz", "u", "vertAlign")
+
+
 def run(text, **props):
-    """一个 ``w:r``；``props`` 会写成 ``w:rPr`` 里的元素（如 color='FF0000'）。"""
+    """一个 ``w:r``。
+
+    - 普通 ``props`` 写成 ``w:rPr`` 里的元素（如 ``color='FF0000'``）；
+    - ``rfonts={'eastAsia': '仿宋', 'ascii': '仿宋'}`` 写成 ``w:rFonts``（夹具的字体测试要用）；
+    - ``rstyle='26'`` 写成 ``w:rStyle w:val="26"``（用来测"字体是从样式继承来的"）。
+    """
+    rfonts = props.pop("rfonts", None)
+    rstyle = props.pop("rstyle", None)
+    bits = {}
+    if rstyle:
+        bits["rstyle"] = u'<w:rStyle w:val="%s"/>' % rstyle
+    if rfonts:
+        bits["rfonts"] = u"<w:rFonts %s/>" % u" ".join(
+            u'w:%s="%s"' % (key, value) for key, value in sorted(rfonts.items()))
+    for key, value in props.items():
+        bits[key] = u'<w:%s w:val="%s"/>' % (key, value)
     rpr = u""
-    if props:
-        bits = []
-        for key, value in props.items():
-            bits.append(u'<w:%s w:val="%s"/>' % (key, value))
-        rpr = u"<w:rPr>%s</w:rPr>" % u"".join(bits)
+    if bits:
+        ordered = [bits[key] for key in RPR_ORDER if key in bits]
+        ordered += [bits[key] for key in sorted(bits) if key not in RPR_ORDER]
+        rpr = u"<w:rPr>%s</w:rPr>" % u"".join(ordered)
     return u'<w:r>%s<w:t xml:space="preserve">%s</w:t></w:r>' % (rpr, text)
 
 
 def paragraph(*runs, **props):
-    ppr = u""
-    if props.get("style"):
-        ppr = u'<w:pPr><w:pStyle w:val="%s"/></w:pPr>' % props["style"]
+    """一个 ``w:p``；``props`` 支持 ``style``（段落样式）与 ``mark_fonts``（段落标记的字体）。"""
+    pr = u""
+    style = props.get("style")
+    mark_fonts = props.get("mark_fonts")
+    if style:
+        pr += u'<w:pStyle w:val="%s"/>' % style
+    if mark_fonts:
+        pr += u"<w:rPr><w:rFonts %s/></w:rPr>" % u" ".join(
+            u'w:%s="%s"' % (key, value) for key, value in sorted(mark_fonts.items()))
+    ppr = u"<w:pPr>%s</w:pPr>" % pr if pr else u""
     return u"<w:p>%s%s</w:p>" % (ppr, u"".join(runs))
 
 

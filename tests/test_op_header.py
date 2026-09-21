@@ -19,7 +19,7 @@ from xml.etree import ElementTree as ET
 
 from wordfactory.document import Document, run_size_of
 from wordfactory.ooxml import DocxPackage, qn
-from wordfactory.ops import header
+from wordfactory.ops import captions as header
 from wordfactory.text import Paragraph
 
 from . import fixtures
@@ -165,6 +165,143 @@ class TestHeaderApply(HeaderCase):
             self.assertEqual(third["changed"], 0, u"对输出再跑一次仍是 0 处")
 
 
+class TestFigureRule(HeaderCase):
+    """图题走另一套规矩：**整段居中** + 编号与名字之间**正好一个空格** + 清掉段首缩进。
+
+    （用户 2026-09-21 原话：「图是"图4.2-1 欧峪水库30年一遇调洪演算图"整个居中，
+      从 图这个字开始就居中，然后中间空一个格子」。）
+    """
+
+    def test_figure_gets_one_space_and_whole_paragraph_centred(self):
+        body = u"".join([
+            fixtures.paragraph(fixtures.run(u"图 4.2-1" + u" " * 12 + u"某张调洪演算图")),
+            fixtures.paragraph(fixtures.run(u"图6-1" + u" " * 17 + u"水位库容关系图")),
+        ])
+        src = build_docx(os.path.join(self.work, "figs.docx"), body)
+        out = os.path.join(self.work, "figs_out.docx")
+        with Document(src) as doc:
+            report = header.apply(doc)
+            self.assertEqual(report["figures"], 2)
+            doc.mark_dirty()
+            doc.save(out)
+        with DocxPackage(out) as pkg:
+            body_element = pkg.xml(DocxPackage.MAIN).find(qn("w:body"))
+            seen = 0
+            for element in body_element.iter(qn("w:p")):
+                para = Paragraph(element)
+                text = para.text
+                if not text.startswith(u"图"):
+                    continue
+                seen += 1
+                number = text.split(u" ")[0]
+                self.assertEqual(text[len(number)], u" ", u"图题后要有一个空格")
+                rest = text[len(number) + 1:]
+                self.assertFalse(rest.startswith(u" "),
+                                 u"图题中间只留一个空格：%r" % text[:24])
+                jc = element.find(qn("w:pPr") + "/" + qn("w:jc"))
+                self.assertIsNotNone(jc, u"图题要整段居中")
+                self.assertEqual(jc.get(qn("w:val")), "center")
+            self.assertEqual(seen, 2)
+
+    def test_figure_loses_its_first_line_indent(self):
+        body = (u'<w:p><w:pPr><w:ind w:firstLine="474" w:firstLineChars="200"/></w:pPr>'
+                u'<w:r><w:t>图4.2-2 某图</w:t></w:r></w:p>')
+        src = build_docx(os.path.join(self.work, "fig2.docx"), body)
+        out = os.path.join(self.work, "fig2_out.docx")
+        with Document(src) as doc:
+            header.apply(doc)
+            doc.mark_dirty()
+            doc.save(out)
+        with DocxPackage(out) as pkg:
+            element = list(pkg.xml(DocxPackage.MAIN).iter(qn("w:p")))[0]
+            ind = element.find(qn("w:pPr") + "/" + qn("w:ind"))
+            self.assertTrue(ind is None or ind.get(qn("w:firstLine")) is None,
+                            u"图题的段首缩进必须清掉，否则居中会被顶偏")
+            jc = element.find(qn("w:pPr") + "/" + qn("w:jc"))
+            self.assertEqual(jc.get(qn("w:val")), "center")
+
+    def test_figure_normalizes_its_number_too(self):
+        body = fixtures.paragraph(fixtures.run(u"图 6-2 名字"))
+        src = build_docx(os.path.join(self.work, "fig3.docx"), body)
+        with Document(src) as doc:
+            plans = header.plan(doc)
+        self.assertEqual([p.number for p in plans], [u"图6-2"])
+
+    def test_table_caption_still_gets_the_padding_rule(self):
+        """同一份文档里两套规矩并存：表题仍是"空格居中"，不是整段居中。"""
+        body = header_paragraph(u"表 2.3-1", u"库容特性表", 6)
+        src = build_docx(os.path.join(self.work, "mix.docx"), body)
+        out = os.path.join(self.work, "mix_out.docx")
+        with Document(src) as doc:
+            header.apply(doc)
+            doc.mark_dirty()
+            doc.save(out)
+        with DocxPackage(out) as pkg:
+            element = list(pkg.xml(DocxPackage.MAIN).iter(qn("w:p")))[0]
+            jc = element.find(qn("w:pPr") + "/" + qn("w:jc"))
+            self.assertEqual(jc.get(qn("w:val")), "left",
+                             u"表题必须保持左对齐（靠空格居中），不能整段居中")
+
+
+class TestAlreadyCorrectCaptionsAreNotTouched(HeaderCase):
+    """**报"要改"就必须真改**：实测踩过一次——图题的 note 是写死的"整段居中"，
+    于是图题每跑一遍都报"5 个要改"，第二遍的数字纯属假的，还会把没变的段落又标一次蓝。
+    """
+
+    def _figure(self, center=True, indent=u""):
+        pr = (u"<w:pPr>%s%s</w:pPr>"
+              % (u'<w:jc w:val="center"/>' if center else u"", indent))
+        return u'<w:p>%s<w:r><w:t>图4.2-1 某调洪演算图</w:t></w:r></w:p>' % pr
+
+    def test_a_figure_that_is_already_right_is_not_changed(self):
+        src = build_docx(os.path.join(self.work, "ok.docx"), self._figure())
+        with Document(src) as doc:
+            report = header.apply(doc)
+        self.assertEqual(report["changed"], 0, u"已经对了就不该报要改")
+        self.assertEqual(report["figures"], 1, u"认出来了 1 个图题")
+        self.assertEqual(report["changed_figures"], 0, u"但它不该被算成'要改'")
+        self.assertEqual([item.note for item in header.plan(
+            Document(src))], [None], u"已经对了的图题不该有备注")
+
+    def test_a_figure_that_only_lacks_centring_is_still_fixed(self):
+        """文字已经对了、但没居中 → 该改，而且第二遍要报 0。"""
+        body = self._figure(center=False, indent=u'<w:ind w:firstLine="474"/>')
+        src = build_docx(os.path.join(self.work, "nocentre.docx"), body)
+        out = os.path.join(self.work, "nocentre_out.docx")
+        with Document(src) as doc:
+            first = header.apply(doc)
+            doc.mark_dirty()
+            doc.save(out)
+        self.assertEqual(first["changed"], 1, u"缺居中的图题要改")
+        with DocxPackage(out) as pkg:
+            element = list(pkg.xml(DocxPackage.MAIN).iter(qn("w:p")))[0]
+            self.assertEqual(element.find(qn("w:pPr") + "/" + qn("w:jc")).get(qn("w:val")), "center")
+            self.assertIsNone(element.find(qn("w:pPr") + "/" + qn("w:ind")),
+                              u"段首缩进要清掉")
+        with Document(out) as doc:
+            second = header.apply(doc)
+        self.assertEqual(second["changed"], 0, u"改完第二遍必须是 0")
+
+    def test_a_table_caption_whose_text_is_right_but_indent_is_missing_is_fixed(self):
+        """表题也一样：文字对了但段首没缩进 → 该补上（不然那颗"首行空两格"就丢了）。"""
+        body = u'<w:p><w:r><w:t>表4.2-1 %s水库洪水计算成果表</w:t></w:r></w:p>' % (u" " * 20)
+        body += fixtures.table([[u"<w:r><w:t>A</w:t></w:r>"] * 2])
+        src = build_docx(os.path.join(self.work, "tabs.docx"), body)
+        out = os.path.join(self.work, "tabs_out.docx")
+        with Document(src) as doc:
+            first = header.apply(doc)
+            doc.mark_dirty()
+            doc.save(out)
+        self.assertEqual(first["changed"], 1, u"缺段首缩进的表题要改")
+        with DocxPackage(out) as pkg:
+            element = list(pkg.xml(DocxPackage.MAIN).iter(qn("w:p")))[0]
+            ind = element.find(qn("w:pPr") + "/" + qn("w:ind"))
+            self.assertEqual(ind.get(qn("w:firstLineChars")), "200")
+        with Document(out) as doc:
+            second = header.apply(doc)
+        self.assertEqual(second["changed"], 0, u"改完第二遍必须是 0")
+
+
 class TestHeaderInvariants(HeaderCase):
     def test_a_longer_name_gets_fewer_spaces(self):
         """单调性：名字越长，需要的空格越少（这条不依赖任何公式细节）。"""
@@ -194,12 +331,26 @@ class TestHeaderAgainstTheUsersOwnDocument(unittest.TestCase):
             self.skipTest(u"用户文档不在本机：%s" % self.DOC)
         with Document(self.DOC) as doc:
             plans = header.plan(doc)
-        self.assertGreaterEqual(len(plans), 10, u"应该能认出十来个表题")
-        deltas = [item.spaces_want - item.spaces_have for item in plans]
+        # 只拿**表题**验规则 B —— 图题走另一套规矩（整段居中 + 一个空格），不在这条判据里
+        tables = [item for item in plans if item.kind == u"\u8868"]
+        self.assertGreaterEqual(len(tables), 10, u"应该能认出十来个表题")
+        deltas = [item.spaces_want - item.spaces_have for item in tables]
         within = len([d for d in deltas if abs(d) <= 3])
         self.assertGreaterEqual(within, len(deltas) * 0.8,
                                 u"落在 ±3 格内的比例太低：%r（deltas=%r）"
                                 % (within / len(deltas), deltas))
+
+    def test_figures_are_planned_with_the_figure_rule(self):
+        if not os.path.exists(self.DOC):
+            self.skipTest(u"用户文档不在本机：%s" % self.DOC)
+        with Document(self.DOC) as doc:
+            plans = header.plan(doc)
+        figures = [item for item in plans if item.kind == u"\u56fe"]
+        self.assertGreaterEqual(len(figures), 3, u"他文档里有几个图题")
+        for item in figures:
+            self.assertEqual(item.spaces_want, 1, u"图题中间只留一个空格：%s" % item.number)
+            self.assertTrue(item.number.startswith(u"图"),
+                            u"图题编号不该带空格：%r" % item.number)
 
 
 if __name__ == "__main__":

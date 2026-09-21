@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "name": "字体规范化（keep/replace 取自参考宏 规划报告一键宏.bas:71 —— 需用户确认）",
+  "keep": [
+    "宋体",
+    "黑体",
+    "Times New Roman"
+  ],
+  "replace": {
+    "仿宋": "宋体",
+    "仿宋_GB2312": "宋体"
+  },
+  "default": "宋体",
+  "default_scope": "eastAsia",
+  "symbol_fonts": [
+    "Symbol",
+    "Wingdings",
+    "Wingdings 2",
+    "Wingdings 3",
+    "Webdings",
+    "Marlett",
+    "ZapfDingbats"
+  ],
+  "black_all": true,
+  "remove_highlight": true,
+  "note": "keep=原样保留；replace=明确映射（四个属性都换）；default=其余中文字体统一成它；default_scope 决定 default 管不管西文属性；symbol_fonts 永不触碰。改完用 wordfactory audit 复核（末行 AUDIT=PASS）。"
+}

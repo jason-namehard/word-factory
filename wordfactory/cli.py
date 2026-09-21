@@ -22,6 +22,8 @@ from .rules import RuleError, RuleSet, apply_to_part, default_ruleset, write_def
 #: 规则文件默认放这里（项目根下的 rules/）。它就是用户要的"外置接口"。
 DEFAULT_RULES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                   "rules", "subscripts.json")
+DEFAULT_FONTS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                  "rules", "fonts.json")
 
 
 def emit_json(payload):
@@ -85,17 +87,42 @@ def build_parser():
     apply_cmd.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
     apply_cmd.add_argument("--dry-run", action="store_true", help=u"只报告会改多少处")
 
-    head = sub.add_parser("header", help=u"宏：表头格式统一（表X-Y + 空格居中 + 表格居中）")
+    head = sub.add_parser("captions",
+                          help=u"宏：题注格式统一（表题=表X-Y+空格居中+表格居中；图题=整段居中+一个空格）")
     head.add_argument("path", help=u"要处理的 .docx")
     head.add_argument("--out", default=None, help=u"输出文件")
     head.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
     head.add_argument("--dry-run", action="store_true", help=u"只列出会怎么改")
+    head.add_argument("--mode", choices=("verify", "formal"), default="verify",
+                      help=u"verify=改过的部分标蓝供你核对（默认）；"
+                           u"formal=通体黑 + 字体合规（交付版）")
+    head.add_argument("--fonts", default=DEFAULT_FONTS_PATH,
+                      help=u"正式版的字体规则文件（默认 %s）" % DEFAULT_FONTS_PATH)
     head.add_argument("--no-center-table", dest="center_table", action="store_false",
-                      default=True, help=u"不要把表格居中")
+                      default=True, help=u"表题的表格不要居中")
+    head.add_argument("--no-center-figure", dest="center_figure", action="store_false",
+                      default=True, help=u"图题不要整段居中")
+    head.add_argument("--figure-space", type=int, default=1,
+                      help=u"图题编号与名字之间留几个空格（默认 1）")
     head.add_argument("--no-normalize-number", dest="normalize_number", action="store_false",
-                      default=True, help=u"不要把编号统一成 表X-Y")
+                      default=True, help=u"不要把编号统一成 表X-Y / 图X-Y")
     head.add_argument("--all-captions", dest="only_before_table", action="store_false",
-                      default=True, help=u"连带处理后面没跟表格的 表X-Y 段")
+                      default=True, help=u"表题：连带处理后面没跟表格的那些")
+
+    fonts = sub.add_parser("fonts", help=u"正式版的字体规则（外置文件：哪些字体算不合格）")
+    fonts_sub = fonts.add_subparsers(dest="action", metavar="<动作>")
+    finit = fonts_sub.add_parser("init", help=u"把默认字体规则写到文件")
+    finit.add_argument("--fonts", default=DEFAULT_FONTS_PATH)
+    finit.add_argument("--force", action="store_true")
+    fcheck = fonts_sub.add_parser("check", help=u"校验字体规则文件")
+    fcheck.add_argument("--fonts", default=DEFAULT_FONTS_PATH)
+    fshow = fonts_sub.add_parser("show", help=u"当前字体规则长什么样")
+    fshow.add_argument("--fonts", default=DEFAULT_FONTS_PATH)
+
+    checker = sub.add_parser(
+        "audit", help=u"体检：重新打开文件核对「通体黑 + 没有不合格字体」（末行 AUDIT=PASS/FAIL）")
+    checker.add_argument("path", help=u"要体检的 .docx/.docm")
+    checker.add_argument("--fonts", default=DEFAULT_FONTS_PATH, help=u"字体规则文件")
     return parser
 
 
@@ -198,55 +225,173 @@ def cmd_rules(args):
     raise RuleError(u"未知的 rules 动作：%r" % action)
 
 
-def cmd_header(args):
-    """表头格式统一：算计划 → （非 dry-run 时）落地 → 报告。"""
+def cmd_captions(args):
+    """题注格式统一：算计划 → 落地 → 按模式标蓝（验证版）或通体黑+字体合规（正式版）。"""
+    from . import audit as audit_mod
+    from . import fonts as fonts_mod
+    from . import mark as mark_mod
     from .document import Document
-    from .ops import header as header_op
+    from .ops import captions as captions_op
 
     options = {"center_table": bool(args.center_table),
+               "center_figure": bool(args.center_figure),
+               "figure_space": int(args.figure_space),
                "normalize_number": bool(args.normalize_number),
                "only_before_table": bool(args.only_before_table)}
     if not args.out and not args.outdir and not args.dry_run:
         raise RuleError(u"要写结果就得给 --out 文件或 --outdir 目录"
                         u"（本工具**不会**覆盖原文件）")
-    with Document(args.path) as doc:
-        report = header_op.apply(doc, options, dry_run=args.dry_run)
-        lines = []
-        if args.dry_run:
-            lines.append(u"--dry-run：一个字节都没写")
-        lines.append(u"文件：%s" % doc.path)
-        lines.append(u"表题段 %d 个，其中 %d 个要改；表格居中 %d 张"
-                     % (report["planned"], report["changed"], report["tables_centered"]))
-        lines.append(u"")
-        lines.append(u"%-10s %-9s %-9s %s" % (u"编号", u"原空格", u"新空格", u"表格名"))
-        for detail in report["details"]:
-            lines.append(u"%-10s %-9d %-9d %s"
-                         % (detail["number"], detail["spaces_before"],
-                            detail["spaces_after"], detail["name"][:34]))
+    font_rules = None
+    #: 正式版换字体要连样式表/编号表一起改（那是"继承来源"），所以这两条要放进白名单
+    writable = fonts_mod.FONT_PARTS if args.mode == "formal" else ("word/document.xml",)
+    if args.mode == "formal":
+        font_rules = fonts_mod.FontRuleSet.load(args.fonts)
+        problems = font_rules.check()
+        if problems:
+            raise RuleError(u"字体规则文件有问题：\n  - " + u"\n  - ".join(problems))
+
+    with Document(args.path, writable_parts=writable) as doc:
+        blue_before = mark_mod.count_color(doc) if args.mode == "verify" else 0
+        report = captions_op.apply(doc, options, dry_run=args.dry_run)
+        marked = 0
+        font_report = None
         if not args.dry_run:
-            if report["changed"] == 0 and report["tables_centered"] == 0:
-                payload = {"dry_run": False, "changed": 0, "out": None,
-                           "planned": report["planned"], "details": report["details"]}
-                return (payload, u"\n".join(lines + [u"", u"没有需要改的地方"]))
-            doc.mark_dirty()
-            if args.out:
-                out_path = doc.save(os.path.abspath(args.out))
+            if args.mode == "verify":
+                marked = mark_mod.verify(doc, report["details"])
             else:
-                out_dir = os.path.abspath(args.outdir)
-                if not os.path.isdir(out_dir):
-                    os.makedirs(out_dir)
-                out_path = doc.save(os.path.join(out_dir, os.path.basename(doc.path)))
-            lines.insert(1, u"已写出：%s" % out_path)
-            payload = {"dry_run": False, "changed": report["changed"], "out": out_path,
-                       "planned": report["planned"],
-                       "tables_centered": report["tables_centered"],
-                       "details": report["details"]}
-            return (payload, u"\n".join(lines))
-        payload = {"dry_run": True, "changed": report["changed"],
+                font_report = fonts_mod.normalize(doc, font_rules)
+
+        lines = [u"文件：%s" % doc.path,
+                 u"模式：%s" % (u"验证版（改过的部分标蓝，供你核对）" if args.mode == "verify"
+                               else u"正式版（通体黑 + 字体合规）"),
+                 u"题注 %d 个（表 %d / 图 %d），其中 %d 个要改（表 %d / 图 %d）；表格居中 %d 张"
+                 % (report["planned"], report["tables"], report["figures"],
+                    report["changed"], report["changed_tables"], report["changed_figures"],
+                    report["tables_centered"]),
+                 u""]
+        lines.append(u"%-9s %-4s %-8s %-8s %-6s %s"
+                     % (u"编号", u"类型", u"原空格", u"新空格", u"要改", u"名字 / 备注"))
+        for detail in report["details"]:
+            lines.append(u"%-9s %-4s %-8d %-8d %-6s %s%s"
+                         % (detail["number"],
+                            u"图" if detail["kind"] == u"\u56fe" else u"表",
+                            detail["spaces_before"], detail["spaces_after"],
+                            u"是" if detail["changed"] else u"—",
+                            detail["name"][:30],
+                            (u"  ← " + detail["note"]) if detail["note"] else u""))
+        if marked:
+            lines.append(u"")
+            lines.append(u"验证版：已把 %d 处「改过的那一段」标成蓝色 %s（用 Word 打开就能看出来）"
+                         % (marked, mark_mod.VERIFY_BLUE))
+            if blue_before:
+                lines.append(u"    注意：原件里本来就有 %d 处这个蓝色（不是我标的），"
+                             u"看到蓝色的标题之类属于原样保留" % blue_before)
+        if font_report:
+            lines.append(u"")
+            lines.append(u"正式版：处理 %d 个有文字的 run ｜ 颜色改正 %d ｜ 去高亮 %d"
+                         % (font_report["runs"], font_report["colors"],
+                            font_report["highlights"]))
+            for key in sorted(font_report["fonts"]):
+                lines.append(u"    字体 %-34s %d 处" % (key, font_report["fonts"][key]))
+            if not font_report["fonts"]:
+                lines.append(u"    （按当前字体规则，没有需要换的字体）")
+
+        if not args.dry_run:
+            if report["changed"] or marked or (font_report and
+                                              (font_report["fonts"] or font_report["colors"]
+                                               or font_report["highlights"])):
+                doc.mark_dirty()
+                if args.out:
+                    out_path = doc.save(os.path.abspath(args.out))
+                else:
+                    out_dir = os.path.abspath(args.outdir)
+                    if not os.path.isdir(out_dir):
+                        os.makedirs(out_dir)
+                    out_path = doc.save(os.path.join(out_dir, os.path.basename(doc.path)))
+                lines.insert(0, u"已写出：%s" % out_path)
+                checked = None
+                if args.mode == "formal":
+                    # 报告不能自己说自己对：重新打开写出来的文件体检一遍，末行 AUDIT=…
+                    checked = audit_mod.audit(out_path, font_rules)
+                    lines.append(u"")
+                    lines.append(audit_mod.format_audit(checked))
+                payload = {"dry_run": False, "out": out_path, "mode": args.mode,
+                           "changed": report["changed"], "planned": report["planned"],
+                           "tables_centered": report["tables_centered"],
+                           "figures": report["figures"], "marked": marked,
+                           "blue_before": blue_before,
+                           "parts": (font_report or {}).get("parts"),
+                           "fonts": (font_report or {}).get("fonts"),
+                           "colors": (font_report or {}).get("colors"),
+                           "highlights": (font_report or {}).get("highlights"),
+                           "audit": (checked or {}).get("verdict"),
+                           "audit_reasons": (checked or {}).get("reasons"),
+                           "audit_declared": (checked or {}).get("declared"),
+                           "details": [dict((k, v) for k, v in d.items() if k != "paragraph")
+                                       for d in report["details"]]}
+                return (payload, u"\n".join(lines))
+            lines.insert(0, u"没有需要改的地方（也没标蓝）")
+            return ({"dry_run": False, "out": None, "mode": args.mode, "changed": 0,
+                     "planned": report["planned"], "details": []}, u"\n".join(lines))
+
+        lines.insert(0, u"--dry-run：一个字节都没写")
+        payload = {"dry_run": True, "mode": args.mode, "changed": report["changed"],
                    "planned": report["planned"],
                    "tables_centered": report["tables_centered"],
-                   "details": report["details"]}
+                   "figures": report["figures"],
+                   "details": [dict((k, v) for k, v in d.items() if k != "paragraph")
+                               for d in report["details"]]}
         return (payload, u"\n".join(lines))
+
+
+def cmd_fonts(args):
+    from . import fonts as fonts_mod
+
+    action = args.action
+    if action == "init":
+        path = os.path.abspath(args.fonts)
+        if os.path.exists(path) and not args.force:
+            raise RuleError(u"%s 已经存在；要覆盖请加 --force" % path)
+        fonts_mod.FontRuleSet(fonts_mod.DEFAULT_FONTS).save(path)
+        return ({"wrote": path}, u"已写出 %s" % path)
+    rule_set = fonts_mod.FontRuleSet.load(args.fonts)
+    problems = rule_set.check()
+    if action == "check":
+        if problems:
+            raise RuleError(u"字体规则有问题：\n  - " + u"\n  - ".join(problems))
+        return ({"fonts": args.fonts, "problems": [], "ok": True},
+                u"字体规则没问题：%s" % (rule_set.path or u"内置默认"))
+    lines = [u"字体规则：%s" % (rule_set.path or u"内置默认（%s 不存在）" % args.fonts),
+             u"  keep（原样保留）      ：%s" % u"、".join(sorted(rule_set.keep)),
+             u"  replace（明确换掉）   ：%s" % (u"、".join(
+                 u"%s→%s" % (k, v) for k, v in sorted(rule_set.replace.items())) or u"（无）"),
+             u"  default（其余中文字体）：%s" % (rule_set.default or u"（无 → 不动）"),
+             u"  default_scope        ：%s（%s）"
+             % (rule_set.default_scope,
+                u"只管中文字体（eastAsia）" if rule_set.default_scope != u"all"
+                else u"四个属性都管，西文也会被换掉"),
+             u"  symbol_fonts（永不碰） ：%s" % u"、".join(sorted(rule_set.symbol_fonts)),
+             u"  black_all            ：%s" % rule_set.black_all,
+             u"  remove_highlight     ：%s" % rule_set.remove_highlight]
+    return ({"fonts": args.fonts, "keep": sorted(rule_set.keep),
+             "replace": rule_set.replace, "default": rule_set.default,
+             "default_scope": rule_set.default_scope,
+             "symbol_fonts": sorted(rule_set.symbol_fonts),
+             "black_all": rule_set.black_all, "remove_highlight": rule_set.remove_highlight},
+            u"\n".join(lines))
+
+
+def cmd_audit(args):
+    """体检：不信工具的报告，重新打开文件按继承链算一遍。"""
+    from . import audit as audit_mod
+    from . import fonts as fonts_mod
+
+    rule_set = fonts_mod.FontRuleSet.load(args.fonts)
+    problems = rule_set.check()
+    if problems:
+        raise RuleError(u"字体规则有问题：\n  - " + u"\n  - ".join(problems))
+    report = audit_mod.audit(args.path, rule_set)
+    return report, audit_mod.format_audit(report)
 
 
 def main(argv=None):
@@ -262,8 +407,12 @@ def main(argv=None):
             payload, human = cmd_text(args)
         elif args.command == "rules":
             payload, human = cmd_rules(args)
-        elif args.command == "header":
-            payload, human = cmd_header(args)
+        elif args.command == "fonts":
+            payload, human = cmd_fonts(args)
+        elif args.command == "captions":
+            payload, human = cmd_captions(args)
+        elif args.command == "audit":
+            payload, human = cmd_audit(args)
         else:
             log(u"未知命令：%s" % args.command)
             return 2
@@ -290,6 +439,8 @@ def main(argv=None):
         emit_json(dict(payload, ok=True))
     else:
         emit_text(human)
+    if args.command == "audit" and payload.get("verdict") != "PASS":
+        return 1                       # 体检没过就退 1，方便当闸门串进流程
     return 0
 
 

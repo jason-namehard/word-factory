@@ -9,4 +9,4 @@
 * 报告统一形状：``{"op": 名字, "changed": 处数, "details": [...], "notes": [...]}``。
 """
 
-__all__ = ["header"]
+__all__ = ["captions"]
