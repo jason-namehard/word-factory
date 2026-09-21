@@ -82,7 +82,49 @@ def scan_part(pkg, name):
     }
 
 
+def text_report(path, limit=20, grep=None, part=None):
+    """逐段看"逻辑文本 ↔ run"的映射 —— 这是判断一个宏能不能做对的第一步。
+
+    ``grep`` 给关键词时只列包含它的段落（对配方/表头这类"按内容挑段落"的功能特别有用）。
+    """
+    from .text import Paragraph
+    from .ooxml import qn as _qn
+
+    with DocxPackage(path) as pkg:
+        name = part or DocxPackage.MAIN
+        root = pkg.xml(name)
+        rows = []
+        for index, element in enumerate(root.iter(_qn("w:p")), 1):
+            paragraph = Paragraph(element)
+            text = paragraph.text
+            if not text.strip():
+                continue
+            if grep and grep not in text:
+                continue
+            rows.append({"index": index, "text": text, "runs": paragraph.run_map()})
+        return {"file": pkg.path, "part": name, "paragraphs": rows,
+                "shown": len(rows[:limit])}
+
+
+def format_text_report(report, limit=20):
+    lines = [u"文件：%s ｜ 部件：%s ｜ 命中段落：%d"
+             % (report["file"], report["part"], len(report["paragraphs"]))]
+    for row in report["paragraphs"][:limit]:
+        pieces = [u"[%s]" % text for _run, text in row["runs"]]
+        lines.append(u"")
+        lines.append(u"#%d  %d 个 run：%s" % (row["index"], len(row["runs"]), row["text"]))
+        if len(row["runs"]) > 1:
+            lines.append(u"    切成：%s" % u" + ".join(
+                p.replace(u"\n", u"\\n").replace(u"\t", u"\\t") for p in pieces))
+    if len(report["paragraphs"]) > limit:
+        lines.append(u"")
+        lines.append(u"…还有 %d 段（用 --limit 调大）"
+                     % (len(report["paragraphs"]) - limit))
+    return "\n".join(lines)
+
+
 def inspect(path, show_parts=True):
+    """文档结构总览（部件清单 + 每个故事的段落/表格/run 统计）。"""
     with DocxPackage(path) as pkg:
         result = {"file": pkg.path, "size": len(pkg.read_bytes(pkg.MAIN)),
                   "parts": None, "stories": []}

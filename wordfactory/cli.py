@@ -15,7 +15,7 @@ import sys
 import traceback
 
 from . import __version__
-from .inspect import format_report, inspect
+from .inspect import format_report, format_text_report, inspect, text_report
 from .ooxml import PackageError
 
 
@@ -56,12 +56,24 @@ def build_parser():
 
     inspector = sub.add_parser("inspect", help=u"看一眼 .docx 里有什么（只读）")
     inspector.add_argument("path", help=u"要看的 .docx/.docm")
+
+    texter = sub.add_parser("text",
+                            help=u"逐段看「逻辑文本 ↔ run」的映射（只读）")
+    texter.add_argument("path", help=u"要看的 .docx/.docm")
+    texter.add_argument("--grep", default=None, help=u"只看包含这个词的段落")
+    texter.add_argument("--limit", type=int, default=20, help=u"最多列几段（默认 20）")
+    texter.add_argument("--part", default=None, help=u"指定部件（默认 word/document.xml）")
     return parser
 
 
 def cmd_inspect(args):
     info = inspect(args.path)
     return info, format_report(info)
+
+
+def cmd_text(args):
+    report = text_report(args.path, limit=args.limit, grep=args.grep, part=args.part)
+    return report, format_text_report(report, limit=args.limit)
 
 
 def main(argv=None):
@@ -73,6 +85,8 @@ def main(argv=None):
     try:
         if args.command == "inspect":
             payload, human = cmd_inspect(args)
+        elif args.command == "text":
+            payload, human = cmd_text(args)
         else:
             log(u"未知命令：%s" % args.command)
             return 2

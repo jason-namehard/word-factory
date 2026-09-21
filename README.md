@@ -55,20 +55,25 @@ tmp/                临时件（不入库）
 ## 怎么跑
 
 ```bash
-# 看一眼一个 .docx 里有什么（段落/表格/run 的统计；当前唯一可用的命令）
+# 1) 看一个文档的结构：部件清单 + 段落/表格/run 统计（只读）
 "D:\Hermes\hermes-agent\venv\Scripts\python.exe" -m wordfactory.cli inspect "某文档.docx"
+
+# 2) 逐段看「逻辑文本 ↔ run」的映射 —— 判断一个宏能不能做对，先看这个
+"D:\Hermes\hermes-agent\venv\Scripts\python.exe" -m wordfactory.cli text "某文档.docx" --limit 20
+#    --grep 表5-1     只看包含这个词的段落
 ```
 
 （其余能力见 `PLAN.md` 的阶段表；每个阶段做完都会在这里补用法。）
 
 ## 状态
 
-**骨架阶段**：仓库、规格、参考件、与一个只读的结构查看器。功能宏尚未实现——先定方案再动手。
+**M1 内核已落地**（容器 + 文本层 + 两个只读命令），功能宏尚未开始——先定方案再动手。
 
 - [x] 仓库与参考件入库
-- [ ] `docs/REFERENCE-MACROS.md`（参考宏逐宏规格）
-- [ ] 方案评审（`PLAN.md` 的未决问题需用户裁决）
-- [ ] M1：OOXML 读写内核（文本层 run 映射）
+- [x] `docs/REFERENCE-MACROS.md`（12 个参考宏的逐宏规格）
+- [x] M1a 容器层：只重写改过的部件（保真）+ OOXML 前缀注册
+- [x] M1b 文本层：**跨 run 替换**（一句话被 Word 切成多块也能正确替换，格式跟第一个 run 走）
+- [ ] **方案评审**（`PLAN.md` §5 的 5 个未决问题需用户裁决）
 - [ ] M2：第一批宏（格式规范化 / 去空格 / 特殊字符替换）
 - [ ] M3：表头格式 + 段落配方（xlsx）
 - [ ] M4：配方编排（选定 + 排序 + 一键批量）+ 改动报告
