@@ -16,7 +16,12 @@ import traceback
 
 from . import __version__
 from .inspect import format_report, format_text_report, inspect, text_report
-from .ooxml import PackageError
+from .ooxml import DocxPackage, PackageError
+from .rules import RuleError, RuleSet, apply_to_part, default_ruleset, write_default
+
+#: 规则文件默认放这里（项目根下的 rules/）。它就是用户要的"外置接口"。
+DEFAULT_RULES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                  "rules", "subscripts.json")
 
 
 def emit_json(payload):
@@ -63,6 +68,22 @@ def build_parser():
     texter.add_argument("--grep", default=None, help=u"只看包含这个词的段落")
     texter.add_argument("--limit", type=int, default=20, help=u"最多列几段（默认 20）")
     texter.add_argument("--part", default=None, help=u"指定部件（默认 word/document.xml）")
+
+    rules = sub.add_parser("rules", help=u"上下标规则（外置规则文件）")
+    rules_sub = rules.add_subparsers(dest="action", metavar="<动作>")
+    check = rules_sub.add_parser("check", help=u"校验规则文件")
+    check.add_argument("--rules", default=DEFAULT_RULES_PATH)
+    init = rules_sub.add_parser("init", help=u"把默认规则写到文件（不会覆盖已有文件）")
+    init.add_argument("--rules", default=DEFAULT_RULES_PATH)
+    init.add_argument("--force", action="store_true")
+    show = rules_sub.add_parser("show", help=u"把规则打印成人看的表")
+    show.add_argument("--rules", default=DEFAULT_RULES_PATH)
+    apply_cmd = rules_sub.add_parser("apply", help=u"把规则应用到文档（默认不改原文件）")
+    apply_cmd.add_argument("path", help=u"要处理的 .docx")
+    apply_cmd.add_argument("--rules", default=DEFAULT_RULES_PATH)
+    apply_cmd.add_argument("--out", default=None, help=u"输出文件")
+    apply_cmd.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
+    apply_cmd.add_argument("--dry-run", action="store_true", help=u"只报告会改多少处")
     return parser
 
 
@@ -76,6 +97,95 @@ def cmd_text(args):
     return report, format_text_report(report, limit=args.limit)
 
 
+def _load_rules(path):
+    """规则文件不存在时回落到内置默认，并明说一声（不要静默用别的东西）。"""
+    if os.path.exists(path):
+        rule_set = RuleSet.load(path)
+        source = path
+    else:
+        rule_set = default_ruleset()
+        source = u"内置默认（%s 不存在）" % path
+        log(u"⚠ 没找到规则文件 %s，这次用内置默认规则。" % path)
+    problems = rule_set.validate()
+    if problems:
+        raise RuleError(u"规则文件有问题，先修好再跑：\n  - " + u"\n  - ".join(problems))
+    return rule_set, source
+
+
+def cmd_rules(args):
+    action = args.action
+    if action == "init":
+        path = os.path.abspath(args.rules)
+        if os.path.exists(path) and not args.force:
+            raise RuleError(u"%s 已经存在；要覆盖请加 --force" % path)
+        write_default(path)
+        return ({"wrote": path, "rules": len(default_ruleset().rules)},
+                u"已写出 %s（%d 条规则）" % (path, len(default_ruleset().rules)))
+
+    if action == "check":
+        rule_set, source = _load_rules(args.rules)
+        return ({"rules": source, "count": len(rule_set.rules),
+                 "enabled": len(rule_set.active), "problems": [], "ok": True},
+                u"规则文件没问题：%s（共 %d 条，启用 %d 条）"
+                % (source, len(rule_set.rules), len(rule_set.active)))
+
+    if action == "show":
+        rule_set, source = _load_rules(args.rules)
+        lines = [u"规则：%s" % source, u"共 %d 条，启用 %d 条"
+                 % (len(rule_set.rules), len(rule_set.active)), u""]
+        rows = []
+        for rule in rule_set.rules:
+            what = (u"%s → %s" % (rule.match, rule.kinds)) if rule.match \
+                else (u"/%s/ → %s %s" % (rule.pattern, rule.target, rule.kind or u""))
+            rows.append({"id": rule.id, "enabled": rule.enabled, "what": what,
+                         "note": rule.note})
+            lines.append(u"  [%s] %-14s %-34s %s"
+                         % (u"✓" if rule.enabled else u" ", rule.id, what, rule.note))
+        return ({"rules": source, "items": rows}, u"\n".join(lines))
+
+    if action == "apply":
+        rule_set, source = _load_rules(args.rules)
+        if not args.out and not args.outdir and not args.dry_run:
+            raise RuleError(u"要写结果就得给 --out 文件或 --outdir 目录"
+                            u"（本工具**不会**覆盖原文件）")
+        with DocxPackage(args.path) as pkg:
+            root = pkg.xml(DocxPackage.MAIN)
+            report = apply_to_part(root, rule_set, limit=10)
+            if args.dry_run:
+                payload = {"dry_run": True, "file": pkg.path, "rules": source,
+                           "total": report["total"], "counts": report["counts"],
+                           "details": report["details"]}
+                lines = [u"--dry-run：一个字节都没写",
+                         u"文件：%s" % pkg.path,
+                         u"按规则 %s 会改 %d 处：" % (source, report["total"])]
+                for key in sorted(report["counts"]):
+                    lines.append(u"  %-18s %d 处" % (key, report["counts"][key]))
+                for detail in report["details"][:8]:
+                    lines.append(u"    %s：「%s」→ %s"
+                                 % (detail["rule"], detail["text"], detail["kind"]))
+                return (payload, u"\n".join(lines))
+            if report["total"] == 0:
+                return ({"dry_run": False, "file": pkg.path, "total": 0,
+                         "counts": {}, "out": None},
+                        u"没有需要改的地方（%d 条规则都没命中）" % len(rule_set.active))
+            pkg.mark_dirty(DocxPackage.MAIN)
+            if args.out:
+                out_path = pkg.save(os.path.abspath(args.out))
+            else:
+                out_dir = os.path.abspath(args.outdir)
+                if not os.path.isdir(out_dir):
+                    os.makedirs(out_dir)
+                out_path = pkg.save(os.path.join(out_dir, os.path.basename(pkg.path)))
+            lines = [u"已写出：%s" % out_path,
+                     u"按规则 %s 共改 %d 处：" % (source, report["total"])]
+            for key in sorted(report["counts"]):
+                lines.append(u"  %-18s %d 处" % (key, report["counts"][key]))
+            return ({"dry_run": False, "file": pkg.path, "out": out_path,
+                     "total": report["total"], "counts": report["counts"]}, u"\n".join(lines))
+
+    raise RuleError(u"未知的 rules 动作：%r" % action)
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
@@ -87,6 +197,8 @@ def main(argv=None):
             payload, human = cmd_inspect(args)
         elif args.command == "text":
             payload, human = cmd_text(args)
+        elif args.command == "rules":
+            payload, human = cmd_rules(args)
         else:
             log(u"未知命令：%s" % args.command)
             return 2
@@ -95,6 +207,12 @@ def main(argv=None):
             emit_json({"ok": False, "error": u"%s" % exc})
         else:
             log(u"错误：%s" % exc)
+        return 1
+    except RuleError as exc:
+        if args.as_json:
+            emit_json({"ok": False, "error": u"%s" % exc})
+        else:
+            log(u"规则有问题：%s" % exc)
         return 1
     except Exception as exc:                       # noqa: BLE001 - 兜底要如实报错
         log(traceback.format_exc())

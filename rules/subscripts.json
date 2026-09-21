@@ -1,0 +1,117 @@
+{
+  "schema": 1,
+  "name": "上下标规则（默认，取自参考宏 智能上下标.bas:74-97）",
+  "note": "两种写法都能用：1) match+kinds 逐字符（N 正常 / S 上标 / B 下标）；2) pattern+target+kind 正则。顺序即优先级，先匹配先应用。改完先用 `rules check` 校验，再用 --dry-run 看会改多少处。",
+  "rules": [
+    {
+      "id": "Vmax",
+      "match": "Vmax",
+      "kinds": "NBBB",
+      "note": "Vmax → max 下标"
+    },
+    {
+      "id": "Qpl",
+      "match": "Qpl",
+      "kinds": "NBB",
+      "note": "Qpl → pl 下标"
+    },
+    {
+      "id": "m2",
+      "match": "m2",
+      "kinds": "NS",
+      "note": "m2"
+    },
+    {
+      "id": "m3",
+      "match": "m3",
+      "kinds": "NS",
+      "note": "m3"
+    },
+    {
+      "id": "m4",
+      "match": "m4",
+      "kinds": "NS",
+      "note": "m4"
+    },
+    {
+      "id": "m5",
+      "match": "m5",
+      "kinds": "NS",
+      "note": "m5"
+    },
+    {
+      "id": "cm2",
+      "match": "cm2",
+      "kinds": "NNS",
+      "note": "cm2"
+    },
+    {
+      "id": "km2",
+      "match": "km2",
+      "kinds": "NNS",
+      "note": "km2"
+    },
+    {
+      "id": "qm",
+      "match": "qm",
+      "kinds": "NB",
+      "note": "qm → m 下标"
+    },
+    {
+      "id": "Qm",
+      "match": "Qm",
+      "kinds": "NB",
+      "note": "Qm → m 下标"
+    },
+    {
+      "id": "KP",
+      "match": "KP",
+      "kinds": "NB",
+      "note": "KP → P 下标"
+    },
+    {
+      "id": "CV",
+      "match": "CV",
+      "kinds": "NB",
+      "note": "CV → V 下标"
+    },
+    {
+      "id": "H24P",
+      "match": "H24P",
+      "kinds": "NBBB",
+      "note": "H24P"
+    },
+    {
+      "id": "hR",
+      "match": "hR",
+      "kinds": "NB",
+      "note": "hR → R 下标"
+    },
+    {
+      "id": "H24",
+      "match": "H24",
+      "kinds": "NBB",
+      "note": "H24 → 24 下标"
+    },
+    {
+      "id": "celsius",
+      "match": "°C",
+      "kinds": "SN",
+      "note": "°C —— ° 上标、C 正常"
+    },
+    {
+      "id": "mm",
+      "match": "mm",
+      "kinds": "NN",
+      "note": "mm —— 两个都正常（参考宏里的空操作）"
+    },
+    {
+      "id": "unit-m-generic",
+      "pattern": "m([2-9]+)",
+      "target": "group:1",
+      "kind": "superscript",
+      "enabled": false,
+      "note": "通用上标：m 后跟 2-9 就无脑上标（早期宏 单位上标.bas 的做法，m1 不上标）。默认关着 —— 上面的字典规则已经覆盖 m2..m5；要「无脑」覆盖 m6..m9 就把它打开。"
+    }
+  ]
+}

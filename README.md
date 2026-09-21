@@ -61,7 +61,33 @@ tmp/                临时件（不入库）
 # 2) 逐段看「逻辑文本 ↔ run」的映射 —— 判断一个宏能不能做对，先看这个
 "D:\Hermes\hermes-agent\venv\Scripts\python.exe" -m wordfactory.cli text "某文档.docx" --limit 20
 #    --grep 表5-1     只看包含这个词的段落
+
+# 3) 上下标规则（外置规则文件，可以用任何编辑器改；工具按正则查找并应用）
+"D:\Hermes\hermes-agent\venv\Scripts\python.exe" -m wordfactory.cli rules init     # 写出默认规则
+"D:\Hermes\hermes-agent\venv\Scripts\python.exe" -m wordfactory.cli rules show     # 看规则表
+"D:\Hermes\hermes-agent\venv\Scripts\python.exe" -m wordfactory.cli rules check    # 校验（改完先跑这个）
+"D:\Hermes\hermes-agent\venv\Scripts\python.exe" -m wordfactory.cli rules apply "某文档.docx" --dry-run
+"D:\Hermes\hermes-agent\venv\Scripts\python.exe" -m wordfactory.cli rules apply "某文档.docx" --outdir out
 ```
+
+### 上下标规则文件长什么样（`rules/subscripts.json`）
+
+两种写法混用，顺序即优先级，**先匹配先应用**（前面规则占了的字，后面规则不会再动）：
+
+```jsonc
+// 1) 字面量 + 逐字符类型：复刻参考宏 智能上下标.bas 的字典
+{"id": "m2", "match": "m2", "kinds": "NS", "note": "m2 —— m 正常、2 上标"}
+//   kinds 与 match 等长：N 正常 / S 上标 / B 下标
+
+// 2) 正则 + 作用目标：用户自己要的"用正则查找并应用"
+{"id": "unit-m", "pattern": "m([2-9]+)", "target": "group:1", "kind": "superscript",
+ "enabled": false, "note": "通用上标：m 后跟 2-9 就上标（早期宏的做法，m1 不动）"}
+//   target 也可以是 "all"（整段匹配都设）；还有 not_before / not_after 表达边界约束
+```
+
+> 默认规则取自 `智能上下标.bas:74-97` 的字典（Vmax/Qpl/m2..m5/cm2/km2/qm/Qm/KP/CV/H24P/hR/H24/°C/mm）。
+> 「m 后加数字无脑上标」那条**通用上标**是早期宏的局限，默认关着 —— 字典规则已经覆盖 m2..m5，
+> 要无脑覆盖 m6..m9 就把它打开。
 
 （其余能力见 `PLAN.md` 的阶段表；每个阶段做完都会在这里补用法。）
 
@@ -73,8 +99,11 @@ tmp/                临时件（不入库）
 - [x] `docs/REFERENCE-MACROS.md`（12 个参考宏的逐宏规格）
 - [x] M1a 容器层：只重写改过的部件（保真）+ OOXML 前缀注册
 - [x] M1b 文本层：**跨 run 替换**（一句话被 Word 切成多块也能正确替换，格式跟第一个 run 走）
-- [ ] **方案评审**（`PLAN.md` §5 的 5 个未决问题需用户裁决）
+- [x] M1c 切 run：只给区间内的字设属性（切完两半各自保留 rPr）
+- [x] **上下标规则外置接口**（用户 2026-09-21 要求）：JSON 规则文件 + 正则/字面量两种写法
+      + `rules check/show/apply`，先匹配先应用、幂等（重跑报 0 处）
+- [ ] **方案评审**（`PLAN.md` §5 的未决问题 + 表头规则待用户确认）
 - [ ] M2：第一批宏（格式规范化 / 去空格 / 特殊字符替换）
 - [ ] M3：表头格式 + 段落配方（xlsx）
-- [ ] M4：配方编排（选定 + 排序 + 一键批量）+ 改动报告
+- [ ] M4：配方编排（选定 + 排序 + 一键批量）+ 改动报告 + GUI
 - [ ] M5：PDF 导出（外部渲染器编排）

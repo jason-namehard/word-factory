@@ -251,3 +251,140 @@ def set_run_text(run_element, text):
     _fix_space_attribute(texts[0], text)
     for extra in texts[1:]:
         run_element.remove(extra)
+
+
+# --------------------------------------------------------------------------- 切 run
+def _copy_attrs(source, target):
+    target.attrib.clear()
+    for key, value in source.attrib.items():
+        target.set(key, value)
+
+
+def _parent_of(root, child):
+    for candidate in root.iter():
+        for element in list(candidate):
+            if element is child:
+                return candidate
+    return None
+
+
+def split_run_at(paragraph, position):
+    """保证逻辑位置 ``position`` 处**存在 run 边界**（必要时把一个 run 切成两个）。
+
+    这是"只给某几个字设上标/字体"的基础：Word 里一个 run 内部只能有一种字符格式，
+    要让半个 run 变上标，就必须先切开它。两半都保留原来的 ``w:rPr``。
+
+    返回 True 表示位置已在边界上或已切好；False 表示这个位置不需要切（例如段尾）。
+    """
+    from copy import deepcopy
+    from xml.etree import ElementTree as ET
+
+    if position <= 0:
+        return False
+    paragraph._build()
+    for node in paragraph._nodes:
+        if not node.editable or node.run is None:
+            continue
+        if node.start == position:
+            return True
+        if not (node.start < position < node.end):
+            continue
+
+        run = node.run
+        offset = position - node.start
+        head, tail = node.text[:offset], node.text[offset:]
+        children = list(run)
+        properties = [c for c in children if c.tag == qn("w:rPr")]
+        content = [c for c in children if c.tag != qn("w:rPr")]
+        index = content.index(node.element)
+
+        # 原 run 只留前半
+        for child in children:
+            run.remove(child)
+        for prop in properties:
+            run.append(prop)
+        for child in content[:index]:
+            run.append(child)
+        node.element.text = head
+        _fix_space_attribute(node.element, head)
+        run.append(node.element)
+
+        # 新 run 带后半（从切点开始，含切点那个文本节点的尾巴）
+        clone = ET.Element(qn("w:r"))
+        _copy_attrs(run, clone)
+        for prop in properties:
+            clone.append(deepcopy(prop))
+        tail_node = deepcopy(node.element)
+        tail_node.text = tail
+        _fix_space_attribute(tail_node, tail)
+        clone.append(tail_node)
+        for child in content[index + 1:]:
+            clone.append(deepcopy(child))
+
+        parent = _parent_of(paragraph.element, run)
+        if parent is None:
+            return False
+        parent.insert(list(parent).index(run) + 1, clone)
+        paragraph._nodes = None
+        paragraph._text = None
+        return True
+    return False
+
+
+def apply_character_property(paragraph, start, end, tag, value):
+    """把 ``w:rPr/<tag>`` 设成 ``value``，**只作用于逻辑区间** ``[start, end)``。
+
+    区间两端自动切开 run；区间内的每个 run 各自被设上属性；区间外一个都不动。
+    返回被改到的 run 数（调用方用它做改动报告）。
+    """
+    if start >= end:
+        return 0
+    split_run_at(paragraph, end)          # 先切尾巴：切分不改变逻辑文本，位置不会失效
+    split_run_at(paragraph, start)
+    paragraph._build()
+    touched = 0
+    for node in paragraph._nodes:
+        if node.run is None or not node.editable or not node.text:
+            continue
+        if node.start >= start and node.end <= end:
+            if _set_run_property(node.run, tag, value):
+                touched += 1
+    return touched
+
+
+def _set_run_property(run, tag, value):
+    """设 ``w:rPr/<tag>``；**只有真的变了才返回 True**（这样重跑能报"0 处"）。"""
+    from xml.etree import ElementTree as ET
+    pr = run.find(qn("w:rPr"))
+    if pr is None:
+        pr = ET.Element(qn("w:rPr"))
+        run.insert(0, pr)
+    element = pr.find(qn("w:" + tag))
+    if value is None:
+        if element is None:
+            return False
+        pr.remove(element)
+        if len(pr) == 0:
+            run.remove(pr)
+        return True
+    if element is not None:
+        if element.get(qn("w:val")) == value:
+            return False
+        element.set(qn("w:val"), value)
+        return True
+    element = ET.SubElement(pr, qn("w:" + tag))
+    element.set(qn("w:val"), value)
+    return True
+
+
+def set_vertical_align(paragraph, start, end, kind):
+    """给逻辑区间设上标/下标（``kind`` 取 ``superscript`` / ``subscript`` / None）。"""
+    return apply_character_property(paragraph, start, end, "vertAlign", kind)
+
+
+def vertical_align_of(run):
+    pr = run.find(qn("w:rPr"))
+    if pr is None:
+        return None
+    node = pr.find(qn("w:vertAlign"))
+    return node.get(qn("w:val")) if node is not None else None
