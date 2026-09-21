@@ -172,10 +172,14 @@ class DocxPackage(object):
         try:
             with zipfile.ZipFile(temp, "w", zipfile.ZIP_DEFLATED) as out:
                 for name in self._names:
+                    # **改过的部件也用原条目的 ZipInfo**（时间戳/压缩方式照抄）。
+                    # 否则它会带上"写入这一刻"的时间 → 同一输入两次跑出来字节不同
+                    # （实测：只有 word/document.xml 的时间戳变，内容完全一样），
+                    # 既破坏"可 diff、可入库"，又会把写入时间泄进文件里。
+                    info = self._zip.getinfo(name)
                     if name in self._dirty:
-                        out.writestr(name, self.serialize(name))
+                        out.writestr(info, self.serialize(name))
                     else:
-                        info = self._zip.getinfo(name)
                         out.writestr(info, self._zip.read(name))   # 原字节 + 原压缩信息
             os.replace(temp, out_path)
         except Exception:

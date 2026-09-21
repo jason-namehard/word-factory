@@ -8,11 +8,12 @@ import io
 import os
 import shutil
 import tempfile
+import time
 import unittest
 import zipfile
 
 from wordfactory.inspect import inspect, scan_part
-from wordfactory.ooxml import DocxPackage, PackageError, file_sha256
+from wordfactory.ooxml import DocxPackage, PackageError, file_sha256, qn
 
 from . import fixtures
 
@@ -121,3 +122,31 @@ class TestInspector(PackageCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOutputIsReproducible(unittest.TestCase):
+    """同一输入两次跑，输出**字节相同**。
+
+    实测踩过：改过的部件原来用 `writestr(name, data)` 写，zip 时间戳取"写入这一刻"，
+    于是两次跑出来的文件只有时间戳不同、内容完全一样 —— 声称"同一输入同一输出"就不成立了，
+    还会把写入时间泄进文件。判据就是逐字节比。
+    """
+
+    def test_two_saves_are_byte_identical(self):
+        work = tempfile.mkdtemp(prefix="wf_repro_")
+        try:
+            src = fixtures.write_fixture(os.path.join(work, "in.docx"))
+            out1 = os.path.join(work, "out1.docx")
+            out2 = os.path.join(work, "out2.docx")
+            for out in (out1, out2):
+                with DocxPackage(src) as pkg:
+                    root = pkg.xml(DocxPackage.MAIN)
+                    body = root.find(qn("w:body"))
+                    body[0].find(qn("w:r")).find(qn("w:t")).text = u"改过的文字"
+                    pkg.mark_dirty(DocxPackage.MAIN)
+                    pkg.save(out)
+                time.sleep(1.1)                      # 跨过一秒，让"写入时刻"必然不同
+            with io.open(out1, "rb") as h1, io.open(out2, "rb") as h2:
+                self.assertEqual(h1.read(), h2.read(), u"两次保存的字节必须完全相同")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
