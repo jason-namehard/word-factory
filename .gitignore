@@ -1,0 +1,13 @@
+# 运行缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 临时件（本项目的临时件一律落在 tmp/，不入库）
+tmp/
+*.writing
+
+# 输出与备份
+out/
+*.docx.bak
+~$*
