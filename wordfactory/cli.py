@@ -84,6 +84,18 @@ def build_parser():
     apply_cmd.add_argument("--out", default=None, help=u"输出文件")
     apply_cmd.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
     apply_cmd.add_argument("--dry-run", action="store_true", help=u"只报告会改多少处")
+
+    head = sub.add_parser("header", help=u"宏：表头格式统一（表X-Y + 空格居中 + 表格居中）")
+    head.add_argument("path", help=u"要处理的 .docx")
+    head.add_argument("--out", default=None, help=u"输出文件")
+    head.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
+    head.add_argument("--dry-run", action="store_true", help=u"只列出会怎么改")
+    head.add_argument("--no-center-table", dest="center_table", action="store_false",
+                      default=True, help=u"不要把表格居中")
+    head.add_argument("--no-normalize-number", dest="normalize_number", action="store_false",
+                      default=True, help=u"不要把编号统一成 表X-Y")
+    head.add_argument("--all-captions", dest="only_before_table", action="store_false",
+                      default=True, help=u"连带处理后面没跟表格的 表X-Y 段")
     return parser
 
 
@@ -186,6 +198,57 @@ def cmd_rules(args):
     raise RuleError(u"未知的 rules 动作：%r" % action)
 
 
+def cmd_header(args):
+    """表头格式统一：算计划 → （非 dry-run 时）落地 → 报告。"""
+    from .document import Document
+    from .ops import header as header_op
+
+    options = {"center_table": bool(args.center_table),
+               "normalize_number": bool(args.normalize_number),
+               "only_before_table": bool(args.only_before_table)}
+    if not args.out and not args.outdir and not args.dry_run:
+        raise RuleError(u"要写结果就得给 --out 文件或 --outdir 目录"
+                        u"（本工具**不会**覆盖原文件）")
+    with Document(args.path) as doc:
+        report = header_op.apply(doc, options, dry_run=args.dry_run)
+        lines = []
+        if args.dry_run:
+            lines.append(u"--dry-run：一个字节都没写")
+        lines.append(u"文件：%s" % doc.path)
+        lines.append(u"表题段 %d 个，其中 %d 个要改；表格居中 %d 张"
+                     % (report["planned"], report["changed"], report["tables_centered"]))
+        lines.append(u"")
+        lines.append(u"%-10s %-9s %-9s %s" % (u"编号", u"原空格", u"新空格", u"表格名"))
+        for detail in report["details"]:
+            lines.append(u"%-10s %-9d %-9d %s"
+                         % (detail["number"], detail["spaces_before"],
+                            detail["spaces_after"], detail["name"][:34]))
+        if not args.dry_run:
+            if report["changed"] == 0 and report["tables_centered"] == 0:
+                payload = {"dry_run": False, "changed": 0, "out": None,
+                           "planned": report["planned"], "details": report["details"]}
+                return (payload, u"\n".join(lines + [u"", u"没有需要改的地方"]))
+            doc.mark_dirty()
+            if args.out:
+                out_path = doc.save(os.path.abspath(args.out))
+            else:
+                out_dir = os.path.abspath(args.outdir)
+                if not os.path.isdir(out_dir):
+                    os.makedirs(out_dir)
+                out_path = doc.save(os.path.join(out_dir, os.path.basename(doc.path)))
+            lines.insert(1, u"已写出：%s" % out_path)
+            payload = {"dry_run": False, "changed": report["changed"], "out": out_path,
+                       "planned": report["planned"],
+                       "tables_centered": report["tables_centered"],
+                       "details": report["details"]}
+            return (payload, u"\n".join(lines))
+        payload = {"dry_run": True, "changed": report["changed"],
+                   "planned": report["planned"],
+                   "tables_centered": report["tables_centered"],
+                   "details": report["details"]}
+        return (payload, u"\n".join(lines))
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
@@ -199,6 +262,8 @@ def main(argv=None):
             payload, human = cmd_text(args)
         elif args.command == "rules":
             payload, human = cmd_rules(args)
+        elif args.command == "header":
+            payload, human = cmd_header(args)
         else:
             log(u"未知命令：%s" % args.command)
             return 2
