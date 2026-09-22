@@ -136,7 +136,7 @@ class TestApply(StyleCase):
         body = table([row(cell(u"A"), cell(u"B"))], widths=(2000, 4000))
         self.build(body)
         with Document(self.path) as doc:
-            report = apply(doc, self.style(u"三线表_等宽"))
+            report = apply(doc, self.style(u"默认表格·等宽"))
         table_element = list(tables_of(doc))[0]
         widths = [int(column.get(qn("w:w"))) for column in table_element.find(qn("w:tblGrid"))]
         self.assertEqual(widths[0], widths[1], u"等宽款要把各列拉平")
@@ -259,7 +259,7 @@ class TestCapture(StyleCase):
 
 class TestPreview(StyleCase):
     def test_the_preview_is_a_new_document_with_every_style(self):
-        names = [u"三线表", u"全框线"]
+        names = [u"默认表格（外粗内细）", u"全居中（偷懒款）"]
         styles = [StyleSet(DEFAULT_STYLES).get(name) for name in names]
         path = build_preview(os.path.join(self.dir, u"preview.docx"), styles)
         with zipfile.ZipFile(path) as archive:
@@ -267,8 +267,8 @@ class TestPreview(StyleCase):
             doc = archive.read("word/document.xml").decode("utf-8")
         self.assertEqual(names_in_zip, {"[Content_Types].xml", "_rels/.rels",
                                         "word/document.xml"})
-        self.assertIn(u"【三线表】", doc)
-        self.assertIn(u"【全框线】", doc)
+        self.assertIn(u"【默认表格（外粗内细）】", doc)
+        self.assertIn(u"【全居中（偷懒款）】", doc)
         self.assertEqual(doc.count("<w:tbl>"), len(names) * 3, u"每种款式 3 张代表性表格")
 
     def test_the_preview_goes_through_the_same_apply_path(self):
@@ -295,7 +295,7 @@ class TestPreview(StyleCase):
     def test_the_preview_command_writes_a_file(self):
         from wordfactory.cli import main
         out = os.path.join(self.dir, u"从命令来.docx")
-        code = main(["tablestyle", "preview", "--out", out, "--style", u"三线表,全框线"])
+        code = main(["tablestyle", "preview", "--out", out, "--style", u"默认表格（外粗内细）,全居中（偷懒款）"])
         self.assertEqual(code, 0)
         self.assertTrue(os.path.exists(out))
 

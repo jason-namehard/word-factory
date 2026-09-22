@@ -1,9 +1,172 @@
 {
   "schema": 1,
-  "name": "表格款式（外置规则；可改可加）",
+  "name": "表格款式（外置规则；默认款按用户口径：外框粗内框细 + 表头居中 + 数字居中 + 说明左对齐）",
   "styles": {
+    "默认表格（外粗内细）": {
+      "note": "外框 1.5 磅 / 内框 0.75 磅；表头居中加粗跨页重复；数字结果居中；说明类长文本左对齐；项目名（第一列）左对齐",
+      "table_align": "center",
+      "table_layout": "fixed",
+      "borders": {
+        "top": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "bottom": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "left": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "right": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "insideH": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        },
+        "insideV": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        }
+      },
+      "cell_margins": {
+        "top": 40,
+        "left": 80,
+        "bottom": 40,
+        "right": 80
+      },
+      "v_align": "center",
+      "header": {
+        "bold": true,
+        "align": "center",
+        "repeat": true
+      },
+      "body": {
+        "numeric_align": "center",
+        "text_align": "left",
+        "first_column_align": "left"
+      },
+      "column_widths": "keep"
+    },
+    "默认表格·项目名居中": {
+      "note": "同默认款，但第一列（项目名称）**居中** —— 两种都常见，看你的模板习惯",
+      "table_align": "center",
+      "table_layout": "fixed",
+      "borders": {
+        "top": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "bottom": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "left": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "right": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "insideH": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        },
+        "insideV": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        }
+      },
+      "cell_margins": {
+        "top": 40,
+        "left": 80,
+        "bottom": 40,
+        "right": 80
+      },
+      "v_align": "center",
+      "header": {
+        "bold": true,
+        "align": "center",
+        "repeat": true
+      },
+      "body": {
+        "numeric_align": "center",
+        "text_align": "left",
+        "first_column_align": "center"
+      },
+      "column_widths": "keep"
+    },
+    "全居中（偷懒款）": {
+      "note": "**所有单元格都居中** —— 不会犯错、谈不上最好看，但不至于丑（用户原话）",
+      "table_align": "center",
+      "table_layout": "fixed",
+      "borders": {
+        "top": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "bottom": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "left": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "right": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "insideH": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        },
+        "insideV": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        }
+      },
+      "cell_margins": {
+        "top": 40,
+        "left": 80,
+        "bottom": 40,
+        "right": 80
+      },
+      "v_align": "center",
+      "header": {
+        "bold": true,
+        "align": "center",
+        "repeat": true
+      },
+      "body": {
+        "align": "center"
+      },
+      "column_widths": "keep"
+    },
     "三线表": {
-      "note": "报告里最常用的学术款：上下粗线 + 表头下细线，无竖线",
+      "note": "学术款：上下粗线 + 表头下细线，无竖线（数字居中、说明左对齐同默认款）",
       "table_align": "center",
       "table_layout": "fixed",
       "borders": {
@@ -56,33 +219,35 @@
         "repeat": true
       },
       "body": {
-        "align": null
+        "numeric_align": "center",
+        "text_align": "left",
+        "first_column_align": "left"
       },
       "column_widths": "keep"
     },
-    "全框线": {
-      "note": "每格都有细框线（数据表常用），表头加粗居中并跨页重复",
+    "默认表格·等宽": {
+      "note": "默认款 + 各列等宽（列宽不匀、要救一下时用）",
       "table_align": "center",
       "table_layout": "fixed",
       "borders": {
         "top": {
           "val": "single",
-          "sz": 6,
+          "sz": 12,
           "color": "000000"
         },
         "bottom": {
           "val": "single",
-          "sz": 6,
+          "sz": 12,
           "color": "000000"
         },
         "left": {
           "val": "single",
-          "sz": 6,
+          "sz": 12,
           "color": "000000"
         },
         "right": {
           "val": "single",
-          "sz": 6,
+          "sz": 12,
           "color": "000000"
         },
         "insideH": {
@@ -109,65 +274,9 @@
         "repeat": true
       },
       "body": {
-        "align": null
-      },
-      "column_widths": "keep"
-    },
-    "三线表_等宽": {
-      "note": "三线表 + 各列等宽（列宽不均匀时用它救一下）",
-      "table_align": "center",
-      "table_layout": "fixed",
-      "borders": {
-        "top": {
-          "val": "single",
-          "sz": 12,
-          "color": "000000"
-        },
-        "bottom": {
-          "val": "single",
-          "sz": 12,
-          "color": "000000"
-        },
-        "left": {
-          "val": "none",
-          "sz": 0,
-          "color": "auto"
-        },
-        "right": {
-          "val": "none",
-          "sz": 0,
-          "color": "auto"
-        },
-        "insideH": {
-          "val": "none",
-          "sz": 0,
-          "color": "auto"
-        },
-        "insideV": {
-          "val": "none",
-          "sz": 0,
-          "color": "auto"
-        },
-        "header_bottom": {
-          "val": "single",
-          "sz": 6,
-          "color": "000000"
-        }
-      },
-      "cell_margins": {
-        "top": 40,
-        "left": 80,
-        "bottom": 40,
-        "right": 80
-      },
-      "v_align": "center",
-      "header": {
-        "bold": true,
-        "align": "center",
-        "repeat": true
-      },
-      "body": {
-        "align": null
+        "numeric_align": "center",
+        "text_align": "left",
+        "first_column_align": "left"
       },
       "column_widths": "equal"
     }

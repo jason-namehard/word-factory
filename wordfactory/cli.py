@@ -174,7 +174,40 @@ def build_parser():
     tclean.add_argument("--dry-run", action="store_true", help=u"只报会改多少，不写文件")
     _add_tablestyle_parser(sub)
     _add_textfix_parser(sub)
+    _add_tidy_parser(sub)
+    _add_mdclean_parser(sub)
     return parser
+
+
+def _add_mdclean_parser(sub):
+    """Markdown 标记清理（宏 MarkDown语言清除）。"""
+    md = sub.add_parser("mdclean", help=u"宏：把 Markdown 标记清成普通中文文本")
+    md.add_argument("path", help=u"要处理的 .docx")
+    md.add_argument("--scope", choices=("body", "all"), default="body",
+                    help=u"body=只动正文段落（默认）；all=连表格里的也动")
+    md.add_argument("--out", default=None, help=u"输出文件")
+    md.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
+    md.add_argument("--dry-run", action="store_true", help=u"只报会改多少，不写文件")
+
+
+def _add_tidy_parser(sub):
+    """一键清理（去空格 / 去无意义空白行）。"""
+    tidy_p = sub.add_parser("tidy", help=u"一键清理：无意义空白行 + 段尾空格")
+    tidy_p.add_argument("path", help=u"要处理的 .docx")
+    tidy_p.add_argument("--no-blank-lines", dest="no_blank_lines", action="store_true",
+                        default=False, help=u"不动空白行")
+    tidy_p.add_argument("--no-spaces", dest="no_spaces", action="store_true", default=False,
+                        help=u"不动段尾空格")
+    tidy_p.add_argument("--trim-leading", dest="trim_leading", action="store_true", default=False,
+                        help=u"连段首空格也删（危险：可能是用空格做的缩进）")
+    tidy_p.add_argument("--collapse-space-runs", dest="collapse_space_runs",
+                        action="store_true", default=False,
+                        help=u"把段内连续空格压成一个（自动跳过题注段落）")
+    tidy_p.add_argument("--scope", choices=("body", "all"), default="body",
+                        help=u"body=只动正文段落（默认）；all=连表格里的也动")
+    tidy_p.add_argument("--out", default=None, help=u"输出文件")
+    tidy_p.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
+    tidy_p.add_argument("--dry-run", action="store_true", help=u"只报会改多少，不写文件")
 
 
 def _add_textfix_parser(sub):
@@ -629,12 +662,9 @@ def cmd_tablestyle(args):
     from . import tablestyle as ts
     from .document import Document
 
-    style_set = ts.StyleSet.load(args.styles)
-    problems = style_set.check()
-    if problems:
-        raise RuleError(u"款式文件有问题：\n  - " + u"\n  - ".join(problems))
-
     if args.action == "init":
+        # **先写再校验**：init 是"生成一份新款式文件"，不该因为**旧文件**有问题就跑不动
+        # （踩过：旧款里"内框和外框一样粗"把 init 拦住了 → 永远换不成新默认款）。
         path = os.path.abspath(args.styles)
         if os.path.exists(path) and not args.force:
             raise RuleError(u"%s 已经存在；要覆盖请加 --force" % path)
@@ -643,6 +673,12 @@ def cmd_tablestyle(args):
                 u"已写出 %s（%d 个内置款式：%s）"
                 % (path, len(ts.DEFAULT_STYLES["styles"]),
                    u"、".join(ts.DEFAULT_STYLES["styles"])))
+
+    # init 已提前返回；剩下四个动作都要用**现有**款式文件 —— 到这里才校验
+    style_set = ts.StyleSet.load(args.styles)
+    problems = style_set.check()
+    if problems:
+        raise RuleError(u"款式文件有问题：\n  - " + u"\n  - ".join(problems))
 
     if args.action == "show":
         lines = [u"款式文件：%s" % (style_set.path or u"内置默认（%s 不存在）" % args.styles),
@@ -780,6 +816,89 @@ def cmd_textfix(args):
     return (dict(report, out=out_path), u"\n".join(lines))
 
 
+def cmd_tidy(args):
+    """一键清理：无意义空白行 + 段首/段尾空格（从网上粘来的文字最常见的两种脏）。"""
+    from .document import Document
+    from .ops import tidy as tidy_op
+
+    if not args.out and not args.outdir and not args.dry_run:
+        raise RuleError(u"要写结果就得给 --out 文件或 --outdir 目录"
+                        u"（本工具**不会**覆盖原文件）")
+    options = {"blank_lines": not args.no_blank_lines,
+               "trailing_spaces": not args.no_spaces,
+               "trim_leading": args.trim_leading,
+               "collapse_space_runs": args.collapse_space_runs,
+               "scope": args.scope}
+    with Document(args.path) as doc:
+        report = tidy_op.tidy(doc, options, dry_run=args.dry_run)
+        out_path = None
+        if not args.dry_run and report["total"]:
+            if args.out:
+                out_path = doc.save(os.path.abspath(args.out))
+            else:
+                out_dir = os.path.abspath(args.outdir)
+                if not os.path.isdir(out_dir):
+                    os.makedirs(out_dir)
+                out_path = doc.save(os.path.join(out_dir, os.path.basename(doc.path)))
+    lines = [u"文件：%s" % doc.path,
+             u"范围：%s" % (u"正文段落" if options["scope"] == "body"
+                            else u"全文（含表格）"),
+             u"合计 %d 处" % report["total"]]
+    for key in sorted(report["changes"]):
+        lines.append(u"    %-22s %d" % (key, report["changes"][key]))
+    if not options["trim_leading"]:
+        lines.append(u"    （段首空格默认**没动** —— 怕碰到「用空格当缩进」的文档；要动加 --trim-leading）")
+    if not options["collapse_space_runs"]:
+        lines.append(u"    （段内连续空格默认**没动** —— 它会把表题的空格居中压掉；要动加 --collapse-space-runs，"
+                     u"会自动跳过题注段落）")
+    if args.dry_run:
+        lines.insert(0, u"--dry-run：一个字节都没写")
+    elif out_path:
+        lines.insert(0, u"已写出：%s" % out_path)
+    else:
+        lines.insert(0, u"没有需要清理的地方")
+    return (dict(report, out=out_path), u"\n".join(lines))
+
+
+def cmd_mdclean(args):
+    """宏「MarkDown语言清除」：把 Markdown 标记清成普通中文文本。"""
+    from .document import Document
+    from .ops import mdclean as md_op
+
+    if not args.out and not args.outdir and not args.dry_run:
+        raise RuleError(u"要写结果就得给 --out 文件或 --outdir 目录"
+                        u"（本工具**不会**覆盖原文件）")
+    with Document(args.path) as doc:
+        report = md_op.apply(doc, {"scope": args.scope}, dry_run=args.dry_run)
+        out_path = None
+        if not args.dry_run and report["touched"]:
+            if args.out:
+                out_path = doc.save(os.path.abspath(args.out))
+            else:
+                out_dir = os.path.abspath(args.outdir)
+                if not os.path.isdir(out_dir):
+                    os.makedirs(out_dir)
+                out_path = doc.save(os.path.join(out_dir, os.path.basename(doc.path)))
+    lines = [u"文件：%s" % doc.path,
+             u"范围：%s" % (u"正文段落" if args.scope == "body" else u"全文"),
+             u"扫了 %d 段，其中 %d 段带 Markdown 标记并已清理（共 %d 处）"
+             % (report["paragraphs"], report["touched"], report["total"])]
+    for key in sorted(report["changes"]):
+        lines.append(u"    %-12s %d 处" % (key, report["changes"][key]))
+    for item in report["samples"]:
+        lines.append(u"    例：%s" % item["before"])
+        lines.append(u"      → %s" % item["after"])
+    if args.dry_run:
+        lines.insert(0, u"--dry-run：一个字节都没写")
+    elif out_path:
+        lines.insert(0, u"已写出：%s" % out_path)
+    else:
+        lines.insert(0, u"没有需要清理的 Markdown 标记")
+    lines.append(u"")
+    lines.append(u"说明：只改文字、**不重建 run** —— 匹配到的那一小段被替换，其余文字的格式原样保留。")
+    return (dict(report, out=out_path), u"\n".join(lines))
+
+
 def cmd_audit(args):
     """体检：不信工具的报告，重新打开文件按继承链算一遍。"""
     from . import audit as audit_mod
@@ -820,6 +939,10 @@ def main(argv=None):
             payload, human = cmd_tablestyle(args)
         elif args.command == "textfix":
             payload, human = cmd_textfix(args)
+        elif args.command == "tidy":
+            payload, human = cmd_tidy(args)
+        elif args.command == "mdclean":
+            payload, human = cmd_mdclean(args)
         else:
             log(u"未知命令：%s" % args.command)
             return 2

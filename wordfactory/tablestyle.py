@@ -65,49 +65,80 @@ RPR_ORDER = ("w:rStyle", "w:rFonts", "w:b", "w:bCs", "w:i", "w:iCs", "w:caps",
 STYLE_KEYS = ("note", "table_align", "table_layout", "width_percent", "borders",
               "cell_margins", "v_align", "header", "body", "column_widths",
               "font_size_half_points", "font_east_asia")
+#: `body` 里允许的键：可分别规定**数字 / 文本 / 第一列**怎么排
+BODY_KEYS = ("align", "numeric_align", "text_align", "first_column_align")
+#: 纯数字单元格的判定字符集（用于"数字结果居中"）
+NUMERIC_CHARS = u"0123456789.,%-+±×÷/=()（）　 ″′"
+#: 外框/内框的常见口径（OOXML 的 `w:sz` 单位是 **1/8 磅**）：外框 1.5 磅 = 12，内框 0.75 磅 = 6
+BORDER_PT = {"outer_default": 12, "inner_default": 6}
 BORDER_EDGES = ("top", "bottom", "left", "right", "insideH", "insideV", "header_bottom")
 BORDER_VALUES = ("single", "double", "thick", "dotted", "dashed", "none", "nil")
 
-#: 出厂款式：都是"工程报告里常见的样子"，用户可改可加
+#: 出厂款式。**默认款按用户 2026-09-22 给的口径**：
+#:
+#: > 「常见的表格格式一般是外框1.5，内框是标准（例如0.75磅），一定是外框粗内框细。
+#: >   然后一般数字结果都是居中排版，第一行的标题一定居中，然后代表项目名称的有些是左对齐、
+#: >   有些是居中，说明一类的长文本一般都是左对齐。你可以先照这个规则做默认表格，
+#: >   然后就是所有文本都居中的偷懒格式，一般这个不会犯错，谈不上最好看，但是不至于很丑」
+#:
+#: `w:sz` 的单位是 **1/8 磅**：1.5 磅 = 12，0.75 磅 = 6。
+#: 项目名称那一列"左对齐/居中"两种都常见 → 内置两款，用 `preview` 看一眼再挑。
 DEFAULT_STYLES = {
     "schema": 1,
-    "name": u"表格款式（外置规则；可改可加）",
+    "name": u"表格款式（外置规则；默认款按用户口径：外框粗内框细 + 表头居中 + 数字居中 + 说明左对齐）",
     "styles": {
-        u"三线表": {
-            "note": u"报告里最常用的学术款：上下粗线 + 表头下细线，无竖线",
+        u"默认表格（外粗内细）": {
+            "note": u"外框 1.5 磅 / 内框 0.75 磅；表头居中加粗跨页重复；数字结果居中；说明类长文本左对齐；项目名（第一列）左对齐",
             "table_align": "center",
             "table_layout": "fixed",
             "borders": {"top": {"val": "single", "sz": 12, "color": "000000"},
                         "bottom": {"val": "single", "sz": 12, "color": "000000"},
-                        "left": {"val": "none", "sz": 0, "color": "auto"},
-                        "right": {"val": "none", "sz": 0, "color": "auto"},
-                        "insideH": {"val": "none", "sz": 0, "color": "auto"},
-                        "insideV": {"val": "none", "sz": 0, "color": "auto"},
-                        "header_bottom": {"val": "single", "sz": 6, "color": "000000"}},
-            "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
-            "v_align": "center",
-            "header": {"bold": True, "align": "center", "repeat": True},
-            "body": {"align": None},
-            "column_widths": "keep",
-        },
-        u"全框线": {
-            "note": u"每格都有细框线（数据表常用），表头加粗居中并跨页重复",
-            "table_align": "center",
-            "table_layout": "fixed",
-            "borders": {"top": {"val": "single", "sz": 6, "color": "000000"},
-                        "bottom": {"val": "single", "sz": 6, "color": "000000"},
-                        "left": {"val": "single", "sz": 6, "color": "000000"},
-                        "right": {"val": "single", "sz": 6, "color": "000000"},
+                        "left": {"val": "single", "sz": 12, "color": "000000"},
+                        "right": {"val": "single", "sz": 12, "color": "000000"},
                         "insideH": {"val": "single", "sz": 6, "color": "000000"},
                         "insideV": {"val": "single", "sz": 6, "color": "000000"}},
             "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
             "v_align": "center",
             "header": {"bold": True, "align": "center", "repeat": True},
-            "body": {"align": None},
+            "body": {"numeric_align": "center", "text_align": "left",
+                     "first_column_align": "left"},
             "column_widths": "keep",
         },
-        u"三线表_等宽": {
-            "note": u"三线表 + 各列等宽（列宽不均匀时用它救一下）",
+        u"默认表格·项目名居中": {
+            "note": u"同默认款，但第一列（项目名称）**居中** —— 两种都常见，看你的模板习惯",
+            "table_align": "center",
+            "table_layout": "fixed",
+            "borders": {"top": {"val": "single", "sz": 12, "color": "000000"},
+                        "bottom": {"val": "single", "sz": 12, "color": "000000"},
+                        "left": {"val": "single", "sz": 12, "color": "000000"},
+                        "right": {"val": "single", "sz": 12, "color": "000000"},
+                        "insideH": {"val": "single", "sz": 6, "color": "000000"},
+                        "insideV": {"val": "single", "sz": 6, "color": "000000"}},
+            "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
+            "v_align": "center",
+            "header": {"bold": True, "align": "center", "repeat": True},
+            "body": {"numeric_align": "center", "text_align": "left",
+                     "first_column_align": "center"},
+            "column_widths": "keep",
+        },
+        u"全居中（偷懒款）": {
+            "note": u"**所有单元格都居中** —— 不会犯错、谈不上最好看，但不至于丑（用户原话）",
+            "table_align": "center",
+            "table_layout": "fixed",
+            "borders": {"top": {"val": "single", "sz": 12, "color": "000000"},
+                        "bottom": {"val": "single", "sz": 12, "color": "000000"},
+                        "left": {"val": "single", "sz": 12, "color": "000000"},
+                        "right": {"val": "single", "sz": 12, "color": "000000"},
+                        "insideH": {"val": "single", "sz": 6, "color": "000000"},
+                        "insideV": {"val": "single", "sz": 6, "color": "000000"}},
+            "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
+            "v_align": "center",
+            "header": {"bold": True, "align": "center", "repeat": True},
+            "body": {"align": "center"},
+            "column_widths": "keep",
+        },
+        u"三线表": {
+            "note": u"学术款：上下粗线 + 表头下细线，无竖线（数字居中、说明左对齐同默认款）",
             "table_align": "center",
             "table_layout": "fixed",
             "borders": {"top": {"val": "single", "sz": 12, "color": "000000"},
@@ -120,7 +151,25 @@ DEFAULT_STYLES = {
             "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
             "v_align": "center",
             "header": {"bold": True, "align": "center", "repeat": True},
-            "body": {"align": None},
+            "body": {"numeric_align": "center", "text_align": "left",
+                     "first_column_align": "left"},
+            "column_widths": "keep",
+        },
+        u"默认表格·等宽": {
+            "note": u"默认款 + 各列等宽（列宽不匀、要救一下时用）",
+            "table_align": "center",
+            "table_layout": "fixed",
+            "borders": {"top": {"val": "single", "sz": 12, "color": "000000"},
+                        "bottom": {"val": "single", "sz": 12, "color": "000000"},
+                        "left": {"val": "single", "sz": 12, "color": "000000"},
+                        "right": {"val": "single", "sz": 12, "color": "000000"},
+                        "insideH": {"val": "single", "sz": 6, "color": "000000"},
+                        "insideV": {"val": "single", "sz": 6, "color": "000000"}},
+            "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
+            "v_align": "center",
+            "header": {"bold": True, "align": "center", "repeat": True},
+            "body": {"numeric_align": "center", "text_align": "left",
+                     "first_column_align": "left"},
             "column_widths": "equal",
         },
     },
@@ -186,8 +235,21 @@ class TableStyle(object):
                 problems.append(u"款式 %s 的 header.%s=%r 不合法" % (self.name, key, self.header[key]))
         if self.header.get("align") not in (None, "left", "center", "right"):
             problems.append(u"款式 %s 的 header.align=%r 只能是 left/center/right" % (self.name, self.header.get("align")))
-        if self.body.get("align") not in (None, "left", "center", "right"):
-            problems.append(u"款式 %s 的 body.align=%r 只能是 left/center/right" % (self.name, self.body.get("align")))
+        for key, value in self.body.items():
+            if key not in BODY_KEYS:
+                problems.append(u"款式 %s 的 body 里有不认识的键 %r（允许：%s）"
+                                % (self.name, key, u"、".join(BODY_KEYS)))
+            elif value not in (None, "left", "center", "right"):
+                problems.append(u"款式 %s 的 body.%s=%r 只能是 left/center/right"
+                                % (self.name, key, value))
+        for edge in ("top", "bottom", "left", "right", "insideH", "insideV"):
+            spec = self.borders.get(edge) or {}
+            size = spec.get("sz")
+            outer = edge in ("top", "bottom", "left", "right")
+            # 用户的硬口径：**外框一定比内框粗**（常见 1.5 磅 / 0.75 磅）
+            if size is not None and not outer and size == (self.borders.get("top") or {}).get("sz")                     and (self.borders.get("top") or {}).get("val") not in (None, "none", "nil"):
+                problems.append(u"款式 %s：内框（%s=%s）和外框一样粗 —— 用户的口径是「外框一定比内框粗」"
+                                % (self.name, edge, size))
         for key in self.cell_margins:
             if key not in ("top", "left", "bottom", "right"):
                 problems.append(u"款式 %s 的 cell_margins 里有不认识的键 %r" % (self.name, key))
@@ -341,6 +403,20 @@ def _apply_to_table(table, style, dry_run):
             trpr = _ensure(row, "w:trPr", None, 0, dry_run)          # trPr 必须是 tr 的第一个孩子
             if _ensure_flag(trpr, "w:tblHeader", TRPR_ORDER, dry_run):
                 changes["表头跨页重复"] += 1
+        column_index = 0
+        for cell in [element for element in row if element.tag == qn("w:tc")]:
+            want = None
+            if is_header:
+                want = style.header.get("align")
+            else:
+                want = _body_align(style, cell, column_index)
+            if want:
+                for paragraph in cell.iter(qn("w:p")):
+                    ppr = _ensure(paragraph, "w:pPr", None, 0, dry_run)
+                    if _set_attribute(_ensure(ppr, "w:jc", PPR_ORDER, dry_run=dry_run),
+                                      qn("w:val"), want, dry_run):
+                        changes["单元格对齐(%s)" % want] += 1
+            column_index += _grid_span(cell)
         want_align = (style.header.get("align") if is_header else style.body.get("align"))
         want_bold = style.header.get("bold") if is_header else None
         for paragraph in row.iter(qn("w:p")):
@@ -363,6 +439,44 @@ def _apply_to_table(table, style, dry_run):
         if _apply_table_font(table, style, dry_run):
             changes["字号字体"] += 1
     return changes
+
+
+
+def _grid_span(cell):
+    """这一格横跨几列（`w:gridSpan`），用来算"它是不是第一列/第几列"。"""
+    pr = cell.find(qn("w:tcPr"))
+    node = pr.find(qn("w:gridSpan")) if pr is not None else None
+    if node is None:
+        return 1
+    try:
+        return max(1, int(node.get(qn("w:val")) or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def looks_numeric(text):
+    """整格是不是"数字结果"（用户口径：数字结果都要居中）。
+
+    判定：去掉空白后有数字，且所有字符都在数字集里（数字、小数点、千分位、百分号、正负、±、
+    乘除等号、括号、度分秒）。**带单位或文字的（如 `115mm`、`P＝3.3％`）算文本** —— 宁可少居中，
+    也不要把文字居中（用户说"说明一类的长文本一般都是左对齐"）。
+    """
+    stripped = (text or u"").strip()
+    if not stripped:
+        return False
+    if not any(ch.isdigit() for ch in stripped):
+        return False
+    return all(ch in NUMERIC_CHARS for ch in stripped)
+
+
+def _body_align(style, cell, column_index):
+    """数据行里这一格该用什么对齐：第一列 → 数字 → 文本，依次取款式里的规定。"""
+    text = u"".join((node.text or "") for node in cell.iter(qn("w:t")))
+    if column_index == 0 and style.body.get("first_column_align"):
+        return style.body["first_column_align"]
+    if looks_numeric(text) and style.body.get("numeric_align"):
+        return style.body["numeric_align"]
+    return style.body.get("text_align") or style.body.get("align")
 
 
 def _apply_borders(pr, style, dry_run):
