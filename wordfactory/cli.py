@@ -123,6 +123,18 @@ def build_parser():
         "audit", help=u"体检：重新打开文件核对「通体黑 + 没有不合格字体」（末行 AUDIT=PASS/FAIL）")
     checker.add_argument("path", help=u"要体检的 .docx/.docm")
     checker.add_argument("--fonts", default=DEFAULT_FONTS_PATH, help=u"字体规则文件")
+
+    recipe = sub.add_parser("recipe", help=u"宏「段落配方」：解析配方（show）／按配方重建段落（rebuild）")
+    recipe_sub = recipe.add_subparsers(dest="action", metavar="<动作>")
+    rshow = recipe_sub.add_parser("show", help=u"解析并打印配方（.docx 末尾那一段，或直接给 .txt）")
+    rshow.add_argument("path", help=u"带配方的 .docx，或配方文本 .txt")
+    rbuild = recipe_sub.add_parser("rebuild", help=u"读配方 + 数据表，把重建出来的段落追加到文档末尾")
+    rbuild.add_argument("path", help=u"要处理的 .docx（配方也在它里面时不用给 --recipe-file）")
+    rbuild.add_argument("--recipe-file", default=None, help=u"配方文本文件（不给就从文档末尾找）")
+    rbuild.add_argument("--xlsx", default=None, help=u"数据表 .xlsx（不给就按配方里的 EXCEL_FILE: 去找）")
+    rbuild.add_argument("--data-dir", default=None, help=u"去哪个目录找数据表（批量时用）")
+    rbuild.add_argument("--out", default=None, help=u"输出文件")
+    rbuild.add_argument("--dry-run", action="store_true", help=u"只演练，不写文件")
     return parser
 
 
@@ -383,6 +395,59 @@ def cmd_fonts(args):
             u"\n".join(lines))
 
 
+def cmd_recipe(args):
+    """宏「段落配方」：`show` 解析配方，`rebuild` 按配方 + 数据表重建段落。"""
+    from .ops import recipe as recipe_op
+    from .recipe import RecipeError
+
+    if args.action == "show":
+        recipe = recipe_op.read_recipe(args.path)
+        lines = [u"配方：%s" % recipe.name,
+                 u"  数据表：%s" % recipe.excel_file,
+                 u"  工作表：%s" % recipe.sheet_name,
+                 u"  变量数：%d" % recipe.variable_count,
+                 u"  正文行：" + u"、".join(
+                     (u"TEXT" if kind == "TEXT" else u"VAR") for kind, _ in recipe.lines)]
+        for index, (kind, content) in enumerate(recipe.lines, start=1):
+            lines.append(u"    %-4s %s" % (kind, content if kind == "TEXT" else u"(取第 %d 个值)"
+                                           % len([1 for k, _ in recipe.lines[:index] if k == "VAR"])))
+        return ({"recipe": recipe.name, "excel": recipe.excel_file,
+                 "sheet": recipe.sheet_name, "variables": recipe.variable_count,
+                 "lines": [{"kind": k, "text": t} for k, t in recipe.lines]},
+                u"\n".join(lines))
+
+    if args.action == "rebuild":
+        from .document import Document
+        if not args.out and not args.dry_run:
+            raise RuleError(u"要写结果就得给 --out（本工具**不会**覆盖原文件）")
+        with Document(args.path) as doc:
+            recipe = (recipe_op.read_recipe(args.recipe_file) if args.recipe_file
+                      else recipe_op.read_recipe(args.path))
+            xlsx = args.xlsx or recipe_op.resolve_xlsx(recipe, args.path, args.data_dir)
+            values = recipe_op.values_for(recipe, xlsx)
+            report = recipe_op.rebuild(doc, recipe, values, dry_run=args.dry_run)
+            out_path = None
+            if not args.dry_run:
+                out_path = doc.save(os.path.abspath(args.out))
+            lines = [u"配方：%s（%d 个变量）" % (recipe.name, recipe.variable_count),
+                     u"数据表：%s ｜ 工作表 %s ｜ 取到 %d 个值"
+                     % (xlsx, recipe.sheet_name, len(values)),
+                     u"重建：%d 个段落%s" % (report["paragraphs"],
+                                            u"（其中 %d 处 #数据缺失#）" % report["missing"]
+                                            if report["missing"] else u""),
+                     u""]
+            if args.dry_run:
+                lines.insert(0, u"--dry-run：一个字节都没写")
+            else:
+                lines.insert(0, u"已写出：%s" % out_path)
+            lines.append(u"重建出来的段落正文：")
+            for text in report["text"].split(u"\n"):
+                lines.append(u"    %s" % text)
+            return (dict(report, out=out_path, xlsx=xlsx), u"\n".join(lines))
+
+    raise RecipeError(u"未知的 recipe 动作：%r" % args.action)
+
+
 def cmd_audit(args):
     """体检：不信工具的报告，重新打开文件按继承链算一遍。"""
     from . import audit as audit_mod
@@ -415,6 +480,8 @@ def main(argv=None):
             payload, human = cmd_captions(args)
         elif args.command == "audit":
             payload, human = cmd_audit(args)
+        elif args.command == "recipe":
+            payload, human = cmd_recipe(args)
         else:
             log(u"未知命令：%s" % args.command)
             return 2

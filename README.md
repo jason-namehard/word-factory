@@ -161,6 +161,32 @@ python -m wordfactory.cli audit "某文档.docx"     # 末行 AUDIT=PASS / AUDIT
    符号字体（Symbol/Wingdings）换成 TNR/宋体后 ✔ ➜ ★ 会掉字形。
    > 实测（这份文档）：仿宋 → 宋体 1729 处、Arial → Times New Roman 18 处、Tahoma → Times New Roman 12 处。
 
+### 段落配方（`recipe`）—— 与 Word 宏**互读同一套格式**
+
+参考宏 `段落配方生成器`（把选中的段落变成"配方" + 写一份 `.xlsx`）与 `段落重配`（读配方 + 读 xlsx → 重建段落）。
+本工具照 `docs/REFERENCE-MACROS.md` §3 的契约实现，**同一份配方文本、同一份 xlsx，两边都能读**：
+
+```bash
+python -m wordfactory.cli recipe show "带配方.docx"        # 解析并打印配方（也支持直接给 .txt）
+python -m wordfactory.cli recipe rebuild "带配方.docx" --out 重建后.docx
+#   --recipe-file F  配方不在文档里时单独给；--xlsx X / --data-dir D 指定数据表位置；--dry-run 先演练
+```
+
+契约（**逐条照抄参考宏，不"改得更合理"**）：
+
+| 项 | 规则 |
+|---|---|
+| 配方文本 | `=== 段落配方 [名] ===` … `=== 配方结束 ===`，正文行只有 `TEXT:` 与 `VAR:` 两种 |
+| 尾部字段 | `EXCEL_FILE:` / `SHEET_NAME:` / `VARIABLE_COUNT:`（**全文扫**，不限区间） |
+| 切行 | 任何换行风格都统一成 `?` 再切、逐行 `Trim`、空行丢掉 |
+| 数据表 | **一个表**（名字 = `SHEET_NAME:`）、`A1=项目` `B1=数值`、**第 n 个变量在第 n+1 行 B 列** |
+| `VAR:` 行 | 读端**只数序号**，行里写的编号与 `B n` 地址一概不看（取用顺序 = 出现顺序） |
+| A 列 | 是"给人看的上下文"，**读端不读** |
+| 值不够 | 补 `#数据缺失#`（不是报错） |
+
+已知差异（会写在报告里，不藏着）：① 参考宏把结果追加到**当前文档**，我们追加但**写新文件**（绝不覆盖输入）；
+② 参考宏用 Excel 的 `AutoFit` 定列宽，XML 层没有等价写法，我们按内容**估**宽度。
+
 ## 状态
 
 **M1 内核 + M3a 题注统一已落地**（含两版输出与体检）；段落配方（M3b）未开始。
@@ -177,7 +203,12 @@ python -m wordfactory.cli audit "某文档.docx"     # 末行 AUDIT=PASS / AUDIT
 - [x] **两版输出**：验证版标蓝（蓝 run 18 个 = 我标的 17 + 原件本来有的 1）/ 正式版通体黑
 - [x] **`audit` 体检**：独立复算，正式版输出 `AUDIT=PASS`（生效字体里没有不合格的）
 - [x] **字体口径已由用户拍定**（2026-09-21）：中文留 宋体/黑体/楷体、仿宋→宋体；西文统一 Times New Roman
-- [ ] M3b：段落配方生成 / 段落重配（读写 `.xlsx`）
+- [x] **M3b 读的一半：`recipe show` / `recipe rebuild`** —— 纯标准库读写 `.xlsx`（不用 openpyxl）
+      + 配方文本格式按 §3 契约逐条照抄；实测"带配方的文档 → 重建"追加 8 段、原有段落一字不动、
+      只重写 `word/document.xml`
+- [ ] M3b 写的一半：`recipe gen`（扫描 → 配方 + xlsx）—— 卡在**选区怎么换成规则**与
+      **"隐形修正"要不要照抄**这两条上（`PLAN.md` §5 第 8 条）
+- [ ] M3b 收尾：与 Word 宏的**双向互通实测**（用宏跑一份金标准再与我们对比）
 - [ ] M2：其余宏（格式规范化 / 去无意义空格 / 特殊字符替换）
 - [ ] M4：配方编排（选定 + 排序 + 一键批量）+ 改动报告 + GUI
 - [ ] M5：PDF 导出（外部渲染器编排）
