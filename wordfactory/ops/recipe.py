@@ -103,15 +103,25 @@ def values_for(recipe, xlsx_path):
     return values
 
 
-def rebuild(document, recipe, values, dry_run=False):
-    """把重建出来的段落**追加到文档末尾**（复刻 `段落重配.bas:274-277`）。"""
+def rebuild(document, recipe, values, dry_run=False, mimic_macro=False):
+    """把重建出来的段落**追加到文档末尾**（复刻 `段落重配.bas:274-277`）。
+
+    **不照抄参考宏的装饰空段**：宏写的是
+    `vbCrLf & vbCrLf & "=== 重建段落 ===" & vbCrLf & outputText & vbCrLf & "=== 结束 ===" & vbCrLf`，
+    于是固定多出 **2 个前置空段 + 1 个后置空段**（`outputText` 自带换行时是 2 个）——
+    用户 2026-09-22 反馈的"突然多出一个回车"里就有这一类。我们只写标记行 + 正文，
+    要原样复刻宏的装饰就传 `mimic_macro=True`。
+    """
     text = recipe.reconstruct(values)
-    lines = [u""] + [u""] + [REBUILD_OPEN] + text.split(u"\n") + [REBUILD_CLOSE]
+    lines = [REBUILD_OPEN] + text.split(u"\n") + [REBUILD_CLOSE]
+    if mimic_macro:
+        lines = [u"", u""] + lines[:-1] + [u"", lines[-1]]
     report = {"op": "recipe-rebuild", "recipe": recipe.name,
               "excel": recipe.excel_file, "sheet": recipe.sheet_name,
               "variables": recipe.variable_count,
               "values_used": len(values), "missing": text.count(MISSING),
-              "paragraphs": len(lines), "dry_run": bool(dry_run),
+              "paragraphs": len(lines), "blank_paragraphs": len([1 for l in lines if l == u""]),
+              "mimic_macro": bool(mimic_macro), "dry_run": bool(dry_run),
               "text": text}
     if dry_run:
         return report
@@ -143,13 +153,18 @@ def _plain_paragraph(text):
 
 
 # --------------------------------------------------------------- 生成（段落配方生成器）
-#: `cleanText`（`段落配方生成器.bas:406-418`）：先 Trim，再去掉**一个**尾部的 CR / LF。
-#: 注意它**不**去内部的换行 —— 这正是"多段落 TEXT 会在配方里折成一行无前缀文本"的来源。
+#: `cleanText`（`段落配方生成器.bas:406-418`）的等价实现。
+#:
+#: **这里有个坑（实测踩过）**：VBA 的 `Trim` **只去空格（Chr(32)）**，CR/LF 不在其列；
+#: 它随后只各去掉**一个尾部的** CR / LF。所以一段"以段落标记开头"的文本（例如紧跟在高亮片段
+#: 之后那段文字前面的换行）**会被原样保留** —— 那个换行就是段落分隔。
+#: 我第一版用了 Python 的 `strip()`（它把 CR/LF 一起吃掉），结果**段落分隔信息被抹掉**，
+#: 重配时"高亮后面的那一段"会和上一段挤成一行（往返探针当场抓到：`前3.5` + `后` → `前3.5后`）。
 def _clean_text(text):
-    text = text.strip()
+    text = text.strip(u" ")                      # 只去半角空格，与 VBA 的 Trim 对齐
     if text.endswith(u"\r"):
         text = text[:-1]
-    if text.endswith(u"\n"):
+    elif text.endswith(u"\n"):
         text = text[:-1]
     return text
 

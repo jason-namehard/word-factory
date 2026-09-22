@@ -74,15 +74,16 @@ class TestLevels(TableCleanCase):
         self.assertEqual(report["chars_removed"], 2)
 
     def test_level_2_removes_breaks_and_merges_paragraphs(self):
-        """Chr(13)（段落标记）在 XML 里是 `w:p` 边界 → 删它就要把两个段落接起来。"""
+        """`--exact-macro`：照抄宏，Chr(13)（段落标记）在 XML 里是 `w:p` 边界 → 合并两个段落。"""
         body = table(row(cell(para(fixtures.run(u"第一行")) + para(fixtures.run(u"第二行")))))
-        report, out = self.run_op(body, level=2)
+        report, out = self.run_op(body, level=2, exact_macro=True)
         self.assertEqual(report["paragraphs_merged"], 1)
         self.assertEqual(self.cells_text(out), [[u"第一行第二行"]])
 
     def test_level_2_removes_manual_line_breaks(self):
+        """`--exact-macro` 时连内部换行也删。"""
         body = table(row(cell(para(u'<w:r><w:t>上</w:t><w:br/><w:t>下</w:t></w:r>'))))
-        report, out = self.run_op(body, level=2)
+        report, out = self.run_op(body, level=2, exact_macro=True)
         self.assertEqual(report["chars_removed"], 1)
         self.assertEqual(self.cells_text(out), [[u"上下"]])
 
@@ -93,8 +94,42 @@ class TestLevels(TableCleanCase):
 
     def test_level_3_does_both(self):
         body = table(row(cell(para(fixtures.run(u"水 库")) + para(fixtures.run(u"位\u00a0置")))))
-        report, out = self.run_op(body, level=3)
+        report, out = self.run_op(body, level=3, exact_macro=True)
         self.assertEqual(self.cells_text(out), [[u"水库位置"]])
+
+    def test_the_default_keeps_intentional_wraps(self):
+        """**默认口径（用户 2026-09-22 选 1+2）**：非空段落是正经结构，不合并。"""
+        body = table(row(cell(para(fixtures.run(u"防洪标")) + para(fixtures.run(u"准")))))
+        report, out = self.run_op(body, level=3)
+        self.assertEqual(report["changed_cells"], 0, u"两个非空段落 → 不动它")
+        self.assertIsNone(out, u"没改就不写文件")
+        self.assertEqual(self.cells_text(self.path), [[u"防洪标", u"准"]])
+
+    def test_the_default_keeps_a_single_internal_manual_break(self):
+        """`防洪标↵准` 这种"为了窄列故意折的行"必须留着。"""
+        body = table(row(cell(para(u'<w:r><w:t>防洪标</w:t><w:br/><w:t>准</w:t></w:r>'))))
+        report, out = self.run_op(body, level=3)
+        self.assertEqual(report["changed_cells"], 0)
+        self.assertEqual(report["breaks_kept"], 1)
+
+    def test_the_default_drops_leading_trailing_and_double_breaks(self):
+        body = table(row(cell(para(u'<w:r><w:br/><w:t>值</w:t><w:br/><w:br/></w:r>'))))
+        report, out = self.run_op(body, level=3)
+        self.assertEqual(report["changed_cells"], 1, u"首尾的与连续重复的换行要删")
+        self.assertEqual(self.cells_text(out), [[u"值"]])
+
+    def test_a_numeric_cell_is_flattened_anyway(self):
+        """整格是纯数字 → 换行一律删（数字里断行只能是脏数据）。"""
+        body = table(row(cell(para(u'<w:r><w:t>37.</w:t><w:br/><w:t>47</w:t></w:r>'))))
+        report, out = self.run_op(body, level=3)
+        self.assertEqual(self.cells_text(out), [[u"37.47"]])
+        self.assertEqual(report["breaks_kept"], 0, u"数字格不留内部换行")
+
+    def test_a_blank_paragraph_is_dropped(self):
+        body = table(row(cell(para(fixtures.run(u"值")) + u"<w:p/>")))
+        report, out = self.run_op(body, level=3)
+        self.assertEqual(report["paragraphs_merged"], 1)
+        self.assertEqual(self.cells_text(out), [[u"值"]])
 
     def test_level_3_is_the_default(self):
         body = table(row(cell(para(fixtures.run(u"水 库")))))

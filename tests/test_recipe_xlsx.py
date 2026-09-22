@@ -56,15 +56,17 @@ class TestTheSpecExample(RecipeCase):
                          ["TEXT", "VAR", "TEXT", "VAR", "TEXT", "VAR", "TEXT", "TEXT", "VAR", "TEXT"])
 
     def test_reconstruct_matches_the_spec_semantics(self):
-        """按 `段落重配.bas:237-268` 逐行推：
+        """按 `段落重配.bas:237-268` 推，但有**两处我们有意比宏干净**（用户 2026-09-22 反馈过
+        "重配会凭空多出一个回车"）：
 
-        * `previousLineWasText` 初值是 False，而第一行 `TEXT:1、` 以数字开头 → **最前面会多一个换行**
-          （参考宏是 `vbCrLf & vbCrLf & "=== 重建段落 ===" & ... & outputText`，多出来的是空段落）；
-        * 空 `TEXT:` = 一个换行；`VAR:` 取值的顺序 = 它在配方里出现的顺序。
+        * 最前面**不再多一个换行**（宏的 `previousLineWasText` 初值是 False，第一行又是数字开头，
+          于是会先补一个换行）；
+        * 空 `TEXT:` 之后紧跟数字开头的 `TEXT:` 时，**不再补第二个换行**
+          （宏会把"空 TEXT: 的换行"和"数字规则补的换行"叠加 → 多出一个空白段）。
         """
         recipe = Recipe.parse(SPEC_RECIPE)
         text = recipe.reconstruct([u"1.0", u"2.0", u"3.0", u"4.0"])
-        self.assertEqual(text, u"\n1、1.0本期2.0万m3.0\n\n2、4.0设计工程量")
+        self.assertEqual(text, u"1、1.0本期2.0万m3.0\n2、4.0设计工程量")
 
     def test_reconstruct_reports_missing_values(self):
         """变量比 Excel 里的值多 → 补 `#数据缺失#`（`段落重配.bas:261`）。"""
@@ -95,7 +97,7 @@ class TestTheSpecExample(RecipeCase):
         text = SPEC_RECIPE.replace(u"VAR:1|数据表.xlsx!Sheet1!B2", u"VAR:99|别的.xlsx!别的!B7")
         recipe = Recipe.parse(text)
         self.assertEqual(recipe.reconstruct([u"A", u"B", u"C", u"D"]),
-                         u"\n1、A本期B万mC\n\n2、D设计工程量")
+                         u"1、A本期B万mC\n2、D设计工程量")
 
     def test_any_line_ending_works(self):
         for newline in (u"\r\n", u"\r", u"\n"):
@@ -197,7 +199,7 @@ class TestXlsx(RecipeCase):
         self.assertEqual(values, [u"1.5", u"", u"300"])
         recipe = Recipe.parse(SPEC_RECIPE)
         text = recipe.reconstruct(values)
-        self.assertEqual(text, u"\n1、1.5本期万m300\n\n2、#数据缺失#设计工程量")
+        self.assertEqual(text, u"1、1.5本期万m300\n2、#数据缺失#设计工程量")
 
 
 if __name__ == "__main__":

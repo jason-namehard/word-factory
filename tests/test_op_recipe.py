@@ -104,8 +104,9 @@ class TestFindAndRebuild(RebuildCase):
         after = self.texts(out)
         self.assertEqual(after[:len(before)], before, u"原有段落一个都不许动")
         appended = after[len(before):]
-        self.assertEqual(appended, [u"", u"", u"=== 重建段落 ===",
-                                    u"", u"1、1.5本期2.0万m3.0", u"",
+        # 追加块**不带装饰空段**（宏会在标记前后各写几个空段 → 用户反馈的"多出一个回车"）
+        self.assertEqual(appended, [u"=== 重建段落 ===",
+                                    u"1、1.5本期2.0万m3.0",
                                     u"2、4.0设计工程量", u"=== 结束 ==="])
 
     def test_only_document_xml_is_rewritten(self):

@@ -39,13 +39,28 @@ BREAK_TAGS = ("w:br", "w:cr")
 
 
 def clean(document, options=None, dry_run=False):
-    """清理表格单元格。返回报告（扫了几个单元格、改了几个、删了多少字符）。"""
+    """清理表格单元格。返回报告（扫了几个单元格、改了几个、删了多少字符）。
+
+    ``options``：
+
+    * ``level``：1 仅空格 / 2 仅回车 / 3 两者
+    * ``redundant_only``（**默认 True**，用户 2026-09-22 选的口径）：只删"无意义"的换行 ——
+      首尾的空段落、连续的重复换行；**保留单个内部换行**（那是为了让窄列好看故意折的行）
+    * ``numeric_flatten``（**默认 True**）：整格是纯数字的单元格 → 换行一律删掉
+      （数字里出现换行肯定是脏数据）
+    * ``full_width_space``：连全角空格一起删（默认不删）
+    * ``flat``：照抄宏，整格压平成一个 run
+    * ``exact_macro``：完全照抄宏（所有换行一律删，不做"无意义"判断）—— 与上两条互斥
+    """
     opts = dict(options or {})
     level = int(opts.get("level") or 3)
     if level not in LEVELS:
         raise ValueError(u"档位只能是 1 / 2 / 3（现在是 %r）" % level)
     drop_spaces = level in (1, 3)
     drop_returns = level in (2, 3)
+    exact_macro = bool(opts.get("exact_macro"))
+    redundant_only = bool(opts.get("redundant_only", True)) and not exact_macro
+    numeric_flatten = bool(opts.get("numeric_flatten", True)) and not exact_macro
     chars = []
     if drop_spaces:
         chars.extend(SPACE_CHARS)
@@ -56,13 +71,16 @@ def clean(document, options=None, dry_run=False):
     changed_cells = 0
     removed = 0
     merged = 0
+    kept_breaks = 0
     for table in tables:
         for cell in table.iter(qn("w:tc")):
             cells += 1
-            hit, how_many, merges = _clean_cell(cell, chars, drop_returns,
-                                                bool(opts.get("flat")), dry_run)
+            hit, how_many, merges, kept = _clean_cell(
+                cell, chars, drop_returns, bool(opts.get("flat")), dry_run,
+                redundant_only, numeric_flatten)
             removed += how_many
             merged += merges
+            kept_breaks += kept
             if hit:
                 changed_cells += 1
     if not dry_run and changed_cells:
@@ -70,8 +88,11 @@ def clean(document, options=None, dry_run=False):
     return {"op": "table-clean", "level": level, "level_note": LEVELS[level],
             "tables": len(tables), "cells": cells, "changed_cells": changed_cells,
             "chars_removed": removed, "paragraphs_merged": merged,
+            "breaks_kept": kept_breaks,
+            "redundant_only": redundant_only, "numeric_flatten": numeric_flatten,
             "full_width_space": bool(opts.get("full_width_space")),
-            "flat": bool(opts.get("flat")), "dry_run": bool(dry_run)}
+            "flat": bool(opts.get("flat")), "exact_macro": exact_macro,
+            "dry_run": bool(dry_run)}
 
 
 def _tables(document):
@@ -83,14 +104,42 @@ def _text_nodes(element):
     return list(element.iter(qn("w:t")))
 
 
-def _clean_cell(cell, chars, drop_returns, flat, dry_run):
-    """清理一个单元格。返回 ``(有没有变, 删了几个字符, 合并了几个段落)``。"""
+def _cell_text_without(cell, chars):
+    text = _text_of(cell)
+    for ch in chars:
+        text = text.replace(ch, u"")
+    return text
+
+
+def _looks_numeric(text):
+    """整格是不是"纯数字"（含小数点/负号/千分位逗号/百分号）——数字里带换行肯定是脏数据。"""
+    stripped = (text or u"").strip()
+    if not stripped:
+        return False
+    allowed = u"0123456789.,%-+ \u00a0\u3000"
+    if not all(ch in allowed for ch in stripped):
+        return False
+    return any(ch.isdigit() for ch in stripped)
+
+
+def _clean_cell(cell, chars, drop_returns, flat, dry_run,
+                redundant_only=True, numeric_flatten=True):
+    """清理一个单元格。返回 ``(有没有变, 删了几个字符, 合并了几个段落, 保留了几个换行)``。
+
+    "无意义"的判断（`redundant_only`，用户 2026-09-22 选的口径）：
+    一个单元格里**单个的内部换行**多半是"为了让窄列好看而故意折的行"（实测他报告里 9 格
+    全是这种：`防洪标↵准`、`大坝右侧/开敞↵式`），所以保留；
+    只有**首尾的**和**连续的**换行才当"无意义"删掉。
+    但整格是**纯数字**时（`numeric_flatten`）换行一律删 —— 数字里断行只能是脏数据。
+    """
     before = _text_of(cell)
     if not before:
-        return False, 0, 0                      # 宏也是"空单元格不动"（`:142`）
+        return False, 0, 0, 0                      # 宏也是"空单元格不动"（`:142`）
+    flatten_everything = (not redundant_only) or (numeric_flatten
+                                                 and _looks_numeric(_cell_text_without(cell, chars)))
+    kept = 0
 
     if flat:
-        # `--flat`：照宏的做法把整格压平（段合并 → run 合并 → 再删字符），会丢 run 级格式
         removed = sum(before.count(ch) for ch in chars)
         merges = _merge_paragraphs(cell, dry_run) + _merge_runs(cell, dry_run)
         if drop_returns:
@@ -99,17 +148,82 @@ def _clean_cell(cell, chars, drop_returns, flat, dry_run):
             _strip_chars(cell, chars)
             for node in _text_nodes(cell):
                 _fix_xml_space(node)
-        return (removed > 0 or merges > 0), removed, merges
+        return (removed > 0 or merges > 0), removed, merges, 0
 
     removed = _strip_chars(cell, chars, dry_run)
     merges = 0
     if drop_returns:
-        removed += _drop_breaks(cell, dry_run)
-        merges = _merge_paragraphs(cell, dry_run)          # Chr(13) = 段落边界 → 合并段落
+        if flatten_everything:
+            removed += _drop_breaks(cell, dry_run)
+            merges = _merge_paragraphs(cell, dry_run)
+        else:
+            kept, dropped = _drop_redundant_breaks(cell, dry_run)
+            removed += dropped
+            merges = _merge_empty_paragraphs(cell, dry_run)
     if not dry_run:
         for node in _text_nodes(cell):
             _fix_xml_space(node)
-    return (removed > 0 or merges > 0), removed, merges
+    return (removed > 0 or merges > 0), removed, merges, kept
+
+
+def _items_of_paragraph(paragraph):
+    """段落里的内容按文档顺序排好：``[("text", 文字) | ("break", (run, 节点)), …]``。"""
+    items = []
+    for run in paragraph.iter(qn("w:r")):
+        for child in run:
+            if child.tag in tuple(qn(tag) for tag in BREAK_TAGS):
+                items.append(("break", (run, child)))
+            elif child.tag == qn("w:t"):
+                items.append(("text", child.text or u""))
+    return items
+
+
+def _drop_redundant_breaks(cell, dry_run=False):
+    """只删"无意义"的手动换行，保留单个内部换行。返回 ``(保留数, 删除数)``。
+
+    "有意义"= **两侧都有文字**且**前面不是换行**（那种单个的内部换行多半是为了窄列故意折的）；
+    首尾的、连续重复的一律删。
+    """
+    kept = 0
+    removed = 0
+    for paragraph in [element for element in cell if element.tag == qn("w:p")]:
+        items = _items_of_paragraph(paragraph)
+        for position, (kind, payload) in enumerate(items):
+            if kind != "break":
+                continue
+            before = any(k == "text" and v.strip() for k, v in items[:position])
+            after = any(k == "text" and v.strip() for k, v in items[position + 1:])
+            previous_is_break = position > 0 and items[position - 1][0] == "break"
+            if before and after and not previous_is_break:
+                kept += 1
+                continue
+            removed += 1
+            if not dry_run:
+                run, node = payload
+                run.remove(node)
+    return kept, removed
+
+
+def _merge_empty_paragraphs(cell, dry_run=False):
+    """只删**空段落**（首尾的、连续的、整格全空的）；非空段落一律保留（那是正经结构）。"""
+    paragraphs = [element for element in cell if element.tag == qn("w:p")]
+    if len(paragraphs) < 2:
+        return 0
+    non_empty = [element for element in paragraphs if _text_of(element).strip()]
+    if len(non_empty) >= 2:
+        keep = set(id(element) for element in non_empty)
+    elif non_empty:
+        keep = set([id(non_empty[0])])
+    else:
+        keep = set([id(paragraphs[0])])
+    removed = 0
+    for element in paragraphs:
+        if id(element) in keep:
+            continue
+        removed += 1
+        if not dry_run:
+            cell.remove(element)                     # 里面没有文字（换行在上面已被当"无意义"删掉）
+    return removed
 
 
 def _strip_chars(cell, chars, dry_run=False):

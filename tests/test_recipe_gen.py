@@ -17,6 +17,7 @@ import tempfile
 import unittest
 
 from wordfactory.document import Document
+from wordfactory.ooxml import qn
 from wordfactory.ops import recipe as recipe_op
 from wordfactory.recipe import Recipe
 from wordfactory.text import Paragraph
@@ -216,3 +217,95 @@ class TestRoundTrip(GenCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNoSpuriousBlankParagraphs(GenCase):
+    """**用户 2026-09-22 反馈**：「重配有时会凭空多出一个回车（无意义的空白段）」。
+
+    查下来一共三处来源，都修了（前两处参考宏自己也有，我们有意不复刻）：
+
+    1. **装饰空段**：宏写 `vbCrLf & vbCrLf & "=== 重建段落 ===" & vbCrLf & outputText & vbCrLf …`，
+       固定多出 2 个前置空段、后面还多 1~2 个。我们只写标记行 + 正文；
+    2. **空 `TEXT:` 紧跟无前缀行**时，宏把两者都算成换行 → 多一个空段。我们只算一次；
+    3. **空 `TEXT:` 后面紧跟"数字开头"的 TEXT:** 时，宏的"数字前补换行"规则会在已经换过行的地方
+       再补一个 → 多一个空段。我们只在"还没换行"时才补。
+
+    钉法：拿各种形状跑 **生成 → 重配** 往返，段数与文字必须与原文一模一样。
+    """
+
+    def round_trip(self, paras, mode=u"highlight"):
+        body = u"".join(p if p == u"" else u"<w:p>%s</w:p>" % p for p in paras)
+        self.build(body)
+        with Document(self.docx) as doc:
+            _, _, xlsx, out = self.gen(mode=mode, char=u"xx")
+        recipe = recipe_op.read_recipe(out)
+        text = recipe.reconstruct(recipe_op.values_for(recipe, xlsx))
+        rebuilt = [line for line in text.split(u"\n")]
+        while rebuilt and rebuilt[0] == u"":
+            rebuilt.pop(0)
+        while rebuilt and rebuilt[-1] == u"":
+            rebuilt.pop()
+        with Document(self.docx) as doc:
+            original = [Paragraph(p).text for p in doc.body() if p.tag == qn("w:p")]
+        self.assertEqual(rebuilt, original, u"往返之后段数与文字必须一致：%r" % (rebuilt,))
+
+    def test_the_three_shapes_that_used_to_gain_a_blank(self):
+        hl = lambda t: u'<w:r><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t>%s</w:t></w:r>' % t
+        cases = [
+            [fixtures.run(u"F=") + hl(u"0.8"), fixtures.run(u"下一段")],          # 高亮跨段
+            [fixtures.run(u"F=") + hl(u"0.8"), u"", fixtures.run(u"尾")],         # 变量后有空段
+            [fixtures.run(u"头"), u"", fixtures.run(u"F=") + hl(u"0.8")],         # 中间空段
+            [fixtures.run(u"F=") + hl(u"0.8"), fixtures.run(u"2、下一节")],        # 数字开头的下一段
+        ]
+        for case in cases:
+            self.round_trip(case)
+
+    def test_mode_2_shapes(self):
+        cases = [
+            [fixtures.run(u"本期xx万m"), fixtures.run(u"设计xx万m")],
+            [fixtures.run(u"甲xx"), u"", fixtures.run(u"乙xx")],
+            [fixtures.run(u"甲xx"), fixtures.run(u"2、编号xx")],
+        ]
+        for case in cases:
+            self.round_trip(case, mode=u"chars")
+
+    def test_the_decorative_blank_paragraphs_are_gone(self):
+        body = fixtures.paragraph(run(u"本期"), run(u"3.5", "yellow"))
+        self.build(body)
+        with Document(self.docx) as doc:
+            report, recipe, xlsx = recipe_op.generate(doc, {
+                "mode": "highlight", "char": None, "name": u"t",
+                "excel_file": u"数据表.xlsx", "sheet_name": u"Sheet1",
+                "out_xlsx": os.path.join(self.dir, u"d.xlsx"), "append": True})
+            values = [v for _, v in report["rows"]]
+            out = doc.save(os.path.join(self.dir, u"o.docx"))
+        recipe = recipe_op.read_recipe(out)
+        with Document(out) as doc:
+            recipe_op.rebuild(doc, recipe, values)
+            rebuilt = doc.save(os.path.join(self.dir, u"r.docx"))
+        texts = self.texts(rebuilt)
+        index = texts.index(u"=== 重建段落 ===")
+        self.assertNotEqual(texts[index - 1], u"", u"标记行前面不该有空段")
+        self.assertEqual(texts[index + 1], u"本期3.5", u"标记行后面直接就是正文")
+        self.assertEqual(texts[index + 2], u"=== 结束 ===", u"正文后面直接收尾，不留空段")
+
+    def test_mimic_macro_brings_the_blanks_back(self):
+        """要跟宏的输出逐字节比时用 `mimic_macro=True`（研究/比对用，不是默认）。"""
+        body = fixtures.paragraph(run(u"本期"), run(u"3.5", "yellow"))
+        self.build(body)
+        with Document(self.docx) as doc:
+            recipe = recipe_op.read_recipe(self.docx) if False else None
+        with Document(self.docx) as doc:
+            report, recipe, xlsx = recipe_op.generate(doc, {
+                "mode": "highlight", "char": None, "name": u"t",
+                "excel_file": u"数据表.xlsx", "sheet_name": u"Sheet1",
+                "out_xlsx": os.path.join(self.dir, u"d.xlsx"), "append": False})
+            doc2 = doc
+            values = [v for _, v in report["rows"]]
+            out = doc.save(os.path.join(self.dir, u"o.docx"))
+        with Document(out) as doc:
+            plain = recipe_op.rebuild(doc, recipe, values, dry_run=True)
+        with Document(out) as doc:
+            mirrored = recipe_op.rebuild(doc, recipe, values, dry_run=True, mimic_macro=True)
+        self.assertEqual(plain["blank_paragraphs"], 0)
+        self.assertGreater(mirrored["blank_paragraphs"], 0)

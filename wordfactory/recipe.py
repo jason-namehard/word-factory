@@ -146,21 +146,36 @@ class Recipe(object):
         """
         out = []
         previous_was_text = False
+        at_line_start = True          # 上一动作已经"换过行"了吗（见下面数字规则的说明）
         index = 0
-        for kind, content in self.lines:
+        for position, (kind, content) in enumerate(self.lines):
             if kind == "RAW":
-                out.append(u"\n" + content)         # 换行 + 原文（`段落重配.bas:264-268`）
+                # 无前缀行 = 换行 + 原文（`段落重配.bas:264-268`）
+                out.append(u"\n" + content)
                 previous_was_text = True
+                at_line_start = False
                 continue
             if kind == "TEXT":
                 if content == u"":
-                    out.append(u"\n")                 # 空 TEXT: = 换行
+                    # 空 `TEXT:` 表示一个换行。**但紧跟一条无前缀行时不再补换行** ——
+                    # 那条无前缀行自己就带着换行（生成端写 `TEXT:<空>` + `后半句` 表示的
+                    # 其实是**一个**段落分隔，参考宏会把两者都算成换行 → 凭空多出一个空白段）。
+                    # 这是用户 2026-09-22 反馈的"突然多出一个回车"里的一类，我们不复刻这个缺陷。
+                    if self._next_is_raw(position):
+                        previous_was_text = False
+                        continue
+                    out.append(u"\n")
                     previous_was_text = False
+                    at_line_start = True
                     continue
-                if not previous_was_text and _starts_with_number(content):
-                    out.append(u"\n")                 # 「2、xxx」这种编号段先补一个换行
+                # 「2、xxx」这种编号段要另起一行。**但如果刚刚才换过行（前面是空 TEXT:），
+                # 就不能再来一个** —— 否则会凭空多出一个空白段（参考宏就是这么多的，
+                # 也正是用户反馈的"突然多出一个回车"）。
+                if not previous_was_text and not at_line_start and _starts_with_number(content):
+                    out.append(u"\n")
                 out.append(content)
                 previous_was_text = True
+                at_line_start = False
             else:
                 index += 1
                 if index <= len(values):
@@ -169,7 +184,12 @@ class Recipe(object):
                     value = MISSING
                 out.append(u"" if value is None else u"%s" % value)
                 previous_was_text = False
+                at_line_start = False
         return u"".join(out)
+
+    def _next_is_raw(self, position):
+        """下一条正文行是不是"无前缀行"（它自带换行）。"""
+        return (position + 1 < len(self.lines) and self.lines[position + 1][0] == "RAW")
 
     def footer(self):
         """配方尾部的三个头部字段（生成端写在正文之后）。"""

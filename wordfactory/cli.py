@@ -163,6 +163,8 @@ def build_parser():
                         default=False, help=u"连全角空格 U+3000 一起删（默认不删）")
     tclean.add_argument("--flat", action="store_true", default=False,
                         help=u"照抄参考宏：整格写回、压平 run 级格式（默认保留格式）")
+    tclean.add_argument("--exact-macro", dest="exact_macro", action="store_true", default=False,
+                        help=u"换行口径也照抄宏：所有换行一律删（默认只删无意义的，见下）")
     tclean.add_argument("--out", default=None, help=u"输出文件")
     tclean.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
     tclean.add_argument("--dry-run", action="store_true", help=u"只报会改多少，不写文件")
@@ -538,7 +540,9 @@ def cmd_tableclean(args):
         raise RuleError(u"要写结果就得给 --out 文件或 --outdir 目录"
                         u"（本工具**不会**覆盖原文件）")
     options = {"level": int(args.level), "full_width_space": bool(args.full_width_space),
-               "flat": bool(args.flat)}
+               "flat": bool(args.flat), "exact_macro": bool(args.exact_macro),
+               "redundant_only": not args.exact_macro,
+               "numeric_flatten": not args.exact_macro}
     with Document(args.path) as doc:
         report = table_op.clean(doc, options, dry_run=args.dry_run)
         lines = [u"文件：%s" % doc.path,
@@ -548,8 +552,17 @@ def cmd_tableclean(args):
                  % (report["tables"], report["cells"], report["changed_cells"]),
                  u"删掉 %d 个字符%s" % (report["chars_removed"],
                                        u"，合并 %d 个段落" % report["paragraphs_merged"]
-                                       if report["paragraphs_merged"] else u""),
-                 u""]
+                                       if report["paragraphs_merged"] else u"")]
+        if report.get("redundant_only"):
+            lines.append(u"换行口径：只删「首尾的 / 连续重复的」换行，**保留单个内部换行**"
+                         u"（那是为了让窄列好看故意折的行）");
+            if report.get("breaks_kept"):
+                lines.append(u"          保留了 %d 个内部换行" % report["breaks_kept"])
+            if report.get("numeric_flatten"):
+                lines.append(u"          整格是纯数字的单元格例外：换行一律删（数字里断行是脏数据）")
+        else:
+            lines.append(u"换行口径：照抄参考宏 —— **所有**换行一律删（--exact-macro）")
+        lines.append(u"")
         if args.dry_run:
             lines.insert(0, u"--dry-run：一个字节都没写")
         else:
