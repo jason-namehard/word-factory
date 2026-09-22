@@ -153,6 +153,19 @@ def build_parser():
                       default=False,
                       help=u"照抄参考宏那颗「隐形修正」（高亮片段去掉最后一个字符）—— 默认不照抄")
     rgen.add_argument("--dry-run", action="store_true", help=u"只报会识别出什么，不写任何文件")
+
+    tclean = sub.add_parser(
+        "tableclean", help=u"宏：表格空格回车删除（去无意义空格）")
+    tclean.add_argument("path", help=u"要处理的 .docx")
+    tclean.add_argument("--level", choices=(u"1", u"2", u"3"), default=u"3",
+                        help=u"1=仅空格；2=仅回车；3=两者（默认，与宏一致）")
+    tclean.add_argument("--full-width-space", dest="full_width_space", action="store_true",
+                        default=False, help=u"连全角空格 U+3000 一起删（默认不删）")
+    tclean.add_argument("--flat", action="store_true", default=False,
+                        help=u"照抄参考宏：整格写回、压平 run 级格式（默认保留格式）")
+    tclean.add_argument("--out", default=None, help=u"输出文件")
+    tclean.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
+    tclean.add_argument("--dry-run", action="store_true", help=u"只报会改多少，不写文件")
     return parser
 
 
@@ -516,6 +529,50 @@ def cmd_recipe(args):
     raise RecipeError(u"未知的 recipe 动作：%r" % args.action)
 
 
+def cmd_tableclean(args):
+    """宏「表格空格回车删除」（去无意义空格）：清表格单元格里的空格/换行。"""
+    from .document import Document
+    from .ops import table_clean as table_op
+
+    if not args.out and not args.outdir and not args.dry_run:
+        raise RuleError(u"要写结果就得给 --out 文件或 --outdir 目录"
+                        u"（本工具**不会**覆盖原文件）")
+    options = {"level": int(args.level), "full_width_space": bool(args.full_width_space),
+               "flat": bool(args.flat)}
+    with Document(args.path) as doc:
+        report = table_op.clean(doc, options, dry_run=args.dry_run)
+        lines = [u"文件：%s" % doc.path,
+                 u"档位 %d：%s%s" % (report["level"], report["level_note"],
+                                    u"（含全角空格）" if report["full_width_space"] else u""),
+                 u"表格 %d 张 ｜ 单元格 %d 个 ｜ 其中 %d 个被清理"
+                 % (report["tables"], report["cells"], report["changed_cells"]),
+                 u"删掉 %d 个字符%s" % (report["chars_removed"],
+                                       u"，合并 %d 个段落" % report["paragraphs_merged"]
+                                       if report["paragraphs_merged"] else u""),
+                 u""]
+        if args.dry_run:
+            lines.insert(0, u"--dry-run：一个字节都没写")
+        else:
+            if not report["changed_cells"]:
+                lines.insert(0, u"没有需要清理的单元格")
+                return (dict(report, out=None), u"\n".join(lines))
+            if args.out:
+                out_path = doc.save(os.path.abspath(args.out))
+            else:
+                out_dir = os.path.abspath(args.outdir)
+                if not os.path.isdir(out_dir):
+                    os.makedirs(out_dir)
+                out_path = doc.save(os.path.join(out_dir, os.path.basename(doc.path)))
+            lines.insert(0, u"已写出：%s" % out_path)
+            report["out"] = out_path
+        lines.append(u"与参考宏的两处有意不同：")
+        lines.append(u"  ① 只删字符、**保留** run 级格式（宏是整格写回、格式会被压平）；"
+                     u"要照抄宏加 --flat")
+        lines.append(u"  ② 默认**不删全角空格**（宏也删不掉；中文报告里它常是段首缩进）；"
+                     u"要删加 --full-width-space")
+        return (report, u"\n".join(lines))
+
+
 def cmd_audit(args):
     """体检：不信工具的报告，重新打开文件按继承链算一遍。"""
     from . import audit as audit_mod
@@ -550,6 +607,8 @@ def main(argv=None):
             payload, human = cmd_audit(args)
         elif args.command == "recipe":
             payload, human = cmd_recipe(args)
+        elif args.command == "tableclean":
+            payload, human = cmd_tableclean(args)
         else:
             log(u"未知命令：%s" % args.command)
             return 2
