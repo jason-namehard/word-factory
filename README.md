@@ -259,9 +259,35 @@ python -m wordfactory.cli tablestyle capture 报告.docx --table 3 --name 我调
 > 样例：[预览](E:\Zspace\output60922_wordfactory_表格款式_预览.docx)、
 > [三线表套用样例](E:\Zspace\output60922_wordfactory_表格款式_三线表样例.docx)
 
+### 文本替换与对齐（`textfix`）—— 宏：规划报告一键宏（文本部分）
+
+```bash
+python -m wordfactory.cli textfix "报告.docx" --dry-run          # 先看会改多少
+python -m wordfactory.cli textfix "报告.docx" --outdir out       # 替换 + 两端对齐改左对齐
+#   --rules F 换规则文件；--no-align 只做替换；--fix-styles 连样式表里的两端对齐也一起改
+```
+
+**规则外置**（`rules/replacements.json`）：替换对是数据不是代码 —— 报告里换错别字不用改程序。
+出厂规则取自参考宏 `规划报告一键宏.bas`：`其它`→`其他`、`东流流经`→`向东流经`（宏 :20-21 / :33-34）。
+（宏的第 4 件事"中文字体 仿宋→宋体"由 `fonts` / `captions --mode formal` 负责，不在这个命令里。）
+
+两条**必须知道**的实现细节：
+
+1. **替换走逻辑文本层**：Word 的"查找替换"能跨 run 匹配（`其` 和 `它` 可能落在两个 run 里），
+   按 run 逐个替换会漏 —— 所以我们先拼出逻辑文本、替换、再落回 run。
+2. **对齐必须解析样式继承**：参考宏作用在 `ActiveDocument.Content`，Word 的"按格式查找"匹配的是
+   **显示出来的有效格式**（含样式继承）。实测你的报告：样式 `Normal` 里写着 `w:jc="both"`，
+   于是**49 个自己没写 `w:jc` 的段落其实是两端对齐的**（还有 1 段是显式 both）。
+   只看段落自己的属性会漏掉这 49 段 —— 这里沿 `w:pStyle` 链 + 默认段落样式一路解析到 `docDefaults`。
+
+> 实测（你的报告）：`textfix` 命中 **50 段**（49 段经 `Normal` 继承 + 1 段显式）；
+> **只重写 `word/document.xml`**，其余 41 个部件逐字节未变；**791 段文字一字未动**；
+> 改后显式对齐从 `center 585 / left 156 / both 1 / 无 49` 变成 `center 585 / left 206`（数字对得上）。
+> 样例：[文本替换与对齐样例](E:\Zspace\output60922_wordfactory_文本替换与对齐样例.docx)
+
 ## 状态
 
-**M1 内核 + M3a 题注统一 + M3b 段落配方已落地**（含两版输出、体检、与宏产出的真实文件比对通过）；**M2 已做「去无意义空格」**，**表格款式（外置规则 + 采集 + 预览）已落地**；M2 其余两个宏与 GUI 未开始。
+**M1 内核 + M3a 题注统一 + M3b 段落配方已落地**（含两版输出、体检、与宏产出的真实文件比对通过）；**M2 已做「去无意义空格」与「文本替换 + 对齐」**，**表格款式（外置规则 + 采集 + 预览）已落地**；剩下的「格式规范化」= 正式版那套 + 上下标规则（已有零件，待串起来）；GUI 未开始。
 
 - [x] 仓库与参考件入库
 - [x] `docs/REFERENCE-MACROS.md`（12 个参考宏的逐宏规格）

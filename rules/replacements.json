@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "name": "文本替换与对齐（默认取自参考宏 规划报告一键宏.bas）",
+  "replacements": [
+    {
+      "from": "其它",
+      "to": "其他",
+      "note": "参考宏 :20-21"
+    },
+    {
+      "from": "东流流经",
+      "to": "向东流经",
+      "note": "参考宏 :33-34（原宏注释为「新增功能」）"
+    }
+  ],
+  "align": {
+    "from": [
+      "both",
+      "distribute"
+    ],
+    "to": "left",
+    "fix_styles": false,
+    "note": "两端对齐→左对齐（参考宏 :44-55）。fix_styles=true 时连样式表里的两端对齐也一起改"
+  }
+}

@@ -26,6 +26,8 @@ DEFAULT_FONTS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspat
                                   "rules", "fonts.json")
 DEFAULT_STYLES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                     "rules", "tablestyle.json")
+DEFAULT_REPLACEMENTS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rules", "replacements.json")
 
 
 def emit_json(payload):
@@ -171,7 +173,22 @@ def build_parser():
     tclean.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
     tclean.add_argument("--dry-run", action="store_true", help=u"只报会改多少，不写文件")
     _add_tablestyle_parser(sub)
+    _add_textfix_parser(sub)
     return parser
+
+
+def _add_textfix_parser(sub):
+    """文本替换 + 对齐（宏「规划报告一键宏」的文本部分）。"""
+    tfix = sub.add_parser("textfix", help=u"宏：批量文本替换 + 两端对齐改左对齐")
+    tfix.add_argument("path", help=u"要处理的 .docx")
+    tfix.add_argument("--rules", default=DEFAULT_REPLACEMENTS_PATH, help=u"替换规则文件")
+    tfix.add_argument("--no-align", dest="no_align", action="store_true", default=False,
+                      help=u"只做替换，不动对齐")
+    tfix.add_argument("--fix-styles", dest="fix_styles", action="store_true", default=False,
+                      help=u"连样式表里的两端对齐也一起改（默认只改段落）")
+    tfix.add_argument("--out", default=None, help=u"输出文件")
+    tfix.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
+    tfix.add_argument("--dry-run", action="store_true", help=u"只报会改多少，不写文件")
 
 
 def _add_tablestyle_parser(sub):
@@ -715,6 +732,54 @@ def cmd_tablestyle(args):
     raise RuleError(u"未知的 tablestyle 动作：%r" % args.action)
 
 
+def cmd_textfix(args):
+    """宏「规划报告一键宏」的文本部分：批量替换 + 两端对齐改左对齐。"""
+    from .document import Document
+    from .ops import textfix as textfix_op
+
+    if not args.out and not args.outdir and not args.dry_run:
+        raise RuleError(u"要写结果就得给 --out 文件或 --outdir 目录"
+                        u"（本工具**不会**覆盖原文件）")
+    rule_set = textfix_op.ReplacementRuleSet.load(args.rules)
+    problems = rule_set.check()
+    if problems:
+        raise RuleError(u"替换规则有问题：\n  - " + u"\n  - ".join(problems))
+    with Document(args.path) as doc:
+        report = textfix_op.apply(doc, rule_set, dry_run=args.dry_run,
+                                  fix_align=not args.no_align, fix_styles=args.fix_styles)
+        out_path = None
+        if not args.dry_run and report["total"]:
+            if args.out:
+                out_path = doc.save(os.path.abspath(args.out))
+            else:
+                out_dir = os.path.abspath(args.outdir)
+                if not os.path.isdir(out_dir):
+                    os.makedirs(out_dir)
+                out_path = doc.save(os.path.join(out_dir, os.path.basename(doc.path)))
+    lines = [u"文件：%s" % doc.path,
+             u"规则：%s（%s）" % (rule_set.name, rule_set.path or u"内置默认"),
+             u"全文 %d 段 ｜ 替换 %d 处 ｜ 对齐改正 %d 段 ｜ 合计 %d 处"
+             % (report["paragraphs"], report["replaced"], report["align_fixed"],
+                report["total"])]
+    for key in sorted(report["changes"]):
+        lines.append(u"    %-24s %d 处" % (key, report["changes"][key]))
+    if report["align_by_source"]:
+        lines.append(u"    对齐改正的来源：%s"
+                     % u"、".join(u"%s %d 段" % kv for kv in
+                                  sorted(report["align_by_source"].items())))
+        lines.append(u"    （**含「通过样式继承」的那批**：只改段落自己的属性会漏掉它们）")
+    for item in report["replacements"][:8]:
+        lines.append(u"    %r → %r 命中 %d 次（例：%s）"
+                     % (item["from"], item["to"], item["count"], item["paragraph"]))
+    if args.dry_run:
+        lines.insert(0, u"--dry-run：一个字节都没写")
+    elif out_path:
+        lines.insert(0, u"已写出：%s" % out_path)
+    else:
+        lines.insert(0, u"没有需要改的地方")
+    return (dict(report, out=out_path), u"\n".join(lines))
+
+
 def cmd_audit(args):
     """体检：不信工具的报告，重新打开文件按继承链算一遍。"""
     from . import audit as audit_mod
@@ -753,6 +818,8 @@ def main(argv=None):
             payload, human = cmd_tableclean(args)
         elif args.command == "tablestyle":
             payload, human = cmd_tablestyle(args)
+        elif args.command == "textfix":
+            payload, human = cmd_textfix(args)
         else:
             log(u"未知命令：%s" % args.command)
             return 2
