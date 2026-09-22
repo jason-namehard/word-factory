@@ -27,10 +27,16 @@ REBUILD_CLOSE = u"=== 结束 ==="
 
 
 def find_recipe_text(document):
-    """从文档正文里找最后一段配方（`=== 段落配方` 到 `=== 配方结束`）。
+    """从文档正文里框出配方文本：**第一个 `=== 段落配方` → 最后一个 `=== 配方结束`**。
 
-    参考宏的做法是"读选区"；外置工具没有选区，就找**文档里最后一份配方**——
-    生成端把配方追加在文档末尾，所以"最后一份"就是最新的那份。
+    为什么不是"最后一份配方"：真实文档给过一次教训（用户 2026-09-22 给的金标准样本，
+    `段落重配.docx`）—— 配方正文在文档**开头**（第 0~110 段），中间第 111 段又出现了一行
+    `=== 段落配方 [段落重配] ===`（用户自己粘贴留下的），后面才是三个头部字段与 `=== 配方结束 ===`。
+    "取最后一次出现"会刚好取到那个**只有头部、没有正文**的残块，直接解析失败。
+
+    参考宏的做法是**状态机**：在一对 `=== 段落配方` … `=== 配方结束` 之间的行才算正文，
+    期间再出现一个开标记只是**重新置位**、不影响已经收下的行（`段落重配.bas:219-229`）。
+    外置工具没有选区，等价规则就是"把整篇当选区"：从**第一个**开标记收到**最后一个**闭标记之间。
     """
     texts = []
     for element in document.body():
@@ -39,11 +45,11 @@ def find_recipe_text(document):
     start = None
     end = None
     for index, text in enumerate(texts):
-        if u"=== 段落配方" in text:
+        if start is None and u"=== 段落配方" in text:
             start = index
-        elif u"=== 配方结束" in text:
+        if u"=== 配方结束" in text:
             end = index
-    if start is None or end is None or end < start:
+    if start is None or end is None or end <= start:
         return None
     return u"\r\n".join(texts[start:end + 1])
 

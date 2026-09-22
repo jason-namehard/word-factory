@@ -420,15 +420,28 @@ def cmd_recipe(args):
 
     if args.action == "show":
         recipe = recipe_op.read_recipe(args.path)
+        counts = {}
+        for kind, _ in recipe.lines:
+            counts[kind] = counts.get(kind, 0) + 1
         lines = [u"配方：%s" % recipe.name,
                  u"  数据表：%s" % recipe.excel_file,
                  u"  工作表：%s" % recipe.sheet_name,
                  u"  变量数：%d" % recipe.variable_count,
-                 u"  正文行：" + u"、".join(
-                     (u"TEXT" if kind == "TEXT" else u"VAR") for kind, _ in recipe.lines)]
-        for index, (kind, content) in enumerate(recipe.lines, start=1):
-            lines.append(u"    %-4s %s" % (kind, content if kind == "TEXT" else u"(取第 %d 个值)"
-                                           % len([1 for k, _ in recipe.lines[:index] if k == "VAR"])))
+                 u"  正文行：%d 行（TEXT %d ／ RAW %d ／ VAR %d）"
+                 % (len(recipe.lines), counts.get("TEXT", 0), counts.get("RAW", 0),
+                    counts.get("VAR", 0)),
+                 u""]
+        for warning in recipe.warnings:
+            lines.append(u"⚠ %s" % warning)
+        number = 0
+        for kind, content in recipe.lines:
+            if kind == "VAR":
+                number += 1
+                lines.append(u"    %-4s → 取第 %d 个值" % (kind, number))
+            elif kind == "RAW":
+                lines.append(u"    %-4s %s" % (kind, content))
+            else:
+                lines.append(u"    %-4s %s" % (kind, content))
         return ({"recipe": recipe.name, "excel": recipe.excel_file,
                  "sheet": recipe.sheet_name, "variables": recipe.variable_count,
                  "lines": [{"kind": k, "text": t} for k, t in recipe.lines]},
@@ -454,6 +467,8 @@ def cmd_recipe(args):
                                             u"（其中 %d 处 #数据缺失#）" % report["missing"]
                                             if report["missing"] else u""),
                      u""]
+            for warning in recipe.warnings:
+                lines.insert(2, u"⚠ %s" % warning)
             if args.dry_run:
                 lines.insert(0, u"--dry-run：一个字节都没写")
             else:

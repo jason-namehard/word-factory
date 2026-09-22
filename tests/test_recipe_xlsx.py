@@ -14,7 +14,8 @@ import unittest
 import zipfile
 
 from wordfactory.recipe import MISSING, Recipe, RecipeError
-from wordfactory.xlsx import read_column_b, read_sheet, sheet_names, write_workbook
+from wordfactory.xlsx import (NS_MAIN, NS_PKG_REL, NS_REL, read_column_b, read_sheet,
+                               sheet_names, write_workbook)
 
 #: 规格书 §3.5 里的那份配方实例（逐字抄下来当夹具）
 SPEC_RECIPE = u"""\r
@@ -111,11 +112,12 @@ class TestRecipeErrors(RecipeCase):
         self.assertIn(u"SHEET_NAME", message)
         self.assertIn(u"VARIABLE_COUNT", message)
 
-    def test_a_count_that_does_not_match_the_body_is_reported(self):
+    def test_a_count_that_does_not_match_the_body_is_a_warning_not_an_error(self):
+        """参考宏对这种配方照跑（多出来的变量补 `#数据缺失#`），所以我们也不拦，只提醒。"""
         text = SPEC_RECIPE.replace(u"VARIABLE_COUNT:4", u"VARIABLE_COUNT:2")
-        with self.assertRaises(RecipeError) as caught:
-            Recipe.parse(text)
-        self.assertIn(u"变量数对不上", u"%s" % caught.exception)
+        recipe = Recipe.parse(text)
+        self.assertTrue([w for w in recipe.warnings if u"变量数对不上" in w], recipe.warnings)
+        self.assertEqual(recipe.reconstruct([u"A", u"B"]).count(MISSING), 2)
 
     def test_lines_outside_the_section_are_ignored(self):
         text = u"前面还有别的文字\r\nTEXT:这句不属于配方\r\n" + SPEC_RECIPE
@@ -200,3 +202,72 @@ class TestXlsx(RecipeCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestExcelStyleFile(RecipeCase):
+    """我们的读端要能吃**Excel/宏真正写出来的**那种 xlsx（比我们写的复杂得多）。
+
+    形态照用户 2026-09-22 给的金标准 `数据表.xlsx` 复刻：
+    有 `docProps/`、`xl/theme/`、目录条目；字符串表里换行是 **`&#13;`**（CR 实体）；
+    `styles.xml` 里单元格带 `s="1"`；还**多一列** `原值`（列 C，用户自己加的精确值）。
+    """
+
+    def build(self):
+        sheet = u"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="%s"><sheetData>
+<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" s="1" t="s"><v>1</v></c><c r="C1" s="1" t="s"><v>2</v></c></row>
+<row r="2"><c r="A2" t="s"><v>3</v></c><c r="B2" t="s"><v>4</v></c><c r="C2" t="s"><v>5</v></c></row>
+<row r="3"><c r="A3" t="s"><v>6</v></c><c r="B3" t="s"><v>4</v></c></row>
+</sheetData></worksheet>""" % NS_MAIN
+        shared = (u'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                  u'<sst xmlns="%s" count="7" uniqueCount="7">'
+                  u'<si><t>项目</t></si><si><t>数值</t></si><si><t>原值</t></si>'
+                  u'<si><t>流域面积F=&#13;干流长度L=</t></si>'
+                  u'<si><t>0.8</t></si><si><t>0.8321</t></si>'
+                  u'<si><t>km2</t></si></sst>') % NS_MAIN
+        path = os.path.join(self.dir, u"宏写的.xlsx")
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("[Content_Types].xml", "<Types/>")
+            archive.writestr("_rels/", "")                      # Excel 会写目录条目
+            archive.writestr("docProps/core.xml", "<cp/>")
+            archive.writestr("xl/", "")
+            archive.writestr("xl/workbook.xml",
+                             u'<?xml version="1.0"?><workbook xmlns="%s" xmlns:r="%s">'
+                             u'<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+                             u'</workbook>' % (NS_MAIN, NS_REL))
+            archive.writestr("xl/_rels/workbook.xml.rels",
+                             u'<?xml version="1.0"?><Relationships xmlns="%s">'
+                             u'<Relationship Id="rId1" Type="x/worksheet" Target="worksheets/sheet1.xml"/>'
+                             u'</Relationships>' % NS_PKG_REL)
+            archive.writestr("xl/sharedStrings.xml", shared)
+            archive.writestr("xl/worksheets/sheet1.xml", sheet)
+        return path
+
+    def test_we_read_it(self):
+        path = self.build()
+        self.assertEqual(sheet_names(path), [u"Sheet1"])
+        cells = read_sheet(path)
+        self.assertEqual(cells[(1, 3)], u"原值", u"多出来的第三列也要读得到")
+        self.assertEqual(cells[(2, 2)], u"0.8")
+        self.assertEqual(cells[(2, 3)], u"0.8321")
+        self.assertEqual(cells[(3, 2)], u"0.8")
+
+    def test_the_cr_entity_comes_back_as_a_cr(self):
+        """Excel 把段落标记写成 `&#13;`；读出来必须是 CR，**不能**变成 LF。"""
+        cells = read_sheet(self.build())
+        self.assertEqual(cells[(2, 1)], u"流域面积F=\r干流长度L=")
+
+    def test_values_are_taken_from_column_b_only(self):
+        """契约里取值只认 B 列（`段落重配.bas:116`）—— 第三列是用户自己的，不参与。"""
+        self.assertEqual(read_column_b(self.build()), [u"0.8", u"0.8"])
+
+
+class TestOurCrSurvives(RecipeCase):
+    def test_a_cr_in_a_cell_round_trips(self):
+        path = write_workbook(os.path.join(self.dir, u"t.xlsx"), u"Sheet1",
+                              [(u"前半\r后半", u"1")])
+        cells = read_sheet(path)
+        self.assertEqual(cells[(2, 1)], u"前半\r后半")
+        with zipfile.ZipFile(path) as archive:
+            raw = archive.read("xl/sharedStrings.xml").decode("utf-8")
+        self.assertIn(u"&#13;", raw, u"CR 要写成实体，否则 XML 会把它吃成 LF")

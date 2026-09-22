@@ -193,19 +193,33 @@ class TestExcelLookup(RebuildCase):
             recipe_op.values_for(recipe, self.xlsx)
 
 
-class TestLastRecipeWins(RebuildCase):
-    def test_the_last_recipe_in_the_document_is_used(self):
-        """生成端总是往末尾追加 —— 所以"最后一份"就是最新的那份。"""
-        body = body_with_recipe() + u"".join(
-            fixtures.paragraph(fixtures.run(line)) for line in
-            [u"=== 段落配方 [新配方] ===", u"TEXT:甲",
-             u"VAR:1|新的.xlsx!S!B2", u"EXCEL_FILE:新的.xlsx",
-             u"SHEET_NAME:S", u"VARIABLE_COUNT:1", u"=== 配方结束 ==="])
+class TestTwoCompleteRecipes(RebuildCase):
+    """一份文档里放**两份完整配方**时会怎样 —— 明确记下来，免得以后当成 bug 猜。
+
+    参考宏的读法是状态机：所有 `开`…`闭` 区间里的正文行**都收**（按出现顺序），
+    头部三项在全文里扫、后出现的覆盖先出现的。外置工具没有选区（等价于"整篇当选区"），
+    所以行为与宏一致：**两份会被并成一份**（变量翻倍）。
+    → 结论：**别把两份配方放同一个文档**。真实文档里那行多余的标题在同一个区间内，
+    不受影响（见 `TestTheRealDocumentShape`）。
+    """
+
+    def test_two_bodies_are_merged_the_way_the_macro_would(self):
+        def section(name, excel, prefix):
+            return [u"=== 段落配方 [%s] ===" % name, u"TEXT:%s" % prefix,
+                    u"VAR:1|%s!S!B2" % excel, u"EXCEL_FILE:%s" % excel,
+                    u"SHEET_NAME:S", u"VARIABLE_COUNT:1", u"=== 配方结束 ==="]
+
+        body = u"".join(fixtures.paragraph(fixtures.run(line))
+                        for line in section(u"甲", u"甲.xlsx", u"A")
+                        + section(u"乙", u"乙.xlsx", u"B"))
         self.build(body=body)
         with Document(self.docx) as doc:
             recipe = Recipe.parse(recipe_op.find_recipe_text(doc))
-        self.assertEqual(recipe.name, u"新配方")
-        self.assertEqual(recipe.excel_file, u"新的.xlsx")
+        self.assertEqual([kind for kind, _ in recipe.lines], ["TEXT", "VAR", "TEXT", "VAR"])
+        self.assertEqual([content for kind, content in recipe.lines if kind == "TEXT"],
+                         [u"A", u"B"])
+        self.assertEqual(recipe.excel_file, u"乙.xlsx",
+                         u"头部三项在全文里扫，后出现的覆盖先出现的（与宏一致）")
 
     def test_a_recipe_section_without_any_body_line_is_reported(self):
         """区间里光有头部字段、没有一行 `TEXT:`/`VAR:` → 多半是取错区间了，要说出来。"""
@@ -221,3 +235,48 @@ class TestLastRecipeWins(RebuildCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheRealDocumentShape(RebuildCase):
+    """用户 2026-09-22 给的金标准样本暴露的形态（`段落重配.docx` 的真实样子）：
+
+    配方正文在文档**开头**，中间又夹着一行 `=== 段落配方 [名] ===`（用户粘贴留下的），
+    三个头部字段与 `=== 配方结束 ===` 在它后面。之前"取最后一次出现"的启发式会刚好取到
+    那个只有头部、没有正文的残块 → 解析直接失败。
+
+    参考宏是**状态机**：一对 `开`…`闭` 之间的行才算正文，期间再出现开标记只是重新置位
+    （`段落重配.bas:219-229`）。外置工具没有选区，等价规则 = "整篇当选区"。
+    """
+
+    def body(self):
+        lines = ([u"=== 段落配方 [段落重配] ===", u"TEXT:一、量算", u"流域面积F=",
+                  u"VAR:1|数据表.xlsx!Sheet1!B2", u"TEXT:km2，干流长度L=",
+                  u"VAR:2|数据表.xlsx!Sheet1!B3", u"TEXT:m/m。", u"TEXT:h"]
+                 + [u"=== 段落配方 [段落重配] ===", u"", u"",
+                    u"EXCEL_FILE:数据表.xlsx", u"SHEET_NAME:Sheet1",
+                    u"VARIABLE_COUNT:2", u"=== 配方结束 ===", u"",
+                    u"=== 重建段落 ==="])
+        return u"".join(fixtures.paragraph(fixtures.run(line)) if line else u"<w:p/>"
+                        for line in lines)
+
+    def test_the_whole_span_is_taken_so_the_body_is_not_lost(self):
+        self.build(body=self.body())
+        with Document(self.docx) as doc:
+            recipe = Recipe.parse(recipe_op.find_recipe_text(doc))
+        self.assertEqual(recipe.variable_count, 2)
+        self.assertEqual([kind for kind, _ in recipe.lines],
+                         ["TEXT", "RAW", "VAR", "TEXT", "VAR", "TEXT", "TEXT"])
+
+    def test_the_first_title_wins(self):
+        self.build(body=self.body())
+        with Document(self.docx) as doc:
+            recipe = Recipe.parse(recipe_op.find_recipe_text(doc))
+        self.assertEqual(recipe.name, u"段落重配")
+
+    def test_the_span_starts_at_the_first_open_marker(self):
+        body = fixtures.paragraph(fixtures.run(u"前面还有无关正文")) + self.body()
+        self.build(body=body)
+        with Document(self.docx) as doc:
+            text = recipe_op.find_recipe_text(doc)
+        self.assertNotIn(u"无关正文", text)
+        self.assertTrue(text.startswith(u"=== 段落配方"))

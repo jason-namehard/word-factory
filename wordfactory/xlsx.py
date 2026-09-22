@@ -204,8 +204,12 @@ def _styles():
 
 
 def _escape(text):
-    return (text.replace(u"&", u"&amp;").replace(u"<", u"&lt;").replace(u">", u"&gt;")
+    # **CR 必须写成 `&#13;`**：XML 会把字面 CR 规范成 LF，而 Excel/宏写出来的单元格里
+    # 段落标记就是 CR（实测用户的金标准 `数据表.xlsx`：sharedStrings 里 34 个 `&#13;`）。
+    # 不这么写，"写进去的"与"读出来的"就不是同一串字符。
+    text = (text.replace(u"&", u"&amp;").replace(u"<", u"&lt;").replace(u">", u"&gt;")
             .replace(u'"', u"&quot;"))
+    return text.replace(u"\r", u"&#13;")
 
 
 def _column_width(text, minimum=8.0, maximum=60.0):
@@ -228,11 +232,8 @@ def write_workbook(path, sheet_name, rows, header=(u"项目", u"数值")):
     index = {}
 
     def sid(text):
-        # 单元格里的换行统一成 LF：XML 解析会把字面 CR 规范成 LF，写 CR 反而会让"写进去的"
-        # 与"读出来的"不一致；而 Excel 的单元格里换行本来就是 LF（配 wrapText 显示）。
-        # 参考宏的 A 列（前缀）里就带段落标记，走 Excel 时也是这个效果。
+        # 单元格文本**原样保留**（含 CR）—— 与 Excel/参考宏写出来的形态一致（见 `_escape`）。
         text = u"" if text is None else u"%s" % text
-        text = text.replace(u"\r\n", u"\n").replace(u"\r", u"\n")
         if text not in index:
             index[text] = len(strings)
             strings.append(text)

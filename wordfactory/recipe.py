@@ -62,12 +62,16 @@ class Recipe(object):
     """一份配方：头部三项 + 正文行序列。"""
 
     def __init__(self, excel_file=u"", sheet_name=u"", variable_count=0,
-                 name=u"", lines=None):
+                 name=u"", lines=None, warnings=None):
         self.excel_file = excel_file
         self.sheet_name = sheet_name
         self.variable_count = variable_count
         self.name = name                       # 只在标题行里有，Excel 里不存
-        self.lines = list(lines or [])         # [("TEXT", 内容) | ("VAR", 序号), …]
+        self.lines = list(lines or [])         # [("TEXT", 内容) | ("VAR", 序号) | ("RAW", 原文), …]
+        #: 可疑但不致命的地方（例如变量数与正文里的 `VAR:` 行数对不上）。
+        #: **不能直接报错**：参考宏遇到这种配方照样往下跑，多出来的变量补 `#数据缺失#`
+        #: （`段落重配.bas:256-262`），报错反而会挡住用户本来能用的配方。
+        self.warnings = list(warnings or [])
 
     # ---------------------------------------------------------------- 解析
     @classmethod
@@ -89,11 +93,13 @@ class Recipe(object):
                 value = line[len(HEAD_COUNT):].strip()
                 if _is_number(value):
                     variable_count = int(float(value))
-            # 区间
+            # 区间：**状态机**，与参考宏一致（`段落重配.bas:219-229`）。
+            # 期间再出现一个开标记只是重新置位；已经不看的行不受影响。
             if SECTION_OPEN in line:
                 in_section = True
-                match = re.search(u"\\[(.*?)\\]", line)
-                name = match.group(1).strip() if match else u""
+                if not name:
+                    match = re.search(u"\\[(.*?)\\]", line)
+                    name = match.group(1).strip() if match else u""
                 continue
             if SECTION_CLOSE in line:
                 in_section = False
@@ -119,15 +125,17 @@ class Recipe(object):
             problems.append(u"缺少 SHEET_NAME:")
         if variable_count <= 0:
             problems.append(u"VARIABLE_COUNT 不是正数（%r）" % variable_count)
-        body_vars = len([1 for kind, _ in body if kind == "VAR"])
-        if body_vars and body_vars != variable_count:
-            problems.append(u"变量数对不上：头部说 %d 个，正文里有 %d 个 VAR: 行"
-                            % (variable_count, body_vars))
         if not body:
             problems.append(u"配方区间里没有正文行（TEXT:/VAR:）")
         if problems:
             raise RecipeError(u"配方解析失败：\n  - " + u"\n  - ".join(problems))
-        return cls(excel_file, sheet_name, variable_count, name, body)
+        warnings = []
+        body_vars = len([1 for kind, _ in body if kind == "VAR"])
+        if body_vars != variable_count:
+            warnings.append(u"变量数对不上：头部说 %d 个，正文里有 %d 个 `VAR:` 行 —— "
+                            u"多出来的变量会补 `#数据缺失#`（与参考宏一致）"
+                            % (variable_count, body_vars))
+        return cls(excel_file, sheet_name, variable_count, name, body, warnings)
 
     # ---------------------------------------------------------------- 还原
     def reconstruct(self, values):
