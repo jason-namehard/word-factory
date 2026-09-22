@@ -1,0 +1,175 @@
+{
+  "schema": 1,
+  "name": "表格款式（外置规则；可改可加）",
+  "styles": {
+    "三线表": {
+      "note": "报告里最常用的学术款：上下粗线 + 表头下细线，无竖线",
+      "table_align": "center",
+      "table_layout": "fixed",
+      "borders": {
+        "top": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "bottom": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "left": {
+          "val": "none",
+          "sz": 0,
+          "color": "auto"
+        },
+        "right": {
+          "val": "none",
+          "sz": 0,
+          "color": "auto"
+        },
+        "insideH": {
+          "val": "none",
+          "sz": 0,
+          "color": "auto"
+        },
+        "insideV": {
+          "val": "none",
+          "sz": 0,
+          "color": "auto"
+        },
+        "header_bottom": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        }
+      },
+      "cell_margins": {
+        "top": 40,
+        "left": 80,
+        "bottom": 40,
+        "right": 80
+      },
+      "v_align": "center",
+      "header": {
+        "bold": true,
+        "align": "center",
+        "repeat": true
+      },
+      "body": {
+        "align": null
+      },
+      "column_widths": "keep"
+    },
+    "全框线": {
+      "note": "每格都有细框线（数据表常用），表头加粗居中并跨页重复",
+      "table_align": "center",
+      "table_layout": "fixed",
+      "borders": {
+        "top": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        },
+        "bottom": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        },
+        "left": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        },
+        "right": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        },
+        "insideH": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        },
+        "insideV": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        }
+      },
+      "cell_margins": {
+        "top": 40,
+        "left": 80,
+        "bottom": 40,
+        "right": 80
+      },
+      "v_align": "center",
+      "header": {
+        "bold": true,
+        "align": "center",
+        "repeat": true
+      },
+      "body": {
+        "align": null
+      },
+      "column_widths": "keep"
+    },
+    "三线表_等宽": {
+      "note": "三线表 + 各列等宽（列宽不均匀时用它救一下）",
+      "table_align": "center",
+      "table_layout": "fixed",
+      "borders": {
+        "top": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "bottom": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "left": {
+          "val": "none",
+          "sz": 0,
+          "color": "auto"
+        },
+        "right": {
+          "val": "none",
+          "sz": 0,
+          "color": "auto"
+        },
+        "insideH": {
+          "val": "none",
+          "sz": 0,
+          "color": "auto"
+        },
+        "insideV": {
+          "val": "none",
+          "sz": 0,
+          "color": "auto"
+        },
+        "header_bottom": {
+          "val": "single",
+          "sz": 6,
+          "color": "000000"
+        }
+      },
+      "cell_margins": {
+        "top": 40,
+        "left": 80,
+        "bottom": 40,
+        "right": 80
+      },
+      "v_align": "center",
+      "header": {
+        "bold": true,
+        "align": "center",
+        "repeat": true
+      },
+      "body": {
+        "align": null
+      },
+      "column_widths": "equal"
+    }
+  }
+}

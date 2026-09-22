@@ -229,9 +229,39 @@ python -m wordfactory.cli tableclean "某文档.docx" --level 1 --outdir out
 > `防洪标\n准`、`控制泄\n洪`、`防洪高水\n位`、`大\n坝`、`大坝右侧/开敞\n式`（×2）、
 > `实测库容\n（万m³）`（×3）。**动手前先看清楚这些要不要保留。**
 
+### 表格款式（`tablestyle`）—— 外置款式文件 + 采集 + 预览
+
+参考宏里**没有**这个功能（12 个宏都不管表格长相）。用户 2026-09-22 提出：「有时候 word 里的表格排布很丑，
+我们的 XML 框架能否有某种定义表格款式的方式」+「保存已经调好的设置（调一张满意的表时间成本高）+ 预览」。
+
+```bash
+python -m wordfactory.cli tablestyle init                    # 写出 rules/tablestyle.json（3 个内置款式）
+python -m wordfactory.cli tablestyle show                    # 看款式
+python -m wordfactory.cli tablestyle preview --out 预览.docx # **预览**：每种款式各渲染 3 张表，用 Word 挑
+python -m wordfactory.cli tablestyle apply 报告.docx --style 三线表 --tables all --outdir out --dry-run
+python -m wordfactory.cli tablestyle capture 报告.docx --table 3 --name 我调的 --out rules/tablestyle.json
+```
+
+- **款式外置**：`rules/tablestyle.json` 里一个款式一组参数 —— 框线（含"三线表"的表头下细线）、
+  单元格内边距、垂直居中、表头（加粗/居中/跨页重复）、列宽策略（keep/equal/content）、表格对齐与布局、
+  字号字体。键名写错、线型非法、对齐值非法都会在 `show` 时被点出来。
+- **采集（`capture`）**：把**你已经调好的那张表**现在长什么样读出来，存成一个命名款式 →
+  以后 `apply --style 名字` 复用到别的文档。这就是"调一次、以后不再调"。
+- **预览（`preview`）**：造一份**新建的**小文档，每种候选款式各渲染 3 张有代表性的表
+  （两列表头含单位换行 / 多列且列宽不均 / 长文本单元格），每张都标着款式名 —— 你用 Word 打开挑一个。
+  预览与真跑**走同一条套用代码**（不是另写一套渲染），所以"预览里长这样"就等于"套上去长这样"。
+- 单位照 OOXML：框线 `w:sz` 是 **1/8 磅**、内边距是 **dxa（1/20 磅）**、字号是**半磅**。
+- 已知边界：**"最佳列宽"取决于渲染器**，`column_widths=content` 只能按内容估算（与 xlsx 列宽估算同一路子）。
+
+> 实测（你的报告，12 张表）：`apply --style 三线表` 命中 **166 处**（框线 12、内边距 12、垂直居中 554 格、
+> 表头下框线 43、表头跨页重复 9——原件已有 29 个、只补缺的）；**只重写 `word/document.xml`**，
+> 其余 41 个部件逐字节未变；**791 段文字一字未动**；`tblPr` 子元素顺序全部合法（Word 才不会嫌文件坏）。
+> 样例：[预览](E:\Zspace\output60922_wordfactory_表格款式_预览.docx)、
+> [三线表套用样例](E:\Zspace\output60922_wordfactory_表格款式_三线表样例.docx)
+
 ## 状态
 
-**M1 内核 + M3a 题注统一 + M3b 段落配方已落地**（含两版输出、体检、与宏产出的真实文件比对通过）；M2 其余宏未开始。
+**M1 内核 + M3a 题注统一 + M3b 段落配方已落地**（含两版输出、体检、与宏产出的真实文件比对通过）；**M2 已做「去无意义空格」**，**表格款式（外置规则 + 采集 + 预览）已落地**；M2 其余两个宏与 GUI 未开始。
 
 - [x] 仓库与参考件入库
 - [x] `docs/REFERENCE-MACROS.md`（12 个参考宏的逐宏规格）

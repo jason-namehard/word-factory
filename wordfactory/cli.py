@@ -24,6 +24,8 @@ DEFAULT_RULES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspat
                                   "rules", "subscripts.json")
 DEFAULT_FONTS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                   "rules", "fonts.json")
+DEFAULT_STYLES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                    "rules", "tablestyle.json")
 
 
 def emit_json(payload):
@@ -168,7 +170,26 @@ def build_parser():
     tclean.add_argument("--out", default=None, help=u"输出文件")
     tclean.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
     tclean.add_argument("--dry-run", action="store_true", help=u"只报会改多少，不写文件")
+    _add_tablestyle_parser(sub)
     return parser
+
+
+def _add_tablestyle_parser(sub):
+    """表格款式：四个动作一个入口（款式文件是外置的，所以 show/init 也要有）。"""
+    tstyle = sub.add_parser("tablestyle",
+                            help=u"表格款式（外置规则）：套用 / 采集你调好的表 / 预览")
+    tstyle.add_argument("action", choices=("init", "show", "capture", "preview", "apply"),
+                        help=u"init 写默认款式；show 看款式；capture 采集；preview 预览；apply 套用")
+    tstyle.add_argument("path", nargs="?", help=u"capture / apply 时要处理的 .docx")
+    tstyle.add_argument("--styles", default=DEFAULT_STYLES_PATH, help=u"款式文件")
+    tstyle.add_argument("--style", default=None, help=u"款式名（preview 可给多个，逗号分隔）")
+    tstyle.add_argument("--table", default=None, help=u"capture 时采集第几张表（默认第 1 张）")
+    tstyle.add_argument("--name", default=None, help=u"capture 时存成什么名字")
+    tstyle.add_argument("--tables", default="all", help=u"apply 作用范围：all / 3 / 1,4-6")
+    tstyle.add_argument("--out", default=None, help=u"输出文件（capture/preview/apply 用）")
+    tstyle.add_argument("--outdir", default=None, help=u"输出目录（apply 用）")
+    tstyle.add_argument("--force", action="store_true", help=u"init 时覆盖已有款式文件")
+    tstyle.add_argument("--dry-run", action="store_true", help=u"apply 时只报会改多少")
 
 
 def cmd_inspect(args):
@@ -586,6 +607,114 @@ def cmd_tableclean(args):
         return (report, u"\n".join(lines))
 
 
+def cmd_tablestyle(args):
+    """表格款式：外置款式文件 + 套用 + 采集（把你调好的表存成款式）+ 预览。"""
+    from . import tablestyle as ts
+    from .document import Document
+
+    style_set = ts.StyleSet.load(args.styles)
+    problems = style_set.check()
+    if problems:
+        raise RuleError(u"款式文件有问题：\n  - " + u"\n  - ".join(problems))
+
+    if args.action == "init":
+        path = os.path.abspath(args.styles)
+        if os.path.exists(path) and not args.force:
+            raise RuleError(u"%s 已经存在；要覆盖请加 --force" % path)
+        ts.StyleSet(ts.DEFAULT_STYLES).save(path)
+        return ({"wrote": path, "styles": len(ts.DEFAULT_STYLES["styles"])},
+                u"已写出 %s（%d 个内置款式：%s）"
+                % (path, len(ts.DEFAULT_STYLES["styles"]),
+                   u"、".join(ts.DEFAULT_STYLES["styles"])))
+
+    if args.action == "show":
+        lines = [u"款式文件：%s" % (style_set.path or u"内置默认（%s 不存在）" % args.styles),
+                 u"共 %d 个款式：" % len(style_set.styles)]
+        for style in style_set.styles.values():
+            lines.append(u"  【%s】%s" % (style.name, style.note or u""))
+            lines.append(u"      框线：%s"
+                         % (u"、".join(u"%s=%s" % (edge, spec.get("val"))
+                                      for edge, spec in style.borders.items()) or u"（不动）"))
+            lines.append(u"      内边距：%s ｜ 垂直居中：%s ｜ 列宽：%s ｜ 表格对齐：%s"
+                         % (u",".join(u"%s:%s" % kv for kv in sorted(style.cell_margins.items()))
+                            or u"（不动）", style.v_align or u"（不动）",
+                            style.column_widths or u"（不动）",
+                            style.table_align or u"（不动）"))
+            lines.append(u"      表头：%s"
+                         % (u",".join(u"%s=%s" % kv for kv in style.header.items()) or u"（不动）"))
+        return ({"styles": list(style_set.styles), "path": style_set.path}, u"\n".join(lines))
+
+    if args.action == "capture":
+        if not args.out:
+            raise RuleError(u"要保存款式就得给 --out（写款式文件；不会动输入文档）")
+        with Document(args.path) as doc:
+            data = ts.capture(doc, int(args.table or 1))
+        name = args.name or u"款式%s" % (args.table or 1)
+        target = ts.StyleSet.load(args.out) if os.path.exists(args.out) else ts.StyleSet()
+        target.put(name, data)
+        target.save(os.path.abspath(args.out))
+        lines = [u"已把 %s 的第 %s 张表**现在的样子**存成款式【%s】"
+                 % (doc.path, args.table or 1, name),
+                 u"写出：%s（共 %d 个款式）" % (os.path.abspath(args.out), len(target.styles)),
+                 u""]
+        for key, value in data.items():
+            lines.append(u"  %-22s %s" % (key, value if not isinstance(value, dict)
+                                          else u", ".join(u"%s=%s" % kv for kv in value.items())))
+        lines.append(u"")
+        lines.append(u"以后 `tablestyle apply --style %s` 就能把这张表的样子复用到别的文档。" % name)
+        return ({"captured": data, "style": name, "out": os.path.abspath(args.out)},
+                u"\n".join(lines))
+
+    if args.action == "preview":
+        names = [name.strip() for name in (args.style or u"").split(u",") if name.strip()]
+        styles = [style_set.get(name) for name in names] if names else list(style_set.styles.values())
+        if not args.out:
+            raise RuleError(u"预览要写文件：请给 --out（例如 preview.docx），然后用 Word 打开挑")
+        path = ts.build_preview(os.path.abspath(args.out), styles)
+        lines = [u"预览文档：%s" % path,
+                 u"里面有 %d 种款式 × %d 种代表性表格（每张表都标了款式名）："
+                 % (len(styles), len(ts.PREVIEW_SHEETS))]
+        for style in styles:
+            lines.append(u"  【%s】%s" % (style.name, style.note or u""))
+        lines.append(u"")
+        lines.append(u"用 Word 打开看一眼，选中哪个就把名字给 `tablestyle apply --style 名字`。")
+        lines.append(u"注意：预览只是「样子参考」—— 真正的高度/列宽由 Word 排版决定，我们只按内容估。")
+        return ({"preview": path, "styles": [style.name for style in styles]}, u"\n".join(lines))
+
+    if args.action == "apply":
+        if not args.out and not args.outdir and not args.dry_run:
+            raise RuleError(u"要写结果就得给 --out 文件或 --outdir 目录"
+                            u"（本工具**不会**覆盖原文件）")
+        style = style_set.get(args.style)
+        with Document(args.path) as doc:
+            report = ts.apply(doc, style, selector=args.tables, dry_run=args.dry_run)
+            out_path = None
+            if not args.dry_run and report["total"]:
+                if args.out:
+                    out_path = doc.save(os.path.abspath(args.out))
+                else:
+                    out_dir = os.path.abspath(args.outdir)
+                    if not os.path.isdir(out_dir):
+                        os.makedirs(out_dir)
+                    out_path = doc.save(os.path.join(out_dir, os.path.basename(doc.path)))
+            lines = [u"文件：%s" % doc.path,
+                     u"款式【%s】：%s" % (style.name, style.note or u""),
+                     u"表格 %d 张，选中 %d 张，改了 %d 张（共 %d 处）"
+                     % (report["tables"], report["selected"], report["changed_tables"],
+                        report["total"])]
+            for key in sorted(report["changes"]):
+                lines.append(u"    %-14s %d 处" % (key, report["changes"][key]))
+            if args.dry_run:
+                lines.insert(0, u"--dry-run：一个字节都没写")
+            elif out_path:
+                lines.insert(0, u"已写出：%s" % out_path)
+            else:
+                lines.insert(0, u"没有需要改的地方（这些表已经是这个样子）")
+            return (dict(report, out=out_path), u"\n".join(lines))
+
+    raise RuleError(u"未知的 tablestyle 动作：%r" % args.action)
+
+
 def cmd_audit(args):
     """体检：不信工具的报告，重新打开文件按继承链算一遍。"""
     from . import audit as audit_mod
@@ -622,6 +751,8 @@ def main(argv=None):
             payload, human = cmd_recipe(args)
         elif args.command == "tableclean":
             payload, human = cmd_tableclean(args)
+        elif args.command == "tablestyle":
+            payload, human = cmd_tablestyle(args)
         else:
             log(u"未知命令：%s" % args.command)
             return 2
