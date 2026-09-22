@@ -184,39 +184,72 @@ class TestDryRunAndIdempotence(FontCase):
 
 
 class TestWhatDefaultMayTouch(FontCase):
-    """default 的边界：只管中文属性、符号字体永不碰（这两条都是实测逼出来的）。"""
+    """用户 2026-09-21 拍的口径：**中文留 宋体/黑体/楷体，其余中文兜成宋体；
+    西文统一 Times New Roman**；符号字体永不碰。这几条都是业务规矩，必须有测试钉住。"""
 
-    def test_a_chinese_font_outside_the_list_becomes_the_default(self):
-        body = fixtures.paragraph(fixtures.run(u"楷体字", rfonts={"eastAsia": u"楷体"}))
+    def test_the_three_kept_chinese_fonts_are_left_alone(self):
+        for font in (u"宋体", u"黑体", u"楷体"):
+            report, out = self.normalize(
+                self.build(fixtures.paragraph(fixtures.run(u"字", rfonts={"eastAsia": font})),
+                           dirty=False),
+                out=os.path.join(self.dir, u"%s.docx" % font))
+            self.assertEqual(report["fonts"], {}, u"%s 该原样保留" % font)
+            with self.open(out) as doc:
+                run = list(doc.part().iter(qn("w:r")))[0]
+                self.assertEqual(self.fonts_in(run).get("w:eastAsia"), font)
+
+    def test_an_unknown_chinese_font_becomes_songti(self):
+        body = fixtures.paragraph(fixtures.run(u"隶书字", rfonts={"eastAsia": u"隶书"}))
         report, out = self.normalize(self.build(body, dirty=False))
-        self.assertEqual(report["fonts"], {u"楷体 → 宋体（eastAsia）": 1})
+        self.assertEqual(report["fonts"], {u"隶书 → 宋体（eastAsia）": 1})
         with self.open(out) as doc:
             run = list(doc.part().iter(qn("w:r")))[0]
             self.assertEqual(self.fonts_in(run).get("w:eastAsia"), SONG)
 
-    def test_a_western_font_is_left_alone_by_default(self):
-        """实测：这份文档 w:cs 上有 Tahoma、样式表里有 Arial。西文不许被 default 顺手换掉。"""
+    def test_a_fangsong_gb2312_goes_to_songti(self):
+        """用户点名的 `仿宋GB2312` 与 `仿宋` 一样换成宋体（四个属性都换）。"""
+        body = fixtures.paragraph(fixtures.run(
+            u"正文", rfonts={"ascii": u"仿宋_GB2312", "eastAsia": u"仿宋_GB2312"}))
+        report, _ = self.normalize(self.build(body, dirty=False))
+        self.assertEqual(sorted(report["fonts"]),
+                         [u"仿宋_GB2312 → 宋体（ascii）", u"仿宋_GB2312 → 宋体（eastAsia）"])
+
+    def test_western_fonts_are_unified_to_times_new_roman(self):
+        """实测：这份文档 w:cs 上有 Tahoma、样式表里有 Arial —— 都统一成 Times New Roman。"""
         body = fixtures.paragraph(fixtures.run(
             u"Latin", rfonts={"ascii": "Arial", "hAnsi": "Arial", "cs": "Tahoma",
                               "eastAsia": SONG}))
         report, out = self.normalize(self.build(body, dirty=False))
-        self.assertEqual(report["fonts"], {}, u"西文属性不归 default 管")
+        self.assertEqual(sorted(report["fonts"]),
+                         [u"Arial → Times New Roman（ascii）", u"Arial → Times New Roman（hAnsi）",
+                          u"Tahoma → Times New Roman（cs）"])
         with self.open(out) as doc:
             run = list(doc.part().iter(qn("w:r")))[0]
-            self.assertEqual(self.fonts_in(run).get("w:cs"), "Tahoma")
+            self.assertEqual(self.fonts_in(run).get("w:cs"), "Times New Roman")
 
-    def test_default_scope_all_does_replace_western_fonts(self):
-        """想连西文一起统一，就把 default_scope 改成 all（它是个开关，不是写死的）。"""
-        rule_set = FontRuleSet(dict(DEFAULT_FONTS, default_scope=u"all"))
+    def test_the_western_default_is_not_songti(self):
+        """西文兜成宋体是错的（宋体不是西文字体）—— 兜的是 default_latin。"""
+        rule_set = FontRuleSet(DEFAULT_FONTS)
+        self.assertEqual(rule_set.target_for("Tahoma", "w:cs"), "Times New Roman")
+        self.assertEqual(rule_set.target_for(u"隶书", "w:eastAsia"), SONG)
+
+    def test_the_switch_can_keep_western_fonts_alone(self):
+        """`default_scope="eastAsia"` 是个开关：一改回，西文一概不碰（中文照旧）。"""
+        rule_set = FontRuleSet(dict(DEFAULT_FONTS, default_scope=u"eastAsia"))
         body = fixtures.paragraph(fixtures.run(u"Latin", rfonts={"cs": "Tahoma"}))
         path = self.build(body, dirty=False)
         with self.open(path) as doc:
             report = normalize(doc, rule_set)
             out = doc.save(os.path.join(self.dir, u"出.docx"))
-        self.assertEqual(report["fonts"], {u"Tahoma → 宋体（cs）": 1})
+        self.assertEqual(report["fonts"], {}, u"scope=eastAsia 时西文不动")
         with self.open(out) as doc:
             run = list(doc.part().iter(qn("w:r")))[0]
-            self.assertEqual(self.fonts_in(run).get("w:cs"), SONG)
+            self.assertEqual(self.fonts_in(run).get("w:cs"), "Tahoma")
+
+    def test_all_scope_without_a_latin_default_is_refused(self):
+        """`scope=all` 却没给 `default_latin` → 西文没有兜底，应当在 check() 就报出来。"""
+        problems = FontRuleSet(dict(DEFAULT_FONTS, default_latin=None)).check()
+        self.assertTrue([p for p in problems if u"default_latin" in p], problems)
 
     def test_symbol_fonts_are_never_touched_even_with_scope_all(self):
         """符号字体换成宋体 = 掉字形（✔ ➜ ★）。就算 default_scope=all 也不许碰。"""

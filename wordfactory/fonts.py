@@ -27,10 +27,10 @@
 3. **继承来的字体**。run 自己不写字体时，字体来自字符样式 → 段落样式 → `docDefaults`。
    所以样式表（`word/styles.xml`）和编号表（`word/numbering.xml`）里的字体也得一起换
    （实测：这份文档的字符样式 `26` 就是仿宋；只改正文，继承它的文字照样是仿宋）。
-4. **default 只管中文字体**（`default_scope="eastAsia"`，可改成 `"all"`）。实测这份文档里
-   `w:cs` 上有 Tahoma、样式表里有 Arial、字体表里有 Symbol/Wingdings——那些是西文与符号字体，
-   一股脑换成宋体只会把版面搞坏（符号字体换成宋体，✔ ➜ ★ 会掉字形）。
-   `replace` 里的映射是**明确指定**的，四个属性都换；`default` 只兜中文字体。
+4. **中文字体与西文字体各有各的兜底**（用户 2026-09-21 拍定）：中文留 宋体/黑体/楷体，
+   仿宋（含 `_GB2312`）→ 宋体，其余中文兜成 宋体；**西文统一 Times New Roman**（`default_latin`）。
+   两个都走 `default_scope`：设成 `"eastAsia"` 就只动中文、西文一概不碰。
+   符号字体（Symbol/Wingdings…）**永不触碰**：它们靠"哪个码位"出字形，换成 TNR/宋体后 ✔ ➜ ★ 会掉字形。
 """
 
 import io
@@ -52,19 +52,22 @@ SYMBOL_FONTS = [u"Symbol", u"Wingdings", u"Wingdings 2", u"Wingdings 3", u"Webdi
 
 DEFAULT_FONTS = {
     "schema": 1,
-    "name": u"字体规范化（keep/replace 取自参考宏 规划报告一键宏.bas:71 —— 需用户确认）",
-    "keep": [u"宋体", u"黑体", u"Times New Roman"],
+    "name": u"字体规范化（用户 2026-09-21 拍定：中文留 宋体/黑体/楷体，仿宋→宋体；西文统一 Times New Roman）",
+    "keep": [u"宋体", u"黑体", u"楷体", u"Times New Roman"],
     "replace": {u"仿宋": u"宋体", u"仿宋_GB2312": u"宋体"},
     "default": u"宋体",
-    #: default 管哪些属性。``"eastAsia"``（默认）= 只管中文字体；
-    #: ``"all"`` = 四个属性都换（西文也会被换成 default，慎用）。
-    "default_scope": u"eastAsia",
+    #: default 管哪些属性。``"eastAsia"`` = 只管中文字体；
+    #: ``"all"``（用户 2026-09-21 选这个）= 西文也统一，换成 :data:`default_latin`。
+    "default_scope": u"all",
+    #: 西文属性（ascii/hAnsi/cs）的兜底字体。**西文不是中文，不能兜成宋体** ——
+    #: 用户的要求是"西文统一为 Times New Roman"。
+    "default_latin": u"Times New Roman",
     "symbol_fonts": SYMBOL_FONTS,
     "black_all": True,
     "remove_highlight": True,
-    "note": (u"keep=原样保留；replace=明确映射（四个属性都换）；default=其余中文字体统一成它；"
-             u"default_scope 决定 default 管不管西文属性；symbol_fonts 永不触碰。"
-             u"改完用 wordfactory audit 复核（末行 AUDIT=PASS）。"),
+    "note": (u"keep=原样保留；replace=明确映射（四个属性都换）；default=其余**中文**字体统一成它；"
+             u"default_latin=其余**西文**字体统一成它（default_scope=\"all\" 时才生效）；"
+             u"symbol_fonts 永不触碰。改完用 wordfactory audit 复核（末行 AUDIT=PASS）。"),
 }
 
 BLACK = u"000000"
@@ -80,6 +83,7 @@ class FontRuleSet(object):
         self.replace = dict(data.get("replace") or {})
         self.default = data.get("default")
         self.default_scope = data.get("default_scope") or u"eastAsia"
+        self.default_latin = data.get("default_latin")
         self.symbol_fonts = set(data.get("symbol_fonts") or SYMBOL_FONTS)
         self.black_all = bool(data.get("black_all", True))
         self.remove_highlight = bool(data.get("remove_highlight", True))
@@ -106,9 +110,9 @@ class FontRuleSet(object):
         """这个字体该换成什么？``None`` = 不动。
 
         ``attr`` 是它在 `w:rFonts` 的哪个属性上（``w:eastAsia`` = 中文字体）。
-        区分它是因为 **default 默认只管中文字体**：实测这份文档里 `w:cs` 上有 Tahoma、
-        样式表里有 Arial，那都是西文/符号字体，一股脑换成宋体只会把版面搞坏
-        （符号字体尤其不能换 —— 见 :data:`SYMBOL_FONTS`）。
+        **中文字体与西文字体各有各的兜底**：中文兜成 ``default``（宋体），
+        西文兜成 ``default_latin``（Times New Roman）—— 用户 2026-09-21 拍的口径是
+        "西文统一为 Times New Roman"，把西文也兜成宋体是错的。
         """
         if not font_name:
             return None
@@ -118,17 +122,24 @@ class FontRuleSet(object):
             return None
         if font_name in self.replace:
             return self.replace[font_name] or None
-        if self.default_scope != u"all" and attr and attr != EAST_ASIA:
-            return None                                  # default 只管中文属性
-        return self.default or None
+        if attr == EAST_ASIA:
+            return self.default or None
+        if self.default_scope != u"all":
+            return None                                  # 只在"管西文"时才动西文属性
+        return self.default_latin or None
 
     def check(self):
         problems = []
         if not isinstance(self.default, (str, type(None))):
             problems.append(u"'default' 必须是字符串或 null")
+        if not isinstance(self.default_latin, (str, type(None))):
+            problems.append(u"'default_latin' 必须是字符串或 null")
         if self.default_scope not in (u"eastAsia", u"all"):
             problems.append(u"'default_scope' 只能是 \"eastAsia\" 或 \"all\"，现在是 %r"
                             % self.default_scope)
+        if self.default_scope == u"all" and not self.default_latin:
+            problems.append(u"default_scope=\"all\" 但没给 default_latin —— "
+                            u"西文字体会找不到兜底，请补上或把 scope 改回 \"eastAsia\"")
         for key, value in self.replace.items():
             value_ok = value is None or isinstance(value, str)
             if not value_ok:

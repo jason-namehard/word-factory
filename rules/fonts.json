@@ -1,9 +1,10 @@
 {
   "schema": 1,
-  "name": "字体规范化（keep/replace 取自参考宏 规划报告一键宏.bas:71 —— 需用户确认）",
+  "name": "字体规范化（用户 2026-09-21 拍定：中文留 宋体/黑体/楷体，仿宋→宋体；西文统一 Times New Roman）",
   "keep": [
     "宋体",
     "黑体",
+    "楷体",
     "Times New Roman"
   ],
   "replace": {
@@ -11,7 +12,8 @@
     "仿宋_GB2312": "宋体"
   },
   "default": "宋体",
-  "default_scope": "eastAsia",
+  "default_scope": "all",
+  "default_latin": "Times New Roman",
   "symbol_fonts": [
     "Symbol",
     "Wingdings",
@@ -23,5 +25,5 @@
   ],
   "black_all": true,
   "remove_highlight": true,
-  "note": "keep=原样保留；replace=明确映射（四个属性都换）；default=其余中文字体统一成它；default_scope 决定 default 管不管西文属性；symbol_fonts 永不触碰。改完用 wordfactory audit 复核（末行 AUDIT=PASS）。"
+  "note": "keep=原样保留；replace=明确映射（四个属性都换）；default=其余**中文**字体统一成它；default_latin=其余**西文**字体统一成它（default_scope=\"all\" 时才生效）；symbol_fonts 永不触碰。改完用 wordfactory audit 复核（末行 AUDIT=PASS）。"
 }

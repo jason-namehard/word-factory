@@ -366,15 +366,17 @@ def cmd_fonts(args):
              u"  replace（明确换掉）   ：%s" % (u"、".join(
                  u"%s→%s" % (k, v) for k, v in sorted(rule_set.replace.items())) or u"（无）"),
              u"  default（其余中文字体）：%s" % (rule_set.default or u"（无 → 不动）"),
+             u"  default_latin（西文）：%s" % (rule_set.default_latin or u"（无 → 西文不动）"),
              u"  default_scope        ：%s（%s）"
              % (rule_set.default_scope,
-                u"只管中文字体（eastAsia）" if rule_set.default_scope != u"all"
-                else u"四个属性都管，西文也会被换掉"),
+                u"只管中文字体（西文一概不碰）" if rule_set.default_scope != u"all"
+                else u"中文字体与西文字体都统一"),
              u"  symbol_fonts（永不碰） ：%s" % u"、".join(sorted(rule_set.symbol_fonts)),
              u"  black_all            ：%s" % rule_set.black_all,
              u"  remove_highlight     ：%s" % rule_set.remove_highlight]
     return ({"fonts": args.fonts, "keep": sorted(rule_set.keep),
              "replace": rule_set.replace, "default": rule_set.default,
+             "default_latin": rule_set.default_latin,
              "default_scope": rule_set.default_scope,
              "symbol_fonts": sorted(rule_set.symbol_fonts),
              "black_all": rule_set.black_all, "remove_highlight": rule_set.remove_highlight},

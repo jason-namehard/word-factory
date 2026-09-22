@@ -137,24 +137,29 @@ python -m wordfactory.cli audit "某文档.docx"     # 末行 AUDIT=PASS / AUDIT
 
 ```jsonc
 {
-  "keep": ["宋体", "黑体", "Times New Roman"],          // 原样保留
-  "replace": {"仿宋": "宋体", "仿宋_GB2312": "宋体"},    // 明确映射（四个属性都换）
-  "default": "宋体",                                   // 其余**中文字体**统一成它
-  "default_scope": "eastAsia",                         // 默认只管中文字体；改 "all" 则西文也换
+  "keep": ["宋体", "黑体", "楷体", "Times New Roman"],   // 原样保留
+  "replace": {"仿宋": "宋体", "仿宋_GB2312": "宋体"},     // 明确映射（四个属性都换）
+  "default": "宋体",                                    // 其余**中文**字体统一成它
+  "default_latin": "Times New Roman",                   // 其余**西文**字体统一成它
+  "default_scope": "all",                               // all=西文也统一；eastAsia=西文一概不碰
   "symbol_fonts": ["Symbol", "Wingdings", "Webdings", "Marlett", "ZapfDingbats", ...],  // 永不触碰
   "black_all": true, "remove_highlight": true
 }
 ```
 
-三条口径（都是实测逼出来的，改了会影响结果）：
+**现口径是用户 2026-09-21 拍的**（原话：「西文统一为 Times new roman，中文常见的几种基本都是
+宋体、仿宋GB2312、黑体、楷体」）：中文留 宋体/黑体/楷体、仿宋（含 `_GB2312`）→ 宋体、其余中文兜成宋体；
+西文统一 Times New Roman；符号字体永不碰。
+
+三条实现口径（都是实测逼出来的，改了会影响结果）：
 
 1. **`w:rFonts` 有四个属性**（`ascii`/`hAnsi`/`eastAsia`/`cs`），四个都换 ——
    只换两个，实测还会剩 738 处旧字体。
 2. **样式表与编号表也要换**：run 自己不写字体时，字体是**继承**来的
    （实测这份文档的字符样式 `26` 就是仿宋，只改正文会漏）。
-3. **`default` 默认只管中文字体，且符号字体永不碰** —— 这份文档 `w:cs` 上有 Tahoma、样式表里有 Arial、
-   字体表里有 Wingdings/Symbol；一股脑换成宋体只会把西文与符号版面搞坏。
-   > 现默认值 `仿宋→宋体`（keep/replace）取自参考宏 `规划报告一键宏.bas:71`，**仍需你确认**（`PLAN.md` §5 第 6 条）。
+3. **中文与西文各有各的兜底，且符号字体永不碰** —— 西文兜成宋体是错的（宋体不是西文字体）；
+   符号字体（Symbol/Wingdings）换成 TNR/宋体后 ✔ ➜ ★ 会掉字形。
+   > 实测（这份文档）：仿宋 → 宋体 1729 处、Arial → Times New Roman 18 处、Tahoma → Times New Roman 12 处。
 
 ## 状态
 
@@ -171,7 +176,7 @@ python -m wordfactory.cli audit "某文档.docx"     # 末行 AUDIT=PASS / AUDIT
       791 段里只有 17 段（12 表 + 5 图）文字有变，且差异**只在空格上**；其余 39~41 个部件逐字节未变
 - [x] **两版输出**：验证版标蓝（蓝 run 18 个 = 我标的 17 + 原件本来有的 1）/ 正式版通体黑
 - [x] **`audit` 体检**：独立复算，正式版输出 `AUDIT=PASS`（生效字体里没有不合格的）
-- [ ] **待你确认**：字体规则的 keep/replace/default 口径（`PLAN.md` §5 第 6 条）
+- [x] **字体口径已由用户拍定**（2026-09-21）：中文留 宋体/黑体/楷体、仿宋→宋体；西文统一 Times New Roman
 - [ ] M3b：段落配方生成 / 段落重配（读写 `.xlsx`）
 - [ ] M2：其余宏（格式规范化 / 去无意义空格 / 特殊字符替换）
 - [ ] M4：配方编排（选定 + 排序 + 一键批量）+ 改动报告 + GUI
