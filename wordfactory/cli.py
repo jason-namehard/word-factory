@@ -135,6 +135,24 @@ def build_parser():
     rbuild.add_argument("--data-dir", default=None, help=u"去哪个目录找数据表（批量时用）")
     rbuild.add_argument("--out", default=None, help=u"输出文件")
     rbuild.add_argument("--dry-run", action="store_true", help=u"只演练，不写文件")
+    rgen = recipe_sub.add_parser(
+        "gen", help=u"生成配方：识别高亮（或占位符）→ 写 .xlsx + 把配方追加到文档末尾")
+    rgen.add_argument("path", help=u"要处理的 .docx")
+    rgen.add_argument("--mode", choices=("highlight", "chars"), default="highlight",
+                      help=u"highlight=所有高亮片段算变量（默认）；chars=按占位符字符串算")
+    rgen.add_argument("--char", default=None, help=u"模式 chars 的占位符（如 xx）")
+    rgen.add_argument("--name", default=None, help=u"配方名（写进标题行）")
+    rgen.add_argument("--excel-file", dest="excel_file", default=None,
+                      help=u"数据表文件名（默认 数据表.xlsx，会写进配方）")
+    rgen.add_argument("--sheet", default=None, help=u"工作表名（默认 Sheet1）")
+    rgen.add_argument("--xlsx", default=None, help=u"数据表写到哪（默认与输入文档同目录）")
+    rgen.add_argument("--out", default=None, help=u"输出文档（默认与输入同目录加 _配方 后缀）")
+    rgen.add_argument("--no-append", dest="append", action="store_false", default=True,
+                      help=u"只写数据表，不把配方文本追加进文档")
+    rgen.add_argument("--trim-last-char", dest="trim_last_char", action="store_true",
+                      default=False,
+                      help=u"照抄参考宏那颗「隐形修正」（高亮片段去掉最后一个字符）—— 默认不照抄")
+    rgen.add_argument("--dry-run", action="store_true", help=u"只报会识别出什么，不写任何文件")
     return parser
 
 
@@ -444,6 +462,41 @@ def cmd_recipe(args):
             for text in report["text"].split(u"\n"):
                 lines.append(u"    %s" % text)
             return (dict(report, out=out_path, xlsx=xlsx), u"\n".join(lines))
+
+    if args.action == "gen":
+        from .document import Document
+        title = args.name or u"默认配方"
+        excel_file = args.excel_file or u"数据表.xlsx"
+        out_doc = args.out or os.path.join(
+            os.path.dirname(os.path.abspath(args.path)),
+            os.path.splitext(os.path.basename(args.path))[0] + u"_配方.docx")
+        out_xlsx = args.xlsx or os.path.join(
+            os.path.dirname(os.path.abspath(out_doc)), excel_file)
+        options = {"mode": args.mode, "char": args.char, "name": title,
+                   "excel_file": excel_file, "sheet_name": args.sheet or u"Sheet1",
+                   "out_xlsx": os.path.abspath(out_xlsx), "append": args.append,
+                   "trim_last_char": args.trim_last_char}
+        if not args.dry_run and os.path.exists(out_xlsx):
+            raise RuleError(u"%s 已经存在；请用 --xlsx 换个位置（不覆盖已有数据表）" % out_xlsx)
+        with Document(args.path) as doc:
+            report, recipe, xlsx_path = recipe_op.generate(doc, options, dry_run=args.dry_run)
+            written = None
+            if not args.dry_run:
+                written = doc.save(os.path.abspath(out_doc))
+        lines = [u"识别模式：%s" % (u"高亮（所有高亮片段）" if args.mode == "highlight"
+                                   else u"特定字符 %r" % args.char),
+                 u"配方：%s ｜ 变量 %d 个" % (recipe.name, report["variables"]),
+                 u"数据表：%s ｜ 工作表 %s" % (excel_file, recipe.sheet_name)]
+        for index, (prefix, value) in enumerate(report["rows"], start=1):
+            lines.append(u"    %2d. A=%s ｜ B=%s" % (index, prefix[:20] or u"（空）", value[:30]))
+        if args.dry_run:
+            lines.insert(0, u"--dry-run：一个字节都没写")
+        else:
+            lines.insert(0, u"已写出：%s" % written)
+            lines.append(u"已写出数据表：%s" % xlsx_path)
+            lines.append(u"配方已追加到文档末尾（%d 段）" % report["paragraphs"]
+                         if args.append else u"（按 --no-append，没往文档里写配方）")
+        return (dict(report, out=written, xlsx=xlsx_path), u"\n".join(lines))
 
     raise RecipeError(u"未知的 recipe 动作：%r" % args.action)
 

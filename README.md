@@ -168,6 +168,9 @@ python -m wordfactory.cli audit "某文档.docx"     # 末行 AUDIT=PASS / AUDIT
 
 ```bash
 python -m wordfactory.cli recipe show "带配方.docx"        # 解析并打印配方（也支持直接给 .txt）
+python -m wordfactory.cli recipe gen "模板.docx" --name 土方计算
+#   把正文里的高亮片段识别成变量 → 写 数据表.xlsx + 把配方追加到文档末尾
+#   --mode chars --char xx   改用"占位符字符串"识别；--no-append 只写数据表不写文档
 python -m wordfactory.cli recipe rebuild "带配方.docx" --out 重建后.docx
 #   --recipe-file F  配方不在文档里时单独给；--xlsx X / --data-dir D 指定数据表位置；--dry-run 先演练
 ```
@@ -185,7 +188,15 @@ python -m wordfactory.cli recipe rebuild "带配方.docx" --out 重建后.docx
 | 值不够 | 补 `#数据缺失#`（不是报错） |
 
 已知差异（会写在报告里，不藏着）：① 参考宏把结果追加到**当前文档**，我们追加但**写新文件**（绝不覆盖输入）；
-② 参考宏用 Excel 的 `AutoFit` 定列宽，XML 层没有等价写法，我们按内容**估**宽度。
+② 参考宏用 Excel 的 `AutoFit` 定列宽，XML 层没有等价写法，我们按内容**估**宽度；
+③ 参考宏靠**选区**决定处理范围，我们靠**规则**（用户 2026-09-21 已裁决接受）：模式 1 = 正文里所有高亮片段，
+模式 2 = 指定的占位符字符串；已存在的配方区间会自动跳过，免得把上一份配方当正文再生成一遍；
+④ 参考宏识别高亮时有个「**隐形修正**」（把高亮片段**去掉最后一个字符**，`段落配方生成器.bas:177-213`）——
+那是为了绕开 Word 在边界字符上读 `HighlightColorIndex` 的偏差。XML 里高亮状态是**精确**的，
+多砍一个字符反而会把值改错（高亮的 `3.5` 会变成 `3.`），所以**默认不照抄**；
+要跟宏逐字一致就加 `--trim-last-char`。
+> ④ 这条**还没与金标准比对过**（规格书自己标注"必须用 Word+宏跑一份再对比，不能靠读代码断言"）。
+> 手里有一个"宏生成的文档 + 它的数据表"样本就能立刻settle，见 `PLAN.md` §5 第 8 条。
 
 ## 状态
 
@@ -206,9 +217,11 @@ python -m wordfactory.cli recipe rebuild "带配方.docx" --out 重建后.docx
 - [x] **M3b 读的一半：`recipe show` / `recipe rebuild`** —— 纯标准库读写 `.xlsx`（不用 openpyxl）
       + 配方文本格式按 §3 契约逐条照抄；实测"带配方的文档 → 重建"追加 8 段、原有段落一字不动、
       只重写 `word/document.xml`
-- [ ] M3b 写的一半：`recipe gen`（扫描 → 配方 + xlsx）—— 卡在**选区怎么换成规则**与
-      **"隐形修正"要不要照抄**这两条上（`PLAN.md` §5 第 8 条）
-- [ ] M3b 收尾：与 Word 宏的**双向互通实测**（用宏跑一份金标准再与我们对比）
+- [x] **M3b 写的一半：`recipe gen`** —— 高亮 / 占位符两种识别模式、写 xlsx、配方追加到文档末尾。
+      实测端到端：模板（2 处高亮）→ 生成（变量 2 个、数据表 3.5/12.8、配方 11 段）→
+      换新数据（88.8/246.0）→ 重配 → 段落骨架与模板一致、数字已替换
+- [ ] M3b 收尾：**与 Word 宏的双向互通实测**（拿一份宏生成的金标准样本比对；尤其要定
+      「隐形修正」那一处，见 §5 第 8 条）—— 驱动 Word/Excel 属要用户点头的动作
 - [ ] M2：其余宏（格式规范化 / 去无意义空格 / 特殊字符替换）
 - [ ] M4：配方编排（选定 + 排序 + 一键批量）+ 改动报告 + GUI
 - [ ] M5：PDF 导出（外部渲染器编排）

@@ -36,9 +36,9 @@ import re
 HEAD_EXCEL = u"EXCEL_FILE:"
 HEAD_SHEET = u"SHEET_NAME:"
 HEAD_COUNT = u"VARIABLE_COUNT:"
-#: 区间标记
+#: 区间标记（生成端写出来的就是这个样子，`段落配方生成器.bas:98/:124`）
 SECTION_OPEN = u"=== 段落配方"
-SECTION_CLOSE = u"=== 配方结束"
+SECTION_CLOSE = u"=== 配方结束 ==="
 #: 正文行前缀
 TEXT_PREFIX = u"TEXT:"
 VAR_PREFIX = u"VAR:"
@@ -107,6 +107,11 @@ class Recipe(object):
                 body.append(("TEXT", line[len(TEXT_PREFIX):]))
             elif line.startswith(VAR_PREFIX):
                 body.append(("VAR", None))
+            else:
+                # **没有前缀的行也算正文**：`cleanText` 只去掉首尾的 CR/LF，TEXT 内容里的换行会留在
+                # 配方里，于是那半截就成了一行"没有前缀"的文本。参考宏把它当"换行 + 原文"处理
+                # （`段落重配.bas:264-268`），这里必须同样收下，不能丢。
+                body.append(("RAW", line))
         problems = []
         if not excel_file:
             problems.append(u"缺少 EXCEL_FILE:")
@@ -135,6 +140,10 @@ class Recipe(object):
         previous_was_text = False
         index = 0
         for kind, content in self.lines:
+            if kind == "RAW":
+                out.append(u"\n" + content)         # 换行 + 原文（`段落重配.bas:264-268`）
+                previous_was_text = True
+                continue
             if kind == "TEXT":
                 if content == u"":
                     out.append(u"\n")                 # 空 TEXT: = 换行
@@ -171,6 +180,8 @@ class Recipe(object):
         for kind, content in self.lines:
             if kind == "TEXT":
                 lines.append(u"%s%s" % (TEXT_PREFIX, content))
+            elif kind == "RAW":
+                lines.append(content)              # 没前缀的行照原样写
             else:
                 number += 1
                 lines.append(u"%s%d|%s!%s!B%d"

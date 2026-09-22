@@ -228,7 +228,11 @@ def write_workbook(path, sheet_name, rows, header=(u"项目", u"数值")):
     index = {}
 
     def sid(text):
+        # 单元格里的换行统一成 LF：XML 解析会把字面 CR 规范成 LF，写 CR 反而会让"写进去的"
+        # 与"读出来的"不一致；而 Excel 的单元格里换行本来就是 LF（配 wrapText 显示）。
+        # 参考宏的 A 列（前缀）里就带段落标记，走 Excel 时也是这个效果。
         text = u"" if text is None else u"%s" % text
+        text = text.replace(u"\r\n", u"\n").replace(u"\r", u"\n")
         if text not in index:
             index[text] = len(strings)
             strings.append(text)
