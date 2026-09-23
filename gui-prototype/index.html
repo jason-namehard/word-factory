@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>word 工厂 · GUI 设计原型（拖拽搭界面）</title>
+<style>
+  /* 全部内联、不引任何外部资源 —— 离线也能开，不受代理/网络影响 */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font: 14px/1.6 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    color: #1f2933; background: #eef1f5;
+    display: flex; flex-direction: column;
+  }
+  header {
+    background: #fff; border-bottom: 1px solid #d7dee8; padding: 10px 16px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .hint { color: #64748b; font-size: 12px; }
+  .toolbar { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+  button {
+    font: inherit; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+    border: 1px solid #c7d0dd; background: #fff; color: #1f2933;
+  }
+  button:hover { background: #f4f7fb; }
+  button.primary { background: #2f6fed; border-color: #2f6fed; color: #fff; }
+  button.primary:hover { background: #2a62d4; }
+  button.ghost { border-style: dashed; color: #64748b; }
+  main { flex: 1; display: flex; min-height: 0; }
+
+  /* 左：组件库 */
+  #palette {
+    width: 240px; background: #fff; border-right: 1px solid #d7dee8;
+    overflow: auto; padding: 12px;
+  }
+  #palette h2 { font-size: 12px; color: #64748b; margin: 14px 0 6px; font-weight: 600; }
+  .chip {
+    display: block; width: 100%; text-align: left; margin-bottom: 6px;
+    border: 1px solid #d7dee8; background: #fbfcfe; border-radius: 6px;
+    padding: 7px 10px; cursor: grab; font-size: 13px;
+  }
+  .chip:active { cursor: grabbing; }
+  .chip small { color: #8a97a8; display: block; font-size: 11px; }
+
+  /* 中：画布 */
+  #stage-wrap { flex: 1; padding: 18px; overflow: auto; }
+  #stage {
+    position: relative; min-height: 100%; background: #fff;
+    border: 1px solid #d7dee8; border-radius: 10px; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(31,41,51,.06);
+  }
+  #stage.dragover { outline: 2px dashed #2f6fed; outline-offset: -6px; }
+  #stage .mock-title {
+    height: 38px; background: #f7f9fc; border-bottom: 1px solid #e3e9f1;
+    display: flex; align-items: center; padding: 0 14px; color: #64748b; font-size: 12px;
+  }
+  #stage .mock-title b { color: #1f2933; font-size: 13px; margin-right: 10px; }
+  .slot {
+    position: absolute; border: 1px dashed #cfd8e5; border-radius: 8px;
+    color: #9aa7b8; font-size: 12px; display: flex; align-items: center;
+    justify-content: center; pointer-events: none;
+  }
+  .item {
+    position: absolute; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
+    padding: 8px 12px; cursor: move; user-select: none; box-shadow: 0 1px 2px rgba(31,41,51,.05);
+    display: flex; align-items: center; gap: 8px; min-width: 80px; min-height: 34px;
+  }
+  .item.selected { border-color: #2f6fed; box-shadow: 0 0 0 3px rgba(47,111,237,.15); }
+  .item.zone { background: #fbfcfe; border-style: dashed; justify-content: center; color: #64748b; }
+  .item.zone.selected { border-style: solid; }
+  .item .grip { color: #b6c2d2; font-size: 12px; }
+  .item.table-list { display: block; padding: 0; }
+  .item.table-list .rows { max-height: 150px; overflow: auto; }
+  .item.table-list .row { display: flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 12px; }
+  .item.table-list .row:nth-child(odd) { background: #fafbfd; }
+  .item.table-list .row input { margin: 0; }
+  .item.log { display: block; font: 12px/1.5 Consolas, monospace; color: #475569; }
+
+  /* 右：属性 */
+  #inspector {
+    width: 260px; background: #fff; border-left: 1px solid #d7dee8; padding: 14px; overflow: auto;
+  }
+  #inspector h2 { font-size: 12px; color: #64748b; margin: 0 0 10px; }
+  #inspector label { display: block; font-size: 12px; color: #64748b; margin: 10px 0 4px; }
+  #inspector input[type=text], #inspector input[type=number] {
+    width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit;
+  }
+  #inspector .empty { color: #9aa7b8; font-size: 12px; }
+  footer {
+    background: #fff; border-top: 1px solid #d7dee8; padding: 8px 16px;
+    color: #64748b; font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap;
+  }
+  code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>word 工厂 · GUI 设计原型</h1>
+  <span class="hint">从左边把组件拖到画布上摆位置；点中可改文字/大小；摆好点「导出布局」把 JSON 发我</span>
+  <div class="toolbar">
+    <select id="preset" title="从一个现成的骨架开始">
+      <option value="">— 预设布局 —</option>
+      <option value="sidebar">左栏 + 主区（推荐）</option>
+      <option value="toolbar">顶部工具条 + 主区</option>
+      <option value="wizard">单列向导式</option>
+    </select>
+    <button id="undo" class="ghost">撤销</button>
+    <button id="clear" class="ghost">清空</button>
+    <button id="export">导出布局</button>
+    <button id="import" class="ghost">导入布局</button>
+    <button id="approve" class="primary">就是它了（存下这版）</button>
+  </div>
+</header>
+
+<main>
+  <aside id="palette">
+    <h2>容器 / 分区</h2>
+    <button class="chip" data-type="zone" data-w="260" data-h="420">侧栏<small>宏库 / 表格 / 规则 / 体检 的入口</small></button>
+    <button class="chip" data-type="zone" data-w="520" data-h="220">主工作区<small>放当前功能的界面</small></button>
+    <button class="chip" data-type="zone" data-w="520" data-h="120">运行日志<small>每步改了多少、报错</small></button>
+
+    <h2>控件</h2>
+    <button class="chip" data-type="tab" data-w="120" data-h="34">标签页</button>
+    <button class="chip" data-type="button" data-w="120" data-h="34">按钮</button>
+    <button class="chip" data-type="checkbox" data-w="120" data-h="28">复选框</button>
+    <button class="chip" data-type="select" data-w="160" data-h="34">下拉选择</button>
+    <button class="chip" data-type="list" data-w="240" data-h="180">清单（可勾选 + 拖排序）</button>
+
+    <h2>表格专用</h2>
+    <button class="chip" data-type="style-picker" data-w="220" data-h="120">模板选择器<small>6 个表格模板缩略图</small></button>
+    <button class="chip" data-type="table-list" data-w="260" data-h="170">表格清单<small>按表头勾选哪几张套模板</small></button>
+    <button class="chip" data-type="preview" data-w="220" data-h="150">预览窗<small>套用后的样子</small></button>
+
+    <h2>动作</h2>
+    <button class="chip" data-type="action" data-w="130" data-h="34">运行（dry-run）</button>
+    <button class="chip" data-type="action" data-w="130" data-h="34">出验证版</button>
+    <button class="chip" data-type="action" data-w="130" data-h="34">出正式版</button>
+    <button class="chip" data-type="action" data-w="130" data-h="34">体检 AUDIT</button>
+  </aside>
+
+  <div id="stage-wrap">
+    <div id="stage">
+      <div class="mock-title"><b>word 工厂</b><span>把界面元素拖进来摆位置（这条只是模拟窗口的标题栏）</span></div>
+    </div>
+  </div>
+
+  <aside id="inspector">
+    <h2>属性</h2>
+    <div id="inspector-body" class="empty">点画布里的元素 → 这里可以改文字和大小</div>
+    <h2 style="margin-top:18px">备注（会一起导出）</h2>
+    <textarea id="notes" rows="6" placeholder="想改哪儿就写这儿，比如：运行日志要能折叠 / 表格清单要显示行数 / 按钮再大一点…"
+      style="width:100%;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font:inherit"></textarea>
+  </aside>
+</main>
+
+<footer>
+  <span>拖动：从左侧组件库拖到画布；画布内拖动可移动（自动吸附 10px 网格）</span>
+  <span><code>Delete</code> 删除选中 · <code>Ctrl+Z</code> 撤销 · 自动保存到浏览器</span>
+  <span id="status"></span>
+</footer>
+
+<script>
+'use strict';
+const STAGE = document.getElementById('stage');
+const STATUS = document.getElementById('status');
+const INSPECTOR = document.getElementById('inspector-body');
+const GRID = 10;
+let items = [];          // [{id, type, x, y, w, h, text}]
+let selected = null;
+let history = [];
+let seq = 1;
+
+/* ---------------------------------------------------------------- 元件外观 */
+const TYPE_LABEL = {
+  zone: '分区', tab: '标签页', button: '按钮', checkbox: '复选框', select: '下拉选择',
+  list: '清单', 'style-picker': '模板选择器', 'table-list': '表格清单',
+  preview: '预览窗', log: '运行日志', action: '动作按钮',
+};
+
+function renderInner(item) {
+  switch (item.type) {
+    case 'button': case 'action':
+      return '<span class="grip">⣿</span><span>' + esc(item.text) + '</span>';
+    case 'checkbox':
+      return '<input type="checkbox"><span>' + esc(item.text) + '</span>';
+    case 'tab':
+      return '<span class="grip">⣿</span><span>' + esc(item.text) + '</span>';
+    case 'select':
+      return '<span>' + esc(item.text) + ' ▾</span>';
+    case 'table-list':
+      return '<div style="padding:6px 10px;color:#64748b;font-size:12px">' + esc(item.text) + '</div>'
+        + '<div class="rows">'
+        + ['水位（m） / 库容（万m³）', '水库所在地 / 注册登记号', '序号 / 高程（m) / 面积(m²)',
+           '设计频率 / P=3.3% / P＝0.33％']
+            .map((t, i) => '<div class="row"><input type="checkbox"' + (i < 3 ? ' checked' : '')
+                 + '><span>' + esc(t) + '</span></div>').join('')
+        + '</div>';
+    case 'log':
+      return '<div style="padding:6px 10px;color:#64748b;font-size:12px">' + esc(item.text) + '</div>'
+        + '<div style="padding:0 10px 6px">· 表格 12 张，选中 12 张，改了 12 张（131 处）<br>'
+        + '· 单元格对齐(left) 9 处 ｜ 框线 12 处 ｜ 表头折行 1 处</div>';
+    case 'preview':
+      return '<div style="padding:6px 10px;color:#64748b;font-size:12px">' + esc(item.text) + '</div>'
+        + '<div style="margin:6px 10px;border:1px solid #cbd5e1;border-radius:4px">'
+        + '<div style="display:flex;border-bottom:2px solid #111"><div style="flex:1;text-align:center;font-weight:600">项目</div>'
+        + '<div style="flex:2;text-align:center;font-weight:600">说明</div></div>'
+        + '<div style="display:flex"><div style="flex:1;text-align:center">防洪标准</div>'
+        + '<div style="flex:2;padding-left:6px">按50年一遇设计、200年一遇校核…</div></div></div>';
+    case 'style-picker':
+      return '<div style="padding:6px 10px;color:#64748b;font-size:12px">' + esc(item.text) + '</div>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;padding:0 8px 8px">'
+        + ['外粗内细', '全居中', '均布列宽', '自适应', '三线表', '三线表·均布']
+            .map(t => '<div style="border:1px solid #cbd5e1;border-radius:4px;font-size:11px;'
+                 + 'text-align:center;padding:8px 2px;background:#fff">' + t + '</div>').join('')
+        + '</div>';
+    default:
+      return '<span>' + esc(item.text) + '</span>';
+  }
+}
+
+function esc(t) {
+  return String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+}
+
+/* ---------------------------------------------------------------- 渲染 */
+function render() {
+  STAGE.querySelectorAll('.item, .slot').forEach(el => el.remove());
+  items.forEach(item => {
+    const el = document.createElement('div');
+    el.className = 'item' + (item.type === 'zone' || item.type === 'preview' || item.type === 'log'
+      || item.type === 'table-list' || item.type === 'style-picker' ? ' zone' : '')
+      + ' ' + item.type + (selected === item.id ? ' selected' : '');
+    el.style.left = item.x + 'px';
+    el.style.top = item.y + 'px';
+    el.style.width = item.w + 'px';
+    el.style.height = item.h + 'px';
+    el.dataset.id = item.id;
+    el.innerHTML = renderInner(item);
+    STAGE.appendChild(el);
+  });
+  STATUS.textContent = items.length ? '画布上有 ' + items.length + ' 个元素' : '画布是空的 —— 从左边拖一个进来';
+  renderInspector();
+}
+
+function renderInspector() {
+  const item = items.find(i => i.id === selected);
+  if (!item) {
+    INSPECTOR.className = 'empty';
+    INSPECTOR.textContent = '点画布里的元素 → 这里可以改文字和大小';
+    return;
+  }
+  INSPECTOR.className = '';
+  INSPECTOR.innerHTML =
+    '<label>类型</label><div><b>' + esc(TYPE_LABEL[item.type] || item.type) + '</b></div>'
+    + '<label>文字</label><input type="text" id="f-text" value="' + esc(item.text) + '">'
+    + '<label>宽度（px）</label><input type="number" id="f-w" value="' + item.w + '" step="10">'
+    + '<label>高度（px）</label><input type="number" id="f-h" value="' + item.h + '" step="10">'
+    + '<label>位置</label><input type="text" value="x=' + item.x + ', y=' + item.y + '" readonly>'
+    + '<div style="margin-top:12px"><button id="f-del" class="ghost">删除这个元素</button></div>';
+  const bind = (id, key, parse) => {
+    document.getElementById(id).addEventListener('input', e => {
+      item[key] = parse ? parse(e.target.value) : e.target.value;
+      render();
+    });
+  };
+  bind('f-text', 'text');
+  bind('f-w', 'w', v => Math.max(40, parseInt(v || '40', 10)));
+  bind('f-h', 'h', v => Math.max(24, parseInt(v || '24', 10)));
+  document.getElementById('f-del').addEventListener('click', () => {
+    pushHistory();
+    items = items.filter(i => i.id !== selected);
+    selected = null;
+    render();
+  });
+}
+
+/* ---------------------------------------------------------------- 拖放 */
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('dragstart', e => {
+    e.dataTransfer.setData('text/plain', JSON.stringify({
+      type: chip.dataset.type, w: +chip.dataset.w, h: +chip.dataset.h,
+      text: chip.firstChild.textContent.trim(),
+    }));
+    e.dataTransfer.effectAllowed = 'copy';
+  });
+});
+STAGE.addEventListener('dragover', e => { e.preventDefault(); STAGE.classList.add('dragover'); });
+STAGE.addEventListener('dragleave', () => STAGE.classList.remove('dragover'));
+STAGE.addEventListener('drop', e => {
+  e.preventDefault();
+  STAGE.classList.remove('dragover');
+  let payload;
+  try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (err) { return; }
+  const rect = STAGE.getBoundingClientRect();
+  pushHistory();
+  const item = {
+    id: 'i' + (seq++), type: payload.type,
+    x: snap(e.clientX - rect.left - payload.w / 2), y: snap(e.clientY - rect.top - 20),
+    w: payload.w, h: payload.h, text: payload.text,
+  };
+  items.push(item);
+  selected = item.id;
+  render();
+});
+
+/* 画布内拖动 */
+STAGE.addEventListener('mousedown', e => {
+  const el = e.target.closest('.item');
+  if (!el) { selected = null; render(); return; }
+  const item = items.find(i => i.id === el.dataset.id);
+  selected = item.id;
+  render();
+  const startX = e.clientX, startY = e.clientY, ox = item.x, oy = item.y;
+  let moved = false;
+  const move = ev => {
+    moved = true;
+    item.x = snap(ox + ev.clientX - startX);
+    item.y = snap(oy + ev.clientY - startY);
+    const target = STAGE.querySelector('[data-id="' + item.id + '"]');
+    target.style.left = item.x + 'px';
+    target.style.top = item.y + 'px';
+  };
+  const up = () => {
+    document.removeEventListener('mousemove', move);
+    document.removeEventListener('mouseup', up);
+    if (moved) render(); else renderInspector();
+  };
+  document.addEventListener('mousemove', move);
+  document.addEventListener('mouseup', up);
+});
+
+function snap(v) { return Math.max(0, Math.round(v / GRID) * GRID); }
+
+/* ---------------------------------------------------------------- 工具 */
+function pushHistory() {
+  history.push(JSON.stringify(items));
+  if (history.length > 60) history.shift();
+}
+function undo() {
+  if (!history.length) return;
+  items = JSON.parse(history.pop());
+  selected = null;
+  render();
+}
+function save() {
+  localStorage.setItem('wordfactory-gui-layout',
+    JSON.stringify({ layout: items, notes: document.getElementById('notes').value }));
+}
+function load() {
+  try {
+    const raw = localStorage.getItem('wordfactory-gui-layout');
+    if (raw) {
+      const data = JSON.parse(raw);
+      items = data.layout || (Array.isArray(data) ? data : []);
+      if (data.notes) document.getElementById('notes').value = data.notes;
+    }
+  } catch (e) { items = []; }
+}
+
+document.getElementById('undo').addEventListener('click', undo);
+document.getElementById('clear').addEventListener('click', () => {
+  if (!confirm('清空画布上的所有元素？')) return;
+  pushHistory(); items = []; selected = null; render();
+});
+document.getElementById('export').addEventListener('click', () => {
+  const notes = document.getElementById('notes').value;
+  const blob = new Blob([JSON.stringify({ layout: items, notes: notes }, null, 2)],
+                        { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'wordfactory-gui-layout.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+document.getElementById('import').addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = '.json';
+  input.addEventListener('change', () => {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        pushHistory();
+        const data = JSON.parse(reader.result);
+        items = data.layout || [];
+        seq = items.length + 1;
+        selected = null;
+        if (data.notes) document.getElementById('notes').value = data.notes;
+        render();
+      } catch (e) { alert('这个 JSON 读不动：' + e.message); }
+    };
+    reader.readAsText(file);
+  });
+  input.click();
+});
+document.getElementById('approve').addEventListener('click', () => {
+  save();
+  alert('已存下这版（浏览器里也会记住）。\n\n把「导出布局」得到的 JSON 发我（含你在右侧写的备注），我照它做真界面。');
+});
+
+document.getElementById('preset').addEventListener('change', e => {
+  const kind = e.target.value;
+  if (!kind) return;
+  pushHistory();
+  items = [];
+  seq = 1;
+  const add = (type, x, y, w, h, text) => items.push({ id: 'i' + (seq++), type, x, y, w, h, text });
+  if (kind === 'sidebar') {
+    add('zone', 20, 60, 200, 430, '侧栏：宏库 / 表格 / 规则 / 体检');
+    add('zone', 240, 60, 540, 220, '主工作区');
+    add('list', 260, 240, 240, 180, '宏清单（勾选 + 拖排序）');
+    add('preview', 520, 240, 240, 180, '预览');
+    add('log', 240, 440, 540, 90, '运行日志');
+    add('action', 800, 70, 130, 34, '运行（dry-run）');
+    add('action', 800, 120, 130, 34, '出验证版');
+    add('action', 800, 170, 130, 34, '出正式版');
+    add('action', 800, 220, 130, 34, '体检 AUDIT');
+  } else if (kind === 'toolbar') {
+    add('zone', 20, 60, 900, 60, '顶部工具条');
+    add('tab', 40, 70, 120, 34, '格式规范化');
+    add('tab', 170, 70, 120, 34, '表格款式');
+    add('tab', 300, 70, 120, 34, '段落配方');
+    add('tab', 430, 70, 120, 34, '规则文件');
+    add('zone', 20, 140, 620, 380, '主工作区');
+    add('zone', 660, 140, 260, 380, '右侧：日志 / 预览');
+  } else if (kind === 'wizard') {
+    add('zone', 120, 60, 620, 90, '① 选文件 / 选模板');
+    add('zone', 120, 170, 620, 150, '② 挑要处理的内容（表格按表头勾选）');
+    add('zone', 120, 340, 620, 100, '③ 先看 dry-run 报告');
+    add('action', 120, 460, 150, 40, '出验证版核对');
+    add('action', 290, 460, 150, 40, '出正式版');
+  }
+  selected = null;
+  render();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Delete' && selected) {
+    pushHistory();
+    items = items.filter(i => i.id !== selected);
+    selected = null;
+    render();
+  } else if (e.key === 'z' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    undo();
+  }
+});
+
+load();
+if (!items.length) {
+  document.getElementById('preset').value = 'sidebar';
+  document.getElementById('preset').dispatchEvent(new Event('change'));
+} else {
+  render();
+}
+setInterval(save, 2000);
+</script>
+</body>
+</html>
