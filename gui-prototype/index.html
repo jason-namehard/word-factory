@@ -36,6 +36,7 @@
   }
   #palette h2 { font-size: 12px; color: #64748b; margin: 14px 0 6px; font-weight: 600; }
   .chip {
+    font: inherit; color: #1f2933; text-align: left;
     display: block; width: 100%; text-align: left; margin-bottom: 6px;
     border: 1px solid #d7dee8; background: #fbfcfe; border-radius: 6px;
     padding: 7px 10px; cursor: grab; font-size: 13px;
@@ -116,27 +117,27 @@
 <main>
   <aside id="palette">
     <h2>容器 / 分区</h2>
-    <button class="chip" data-type="zone" data-w="260" data-h="420">侧栏<small>宏库 / 表格 / 规则 / 体检 的入口</small></button>
-    <button class="chip" data-type="zone" data-w="520" data-h="220">主工作区<small>放当前功能的界面</small></button>
-    <button class="chip" data-type="zone" data-w="520" data-h="120">运行日志<small>每步改了多少、报错</small></button>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="zone" data-w="260" data-h="420">侧栏<small>宏库 / 表格 / 规则 / 体检 的入口</small></div>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="zone" data-w="520" data-h="220">主工作区<small>放当前功能的界面</small></div>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="zone" data-w="520" data-h="120">运行日志<small>每步改了多少、报错</small></div>
 
     <h2>控件</h2>
-    <button class="chip" data-type="tab" data-w="120" data-h="34">标签页</button>
-    <button class="chip" data-type="button" data-w="120" data-h="34">按钮</button>
-    <button class="chip" data-type="checkbox" data-w="120" data-h="28">复选框</button>
-    <button class="chip" data-type="select" data-w="160" data-h="34">下拉选择</button>
-    <button class="chip" data-type="list" data-w="240" data-h="180">清单（可勾选 + 拖排序）</button>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="tab" data-w="120" data-h="34">标签页</div>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="button" data-w="120" data-h="34">按钮</div>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="checkbox" data-w="120" data-h="28">复选框</div>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="select" data-w="160" data-h="34">下拉选择</div>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="list" data-w="240" data-h="180">清单（可勾选 + 拖排序）</div>
 
     <h2>表格专用</h2>
-    <button class="chip" data-type="style-picker" data-w="220" data-h="120">模板选择器<small>6 个表格模板缩略图</small></button>
-    <button class="chip" data-type="table-list" data-w="260" data-h="170">表格清单<small>按表头勾选哪几张套模板</small></button>
-    <button class="chip" data-type="preview" data-w="220" data-h="150">预览窗<small>套用后的样子</small></button>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="style-picker" data-w="220" data-h="120">模板选择器<small>6 个表格模板缩略图</small></div>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="table-list" data-w="260" data-h="170">表格清单<small>按表头勾选哪几张套模板</small></div>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="preview" data-w="220" data-h="150">预览窗<small>套用后的样子</small></div>
 
     <h2>动作</h2>
-    <button class="chip" data-type="action" data-w="130" data-h="34">运行（dry-run）</button>
-    <button class="chip" data-type="action" data-w="130" data-h="34">出验证版</button>
-    <button class="chip" data-type="action" data-w="130" data-h="34">出正式版</button>
-    <button class="chip" data-type="action" data-w="130" data-h="34">体检 AUDIT</button>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="action" data-w="130" data-h="34">运行（dry-run）</div>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="action" data-w="130" data-h="34">出验证版</div>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="action" data-w="130" data-h="34">出正式版</div>
+    <div class="chip" draggable="true" role="button" tabindex="0" data-type="action" data-w="130" data-h="34">体检 AUDIT</div>
   </aside>
 
   <div id="stage-wrap">
@@ -275,16 +276,74 @@ function renderInspector() {
   });
 }
 
-/* ---------------------------------------------------------------- 拖放 */
+/* ---------------------------------------------------------------- 拖放（指针拖拽） */
+/* 为什么不用 HTML5 dragstart/drop：`<button>` 在 Chromium 里**不触发 dragstart**
+   （draggable 属性对 button 不生效），用户实测"左侧按钮拖不上画布"就是这么来的。
+   改成 mousedown/mousemove/mouseup 的指针拖拽 —— 对所有元素都可靠，还能顺手做个跟随光标的幽灵。*/
+let ghost = null;
+
+function chipPayload(chip) {
+  const label = chip.querySelector('span') ? chip.querySelector('span').textContent.trim()
+                                           : chip.textContent.trim();
+  return { type: chip.dataset.type, w: +chip.dataset.w, h: +chip.dataset.h, text: label };
+}
+
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('mousedown', e => {
+    e.preventDefault();                       // 免得顺带选中文字
+    const payload = chipPayload(chip);
+    const rect = chip.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+    ghost = document.createElement('div');
+    ghost.className = 'ghost';
+    ghost.textContent = payload.text;
+    ghost.style.width = payload.w + 'px';
+    ghost.style.height = payload.h + 'px';
+    ghost.style.left = (e.clientX - offsetX) + 'px';
+    ghost.style.top = (e.clientY - offsetY) + 'px';
+    document.body.appendChild(ghost);
+
+    const move = ev => {
+      ghost.style.left = (ev.clientX - offsetX) + 'px';
+      ghost.style.top = (ev.clientY - offsetY) + 'px';
+      const stageRect = STAGE.getBoundingClientRect();
+      const inside = ev.clientX >= stageRect.left && ev.clientX <= stageRect.right
+                  && ev.clientY >= stageRect.top && ev.clientY <= stageRect.bottom;
+      STAGE.classList.toggle('dragover', inside);
+    };
+    const up = ev => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      if (ghost) { ghost.remove(); ghost = null; }
+      STAGE.classList.remove('dragover');
+      const stageRect = STAGE.getBoundingClientRect();
+      const inside = ev.clientX >= stageRect.left && ev.clientX <= stageRect.right
+                  && ev.clientY >= stageRect.top && ev.clientY <= stageRect.bottom;
+      if (!inside) return;                    // 拖到画布外就丢掉
+      pushHistory();
+      const item = {
+        id: 'i' + (seq++), type: payload.type,
+        x: snap(ev.clientX - stageRect.left - payload.w / 2),
+        y: snap(ev.clientY - stageRect.top - 18),
+        w: payload.w, h: payload.h, text: payload.text,
+      };
+      items.push(item);
+      selected = item.id;
+      render();
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
+});
+/* 原生 DnD 这条路也铺上：组件是 <div draggable="true">，拽起来就写 dataTransfer */
 document.querySelectorAll('.chip').forEach(chip => {
   chip.addEventListener('dragstart', e => {
-    e.dataTransfer.setData('text/plain', JSON.stringify({
-      type: chip.dataset.type, w: +chip.dataset.w, h: +chip.dataset.h,
-      text: chip.firstChild.textContent.trim(),
-    }));
+    e.dataTransfer.setData('text/plain', JSON.stringify(chipPayload(chip)));
     e.dataTransfer.effectAllowed = 'copy';
   });
 });
+/* HTML5 DnD 也留着 */
 STAGE.addEventListener('dragover', e => { e.preventDefault(); STAGE.classList.add('dragover'); });
 STAGE.addEventListener('dragleave', () => STAGE.classList.remove('dragover'));
 STAGE.addEventListener('drop', e => {
@@ -294,13 +353,11 @@ STAGE.addEventListener('drop', e => {
   try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (err) { return; }
   const rect = STAGE.getBoundingClientRect();
   pushHistory();
-  const item = {
-    id: 'i' + (seq++), type: payload.type,
-    x: snap(e.clientX - rect.left - payload.w / 2), y: snap(e.clientY - rect.top - 20),
-    w: payload.w, h: payload.h, text: payload.text,
-  };
-  items.push(item);
-  selected = item.id;
+  items.push({ id: 'i' + (seq++), type: payload.type,
+               x: snap(e.clientX - rect.left - payload.w / 2),
+               y: snap(e.clientY - rect.top - 20),
+               w: payload.w, h: payload.h, text: payload.text });
+  selected = items[items.length - 1].id;
   render();
 });
 
@@ -330,6 +387,26 @@ STAGE.addEventListener('mousedown', e => {
   document.addEventListener('mouseup', up);
 });
 
+function nextSeq() {
+  let max = 0;
+  items.forEach(item => {
+    const n = parseInt(String(item.id || '').replace(/\D/g, ''), 10);
+    if (!isNaN(n) && n > max) max = n;
+  });
+  return max + 1;
+}
+
+/** 兜底去重：万一存下来的布局里已经有重复 id，重整一遍（否则选中/删除会同时命中两个）。 */
+function renumber() {
+  const seen = new Set();
+  let changed = false;
+  items.forEach(item => {
+    if (!item.id || seen.has(item.id)) { item.id = 'i' + (seq++); changed = true; }
+    seen.add(item.id);
+  });
+  return changed;
+}
+
 function snap(v) { return Math.max(0, Math.round(v / GRID) * GRID); }
 
 /* ---------------------------------------------------------------- 工具 */
@@ -354,6 +431,8 @@ function load() {
       const data = JSON.parse(raw);
       items = data.layout || (Array.isArray(data) ? data : []);
       if (data.notes) document.getElementById('notes').value = data.notes;
+      seq = nextSeq();
+      renumber();
     }
   } catch (e) { items = []; }
 }
@@ -385,7 +464,8 @@ document.getElementById('import').addEventListener('click', () => {
         pushHistory();
         const data = JSON.parse(reader.result);
         items = data.layout || [];
-        seq = items.length + 1;
+        seq = nextSeq();
+        renumber();
         selected = null;
         if (data.notes) document.getElementById('notes').value = data.notes;
         render();
@@ -407,6 +487,7 @@ document.getElementById('preset').addEventListener('change', e => {
   items = [];
   seq = 1;
   const add = (type, x, y, w, h, text) => items.push({ id: 'i' + (seq++), type, x, y, w, h, text });
+  // 预设是重建的，seq 从头开始没问题；摆完再算一次保险
   if (kind === 'sidebar') {
     add('zone', 20, 60, 200, 430, '侧栏：宏库 / 表格 / 规则 / 体检');
     add('zone', 240, 60, 540, 220, '主工作区');
