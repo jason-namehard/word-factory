@@ -28,6 +28,9 @@ CAPTION_RE = re.compile(u"^(?:\\u7eed?\\u8868|\\u56fe)\\s*\\d+")
 
 #: 算作"空格"的字符（**不含制表符**：制表符常是排版用的）
 SPACE_CHARS = u" \u00a0\u3000"
+#: 「去除空格」删的字符：半角空格 + 不间断空格。**全角空格默认不删**（中文里它常被用来做段首缩进），
+#: 依据是用户 2026-09-22 给的 Copy++ 前后对照样本（样本里被删的都是半角空格）。
+_REMOVE_SPACES_CHARS = u" \u00a0"
 _RUN_RE = re.compile(u"[ \u00a0\u3000]{2,}")
 _TRAIL_RE = re.compile(u"[ \u00a0\u3000]+$")
 _LEAD_RE = re.compile(u"^[ \u00a0\u3000]+")
@@ -37,6 +40,9 @@ DEFAULT_TIDY = {
     "trailing_spaces": True,       # 段尾空格/全角空格
     "trim_leading": False,         # 段首空格（危险：可能是缩进）
     "collapse_space_runs": False,  # 段内连续空格（跳过题注段）
+    "caption_skip": True,          # 去空格/压空格时跳过题注段落（它们的空格是排版用的）
+    "merge_lines": False,          # 合并换行：**删掉全部空段落**（Copy++ 的「合并换行」）
+    "remove_spaces": False,        # 去除空格：**删掉全部半角/不间断空格**（Copy++ 的「去除空格」）
     "scope": "body",               # body = 正文段落；all = 连表格里的段落一起
 }
 
@@ -60,16 +66,33 @@ def tidy(document, options=None, dry_run=False):
             if not dry_run:
                 paragraph.replace_regex(u"^[ \u00a0\u3000]+", u"", count=1)
                 text = paragraph.text
+        if opts.get("remove_spaces"):
+            # **题注段落的空格是排版用的**（"空格居中"规则 B 就靠它）—— 默认整段跳过，
+            # 否则一跑就把 17 个表题的空格居中压平（实测踩到）。要连它一起删用 include_captions。
+            if opts.get("caption_skip", True) and CAPTION_RE.match(text.strip()):
+                report["题注段落（跳过）"] += 1
+            else:
+                hits = sum(text.count(ch) for ch in _REMOVE_SPACES_CHARS)
+                if hits:
+                    report["去空格"] += hits
+                    if not dry_run:
+                        for ch in _REMOVE_SPACES_CHARS:
+                            paragraph.replace(ch, u"", count=0)
+                        text = paragraph.text
         if opts.get("collapse_space_runs"):
-            if CAPTION_RE.match(text.strip()):
-                report["题注段落（跳过压缩）"] += 1
+            if opts.get("caption_skip", True) and CAPTION_RE.match(text.strip()):
+                report["题注段落（跳过）"] += 1
             else:
                 hits = len(_RUN_RE.findall(text))
                 if hits:
                     report["连续空格压缩"] += hits
                     if not dry_run:
                         paragraph.replace_regex(u"[ \u00a0\u3000]{2,}", u" ", count=0)
-    if opts.get("blank_lines"):
+    # **两种口径互斥**：`merge_lines`（照 Copy++ 删光空行）与 `blank_lines`（保守：连续空段压一个）
+    # 是对同一批段落的两种做法；同时开会重复计数、结果也说不清（踩过：43 + 28 两边都在数）。
+    if opts.get("merge_lines"):
+        _remove_blank_paragraphs(document, report, dry_run)
+    elif opts.get("blank_lines"):
         _collapse_blank_paragraphs(document, report, dry_run)
     total = sum(count for key, count in report.items() if u"跳过" not in key)
     if not dry_run and total:
@@ -92,6 +115,21 @@ def _scope_paragraphs(document, scope):
                 continue
             out.append((element, Paragraph(element)))
     return out
+
+
+def _remove_blank_paragraphs(document, report, dry_run):
+    """**删掉全部空段落**（Copy++ 的「合并换行」：把被空行隔开的行并成连续行）。
+
+    与 :func:`_collapse_blank_paragraphs`（保守：连续空段只压成一个）**不同** —— 那个是默认口径，
+    这个是"照 Copy++ 的行为"（用户 2026-09-22 给了前后对照样本，见 `tests/test_tidy.py`）。
+    """
+    body = document.body()
+    doomed = [element for element in body
+              if element.tag == qn("w:p") and not Paragraph(element).text.strip()]
+    for element in doomed:
+        report["删除空行"] += 1
+        if not dry_run:
+            body.remove(element)
 
 
 def _collapse_blank_paragraphs(document, report, dry_run):

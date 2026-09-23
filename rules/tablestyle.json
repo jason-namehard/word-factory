@@ -1,11 +1,9 @@
 {
   "schema": 1,
-  "name": "表格款式（外置规则；默认款按用户口径：外框粗内框细 + 表头居中 + 数字居中 + 说明左对齐）",
+  "name": "表格款式（外置规则；模板命名与会话口径由用户 2026-09-22 定）",
   "styles": {
-    "默认表格（外粗内细）": {
-      "note": "外框 1.5 磅 / 内框 0.75 磅；表头居中加粗跨页重复；数字结果居中；说明类长文本左对齐；项目名（第一列）左对齐",
-      "table_align": "center",
-      "table_layout": "fixed",
+    "通用款·外粗内细": {
+      "note": "默认款：外框 1.5 磅 / 内框 0.5 磅（外粗内细）；表头居中加粗跨页重复；其余一律居中；**只有一行放不下的长文本左对齐**",
       "borders": {
         "top": {
           "val": "single",
@@ -29,12 +27,12 @@
         },
         "insideH": {
           "val": "single",
-          "sz": 6,
+          "sz": 4,
           "color": "000000"
         },
         "insideV": {
           "val": "single",
-          "sz": 6,
+          "sz": 4,
           "color": "000000"
         }
       },
@@ -44,6 +42,8 @@
         "bottom": 40,
         "right": 80
       },
+      "table_align": "center",
+      "table_layout": "fixed",
       "v_align": "center",
       "header": {
         "bold": true,
@@ -51,71 +51,13 @@
         "repeat": true
       },
       "body": {
-        "numeric_align": "center",
-        "text_align": "left",
-        "first_column_align": "left"
-      },
-      "column_widths": "keep"
-    },
-    "默认表格·项目名居中": {
-      "note": "同默认款，但第一列（项目名称）**居中** —— 两种都常见，看你的模板习惯",
-      "table_align": "center",
-      "table_layout": "fixed",
-      "borders": {
-        "top": {
-          "val": "single",
-          "sz": 12,
-          "color": "000000"
-        },
-        "bottom": {
-          "val": "single",
-          "sz": 12,
-          "color": "000000"
-        },
-        "left": {
-          "val": "single",
-          "sz": 12,
-          "color": "000000"
-        },
-        "right": {
-          "val": "single",
-          "sz": 12,
-          "color": "000000"
-        },
-        "insideH": {
-          "val": "single",
-          "sz": 6,
-          "color": "000000"
-        },
-        "insideV": {
-          "val": "single",
-          "sz": 6,
-          "color": "000000"
-        }
-      },
-      "cell_margins": {
-        "top": 40,
-        "left": 80,
-        "bottom": 40,
-        "right": 80
-      },
-      "v_align": "center",
-      "header": {
-        "bold": true,
         "align": "center",
-        "repeat": true
-      },
-      "body": {
-        "numeric_align": "center",
-        "text_align": "left",
-        "first_column_align": "center"
+        "long_text_align": "left"
       },
       "column_widths": "keep"
     },
-    "全居中（偷懒款）": {
-      "note": "**所有单元格都居中** —— 不会犯错、谈不上最好看，但不至于丑（用户原话）",
-      "table_align": "center",
-      "table_layout": "fixed",
+    "通用款·全居中": {
+      "note": "偷懒款：**不分长短，所有单元格都居中** —— 不会犯错，谈不上最好看但不至于丑（用户原话）",
       "borders": {
         "top": {
           "val": "single",
@@ -139,12 +81,12 @@
         },
         "insideH": {
           "val": "single",
-          "sz": 6,
+          "sz": 4,
           "color": "000000"
         },
         "insideV": {
           "val": "single",
-          "sz": 6,
+          "sz": 4,
           "color": "000000"
         }
       },
@@ -154,6 +96,8 @@
         "bottom": 40,
         "right": 80
       },
+      "table_align": "center",
+      "table_layout": "fixed",
       "v_align": "center",
       "header": {
         "bold": true,
@@ -165,10 +109,117 @@
       },
       "column_widths": "keep"
     },
-    "三线表": {
-      "note": "学术款：上下粗线 + 表头下细线，无竖线（数字居中、说明左对齐同默认款）",
+    "通用款·均布列宽": {
+      "note": "默认款 + **各列等宽**（均布单元格）—— 列宽歪得很厉害、想要整齐的时候用",
+      "borders": {
+        "top": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "bottom": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "left": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "right": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "insideH": {
+          "val": "single",
+          "sz": 4,
+          "color": "000000"
+        },
+        "insideV": {
+          "val": "single",
+          "sz": 4,
+          "color": "000000"
+        }
+      },
+      "cell_margins": {
+        "top": 40,
+        "left": 80,
+        "bottom": 40,
+        "right": 80
+      },
       "table_align": "center",
       "table_layout": "fixed",
+      "v_align": "center",
+      "header": {
+        "bold": true,
+        "align": "center",
+        "repeat": true
+      },
+      "body": {
+        "align": "center",
+        "long_text_align": "left"
+      },
+      "column_widths": "equal"
+    },
+    "通用款·自适应列宽": {
+      "note": "默认款 + **按内容自适应列宽**：每列至少放得下表头，其余按内容分；**允许总宽超出页边距**（宁可宽一点，也不把每列挤扁 —— 这是要做得比 WPS 好的地方）",
+      "allow_overflow": true,
+      "borders": {
+        "top": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "bottom": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "left": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "right": {
+          "val": "single",
+          "sz": 12,
+          "color": "000000"
+        },
+        "insideH": {
+          "val": "single",
+          "sz": 4,
+          "color": "000000"
+        },
+        "insideV": {
+          "val": "single",
+          "sz": 4,
+          "color": "000000"
+        }
+      },
+      "cell_margins": {
+        "top": 40,
+        "left": 80,
+        "bottom": 40,
+        "right": 80
+      },
+      "table_align": "center",
+      "table_layout": "fixed",
+      "v_align": "center",
+      "header": {
+        "bold": true,
+        "align": "center",
+        "repeat": true
+      },
+      "body": {
+        "align": "center",
+        "long_text_align": "left"
+      },
+      "column_widths": "content"
+    },
+    "三线表·学术款": {
+      "note": "学术三线表：上下粗线 + 表头下细线，无竖线；其余口径同默认款（全居中，长文本左）",
       "borders": {
         "top": {
           "val": "single",
@@ -212,6 +263,8 @@
         "bottom": 40,
         "right": 80
       },
+      "table_align": "center",
+      "table_layout": "fixed",
       "v_align": "center",
       "header": {
         "bold": true,
@@ -219,16 +272,13 @@
         "repeat": true
       },
       "body": {
-        "numeric_align": "center",
-        "text_align": "left",
-        "first_column_align": "left"
+        "align": "center",
+        "long_text_align": "left"
       },
       "column_widths": "keep"
     },
-    "默认表格·等宽": {
-      "note": "默认款 + 各列等宽（列宽不匀、要救一下时用）",
-      "table_align": "center",
-      "table_layout": "fixed",
+    "三线表·学术款·均布列宽": {
+      "note": "三线表 + 各列等宽",
       "borders": {
         "top": {
           "val": "single",
@@ -241,21 +291,26 @@
           "color": "000000"
         },
         "left": {
-          "val": "single",
-          "sz": 12,
-          "color": "000000"
+          "val": "none",
+          "sz": 0,
+          "color": "auto"
         },
         "right": {
-          "val": "single",
-          "sz": 12,
-          "color": "000000"
+          "val": "none",
+          "sz": 0,
+          "color": "auto"
         },
         "insideH": {
-          "val": "single",
-          "sz": 6,
-          "color": "000000"
+          "val": "none",
+          "sz": 0,
+          "color": "auto"
         },
         "insideV": {
+          "val": "none",
+          "sz": 0,
+          "color": "auto"
+        },
+        "header_bottom": {
           "val": "single",
           "sz": 6,
           "color": "000000"
@@ -267,6 +322,8 @@
         "bottom": 40,
         "right": 80
       },
+      "table_align": "center",
+      "table_layout": "fixed",
       "v_align": "center",
       "header": {
         "bold": true,
@@ -274,9 +331,8 @@
         "repeat": true
       },
       "body": {
-        "numeric_align": "center",
-        "text_align": "left",
-        "first_column_align": "left"
+        "align": "center",
+        "long_text_align": "left"
       },
       "column_widths": "equal"
     }

@@ -64,83 +64,99 @@ RPR_ORDER = ("w:rStyle", "w:rFonts", "w:b", "w:bCs", "w:i", "w:iCs", "w:caps",
 #: 款式里允许出现的键（校验用，写错键名会被 `check()` 点出来）
 STYLE_KEYS = ("note", "table_align", "table_layout", "width_percent", "borders",
               "cell_margins", "v_align", "header", "body", "column_widths",
-              "font_size_half_points", "font_east_asia")
-#: `body` 里允许的键：可分别规定**数字 / 文本 / 第一列**怎么排
-BODY_KEYS = ("align", "numeric_align", "text_align", "first_column_align")
+              "font_size_half_points", "font_east_asia", "allow_overflow",
+              "header_wrap")
+#: `body` 里允许的键：可分别规定**数字 / 文本 / 第一列**怎么排，
+#: 以及**长文本**（一行放不下的）怎么排 —— 用户 2026-09-22 的口径：
+#: 「只有长文本，例如说明、备注左对齐，其余一律居中。长文本的判别方式是一行表格放不下」
+BODY_KEYS = ("align", "numeric_align", "text_align", "first_column_align", "long_text_align")
 #: 纯数字单元格的判定字符集（用于"数字结果居中"）
 NUMERIC_CHARS = u"0123456789.,%-+±×÷/=()（）　 ″′"
-#: 外框/内框的常见口径（OOXML 的 `w:sz` 单位是 **1/8 磅**）：外框 1.5 磅 = 12，内框 0.75 磅 = 6
-BORDER_PT = {"outer_default": 12, "inner_default": 6}
+#: 外框/内框的口径（OOXML 的 `w:sz` 单位是 **1/8 磅**）。
+#: 用户 2026-09-22 定的最终口径：**外框 1.5 磅 = 12，内框 0.5 磅 = 4**（先前写过 0.75 磅，已改）。
+BORDER_PT = {"outer_default": 12, "inner_default": 4}
 BORDER_EDGES = ("top", "bottom", "left", "right", "insideH", "insideV", "header_bottom")
 BORDER_VALUES = ("single", "double", "thick", "dotted", "dashed", "none", "nil")
 
-#: 出厂款式。**默认款按用户 2026-09-22 给的口径**：
+#: 出厂模板。**命名与口径都是用户 2026-09-22 定的**（原话）：
 #:
-#: > 「常见的表格格式一般是外框1.5，内框是标准（例如0.75磅），一定是外框粗内框细。
-#: >   然后一般数字结果都是居中排版，第一行的标题一定居中，然后代表项目名称的有些是左对齐、
-#: >   有些是居中，说明一类的长文本一般都是左对齐。你可以先照这个规则做默认表格，
-#: >   然后就是所有文本都居中的偷懒格式，一般这个不会犯错，谈不上最好看，但是不至于很丑」
+#: > 「常见的表格格式一般是外框1.5，内框是标准（例如0.5磅），**一定是外框粗内框细**。
+#: >   然后一般数字结果都是居中排版，第一行的标题一定居中…**只有长文本，例如说明、备注左对齐，
+#: >   其余一律居中**。长文本的判别方式是一行表格放不下，它需要在一个单元格内另起一行，这就用左对齐方案」
 #:
-#: `w:sz` 的单位是 **1/8 磅**：1.5 磅 = 12，0.75 磅 = 6。
-#: 项目名称那一列"左对齐/居中"两种都常见 → 内置两款，用 `preview` 看一眼再挑。
+#: `w:sz` 单位是 **1/8 磅**：外框 1.5 磅 = 12，内框 0.5 磅 = 4。
+#: 长文本是**按宽度判**的（文本宽度 > 该格可用宽度 → 左对齐），不是按字数。
 DEFAULT_STYLES = {
     "schema": 1,
-    "name": u"表格款式（外置规则；默认款按用户口径：外框粗内框细 + 表头居中 + 数字居中 + 说明左对齐）",
+    "name": u"表格款式（外置规则；模板命名与会话口径由用户 2026-09-22 定）",
     "styles": {
-        u"默认表格（外粗内细）": {
-            "note": u"外框 1.5 磅 / 内框 0.75 磅；表头居中加粗跨页重复；数字结果居中；说明类长文本左对齐；项目名（第一列）左对齐",
-            "table_align": "center",
-            "table_layout": "fixed",
+        u"通用款·外粗内细": {
+            "note": u"默认款：外框 1.5 磅 / 内框 0.5 磅（外粗内细）；表头居中加粗跨页重复；其余一律居中；**只有一行放不下的长文本左对齐**",
             "borders": {"top": {"val": "single", "sz": 12, "color": "000000"},
                         "bottom": {"val": "single", "sz": 12, "color": "000000"},
                         "left": {"val": "single", "sz": 12, "color": "000000"},
                         "right": {"val": "single", "sz": 12, "color": "000000"},
-                        "insideH": {"val": "single", "sz": 6, "color": "000000"},
-                        "insideV": {"val": "single", "sz": 6, "color": "000000"}},
+                        "insideH": {"val": "single", "sz": 4, "color": "000000"},
+                        "insideV": {"val": "single", "sz": 4, "color": "000000"}},
             "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
+            "table_align": "center",
+            "table_layout": "fixed",
             "v_align": "center",
             "header": {"bold": True, "align": "center", "repeat": True},
-            "body": {"numeric_align": "center", "text_align": "left",
-                     "first_column_align": "left"},
+            "body": {"align": "center", "long_text_align": "left"},
             "column_widths": "keep",
         },
-        u"默认表格·项目名居中": {
-            "note": u"同默认款，但第一列（项目名称）**居中** —— 两种都常见，看你的模板习惯",
-            "table_align": "center",
-            "table_layout": "fixed",
+        u"通用款·全居中": {
+            "note": u"偷懒款：**不分长短，所有单元格都居中** —— 不会犯错，谈不上最好看但不至于丑（用户原话）",
             "borders": {"top": {"val": "single", "sz": 12, "color": "000000"},
                         "bottom": {"val": "single", "sz": 12, "color": "000000"},
                         "left": {"val": "single", "sz": 12, "color": "000000"},
                         "right": {"val": "single", "sz": 12, "color": "000000"},
-                        "insideH": {"val": "single", "sz": 6, "color": "000000"},
-                        "insideV": {"val": "single", "sz": 6, "color": "000000"}},
+                        "insideH": {"val": "single", "sz": 4, "color": "000000"},
+                        "insideV": {"val": "single", "sz": 4, "color": "000000"}},
             "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
-            "v_align": "center",
-            "header": {"bold": True, "align": "center", "repeat": True},
-            "body": {"numeric_align": "center", "text_align": "left",
-                     "first_column_align": "center"},
-            "column_widths": "keep",
-        },
-        u"全居中（偷懒款）": {
-            "note": u"**所有单元格都居中** —— 不会犯错、谈不上最好看，但不至于丑（用户原话）",
             "table_align": "center",
             "table_layout": "fixed",
-            "borders": {"top": {"val": "single", "sz": 12, "color": "000000"},
-                        "bottom": {"val": "single", "sz": 12, "color": "000000"},
-                        "left": {"val": "single", "sz": 12, "color": "000000"},
-                        "right": {"val": "single", "sz": 12, "color": "000000"},
-                        "insideH": {"val": "single", "sz": 6, "color": "000000"},
-                        "insideV": {"val": "single", "sz": 6, "color": "000000"}},
-            "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
             "v_align": "center",
             "header": {"bold": True, "align": "center", "repeat": True},
             "body": {"align": "center"},
             "column_widths": "keep",
         },
-        u"三线表": {
-            "note": u"学术款：上下粗线 + 表头下细线，无竖线（数字居中、说明左对齐同默认款）",
+        u"通用款·均布列宽": {
+            "note": u"默认款 + **各列等宽**（均布单元格）—— 列宽歪得很厉害、想要整齐的时候用",
+            "borders": {"top": {"val": "single", "sz": 12, "color": "000000"},
+                        "bottom": {"val": "single", "sz": 12, "color": "000000"},
+                        "left": {"val": "single", "sz": 12, "color": "000000"},
+                        "right": {"val": "single", "sz": 12, "color": "000000"},
+                        "insideH": {"val": "single", "sz": 4, "color": "000000"},
+                        "insideV": {"val": "single", "sz": 4, "color": "000000"}},
+            "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
             "table_align": "center",
             "table_layout": "fixed",
+            "v_align": "center",
+            "header": {"bold": True, "align": "center", "repeat": True},
+            "body": {"align": "center", "long_text_align": "left"},
+            "column_widths": "equal",
+        },
+        u"通用款·自适应列宽": {
+            "note": u"默认款 + **按内容自适应列宽**：每列至少放得下表头，其余按内容分；**允许总宽超出页边距**（宁可宽一点，也不把每列挤扁 —— 这是要做得比 WPS 好的地方）",
+            "allow_overflow": True,
+            "borders": {"top": {"val": "single", "sz": 12, "color": "000000"},
+                        "bottom": {"val": "single", "sz": 12, "color": "000000"},
+                        "left": {"val": "single", "sz": 12, "color": "000000"},
+                        "right": {"val": "single", "sz": 12, "color": "000000"},
+                        "insideH": {"val": "single", "sz": 4, "color": "000000"},
+                        "insideV": {"val": "single", "sz": 4, "color": "000000"}},
+            "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
+            "table_align": "center",
+            "table_layout": "fixed",
+            "v_align": "center",
+            "header": {"bold": True, "align": "center", "repeat": True},
+            "body": {"align": "center", "long_text_align": "left"},
+            "column_widths": "content",
+        },
+        u"三线表·学术款": {
+            "note": u"学术三线表：上下粗线 + 表头下细线，无竖线；其余口径同默认款（全居中，长文本左）",
             "borders": {"top": {"val": "single", "sz": 12, "color": "000000"},
                         "bottom": {"val": "single", "sz": 12, "color": "000000"},
                         "left": {"val": "none", "sz": 0, "color": "auto"},
@@ -149,27 +165,28 @@ DEFAULT_STYLES = {
                         "insideV": {"val": "none", "sz": 0, "color": "auto"},
                         "header_bottom": {"val": "single", "sz": 6, "color": "000000"}},
             "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
-            "v_align": "center",
-            "header": {"bold": True, "align": "center", "repeat": True},
-            "body": {"numeric_align": "center", "text_align": "left",
-                     "first_column_align": "left"},
-            "column_widths": "keep",
-        },
-        u"默认表格·等宽": {
-            "note": u"默认款 + 各列等宽（列宽不匀、要救一下时用）",
             "table_align": "center",
             "table_layout": "fixed",
-            "borders": {"top": {"val": "single", "sz": 12, "color": "000000"},
-                        "bottom": {"val": "single", "sz": 12, "color": "000000"},
-                        "left": {"val": "single", "sz": 12, "color": "000000"},
-                        "right": {"val": "single", "sz": 12, "color": "000000"},
-                        "insideH": {"val": "single", "sz": 6, "color": "000000"},
-                        "insideV": {"val": "single", "sz": 6, "color": "000000"}},
-            "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
             "v_align": "center",
             "header": {"bold": True, "align": "center", "repeat": True},
-            "body": {"numeric_align": "center", "text_align": "left",
-                     "first_column_align": "left"},
+            "body": {"align": "center", "long_text_align": "left"},
+            "column_widths": "keep",
+        },
+        u"三线表·学术款·均布列宽": {
+            "note": u"三线表 + 各列等宽",
+            "borders": {"top": {"val": "single", "sz": 12, "color": "000000"},
+                        "bottom": {"val": "single", "sz": 12, "color": "000000"},
+                        "left": {"val": "none", "sz": 0, "color": "auto"},
+                        "right": {"val": "none", "sz": 0, "color": "auto"},
+                        "insideH": {"val": "none", "sz": 0, "color": "auto"},
+                        "insideV": {"val": "none", "sz": 0, "color": "auto"},
+                        "header_bottom": {"val": "single", "sz": 6, "color": "000000"}},
+            "cell_margins": {"top": 40, "left": 80, "bottom": 40, "right": 80},
+            "table_align": "center",
+            "table_layout": "fixed",
+            "v_align": "center",
+            "header": {"bold": True, "align": "center", "repeat": True},
+            "body": {"align": "center", "long_text_align": "left"},
             "column_widths": "equal",
         },
     },
@@ -199,6 +216,16 @@ class TableStyle(object):
         self.column_widths = data.get("column_widths")
         self.font_size_half_points = data.get("font_size_half_points")
         self.font_east_asia = data.get("font_east_asia")
+        #: 自适应列宽时**允许总宽超出页边距**（用户要求：WPS 的自适应做得不好，
+        #: 我们宁可让表格宽一点，也不要为塞进版心把每列都挤扁）
+        self.allow_overflow = bool(data.get("allow_overflow", False))
+        #: 把某些表头**折成两行**展示：给表头文字（或列号）→ 在平衡点插换行。
+        #: 好处是那一列可以窄一半，整张表就排得开。
+        wrap = data.get("header_wrap")
+        if isinstance(wrap, dict):
+            self.header_wrap = [u"%s" % item for item in (wrap.get("columns") or [])]
+        else:
+            self.header_wrap = [u"%s" % item for item in (wrap or [])]
 
     def check(self):
         problems = []
@@ -228,6 +255,8 @@ class TableStyle(object):
         if self.column_widths not in (None, "keep", "equal", "content"):
             problems.append(u"款式 %s 的 column_widths=%r 只能是 keep/equal/content"
                             % (self.name, self.column_widths))
+        if not isinstance(self.allow_overflow, bool):
+            problems.append(u"款式 %s 的 allow_overflow 必须是 true/false" % self.name)
         if self.v_align not in (None, "top", "center", "bottom"):
             problems.append(u"款式 %s 的 v_align=%r 只能是 top/center/bottom" % (self.name, self.v_align))
         for key in ("bold", "align", "repeat"):
@@ -315,27 +344,64 @@ class StyleSet(object):
 
 
 # --------------------------------------------------------------------- 套用
-def parse_indexes(selector, total):
-    """``"all"`` / ``"3"`` / ``"1,4-6"`` → 要处理的表格序号（1 起）。"""
+def parse_indexes(selector, total, tables=None):
+    """``"all"`` / ``"3"`` / ``"1,4-6"`` / ``"序号,项目"`` → 要处理的表格序号（1 起）。
+
+    含非数字的片段会被当成**表头关键词**：表头行里出现这个词，这张表就算选中
+    —— 这是"按表头叫表格"的落点（用户要的复选框列表，数据源就是 `table_summaries`）。
+    """
     if not selector or selector == "all":
         return list(range(1, total + 1))
     picked = []
+    keywords = []
     for chunk in str(selector).split(u","):
         chunk = chunk.strip()
         if not chunk:
             continue
-        if u"-" in chunk:
+        if u"-" in chunk and all(part.strip().isdigit() for part in chunk.split(u"-", 1)):
             start, _, end = chunk.partition(u"-")
-            try:
-                picked.extend(range(int(start), int(end) + 1))
-            except ValueError:
-                raise TableStyleError(u"表格序号 %r 看不懂" % chunk)
+            picked.extend(range(int(start), int(end) + 1))
+        elif chunk.isdigit():
+            picked.append(int(chunk))
         else:
-            try:
-                picked.append(int(chunk))
-            except ValueError:
-                raise TableStyleError(u"表格序号 %r 看不懂" % chunk)
-    return [index for index in picked if 1 <= index <= total]
+            keywords.append(chunk)
+    if keywords:
+        if tables is None:
+            raise TableStyleError(u"用表头关键词挑表时需要给出表格列表")
+        for index, table in enumerate(tables, start=1):
+            header = u" / ".join(_text_of_cell(cell) for cell in _header_cells(table))
+            if any(word in header for word in keywords):
+                picked.append(index)
+    return sorted(set(index for index in picked if 1 <= index <= total))
+
+
+def _header_cells(table):
+    rows = [element for element in table if element.tag == qn("w:tr")]
+    if not rows:
+        return []
+    return [element for element in rows[0] if element.tag == qn("w:tc")]
+
+
+def table_summaries(document):
+    """遍历所有表格，给出一份"清单"：序号 / 表头文字 / 几行几列 / 现有列宽是否等宽。
+
+    这就是"按表头叫表格"的数据源 —— 将来 GUI 里那排**复选框**直接渲染它
+    （`tablestyle list` 会把它打成表，`--json` 下是结构化数据）。
+    """
+    out = []
+    for index, table in enumerate(tables_of(document), start=1):
+        rows = [element for element in table if element.tag == qn("w:tr")]
+        header = [(_text_of_cell(cell)).strip() for cell in _header_cells(table)]
+        grid = table.find(qn("w:tblGrid"))
+        widths = [int(column.get(qn("w:w")) or 0) for column in grid] if grid is not None else []
+        out.append({"index": index, "header": header,
+                    "header_text": u" / ".join(header),
+                    "rows": len(rows),
+                    "columns": len(widths) or (len(header) or None),
+                    "widths": widths,
+                    "equal_widths": bool(widths) and len(set(widths)) == 1,
+                    "total_width": sum(widths)})
+    return out
 
 
 def tables_of(document):
@@ -344,15 +410,23 @@ def tables_of(document):
 
 
 def apply(document, style, selector="all", dry_run=False):
-    """把款式套到选中的表格上；返回报告（改了几张表、每类改动几处）。"""
+    """把款式套到选中的表格上；返回报告（改了几张表、每类改动几处）。
+
+    ``selector`` 支持三种写法：``all``（全部）、``1,4-6``（按序号）、
+    ``"序号,项目"``（**按表头文字挑表** —— 用户叫它"遍历表头，按表头叫这些表格"）。
+    """
     tables = tables_of(document)
-    picked = parse_indexes(selector, len(tables))
+    try:
+        page_width = document.geometry().column_width
+    except Exception:
+        page_width = None
+    picked = parse_indexes(selector, len(tables), tables)
     changes = collections.Counter()
     touched = []
     for index, table in enumerate(tables, start=1):
         if index not in picked:
             continue
-        count = _apply_to_table(table, style, dry_run)
+        count = _apply_to_table(table, style, dry_run, page_width)
         if count:
             touched.append(index)
             changes.update(count)
@@ -365,7 +439,7 @@ def apply(document, style, selector="all", dry_run=False):
             "dry_run": bool(dry_run), "style_raw": style.raw}
 
 
-def _apply_to_table(table, style, dry_run):
+def _apply_to_table(table, style, dry_run, page_width=None):
     changes = collections.Counter()
     pr = _ensure(table, "w:tblPr", None, 0)                 # tblPr 必须是 tbl 的第一个孩子
     if style.table_align and _set_attribute(_ensure(pr, "w:jc", TBLPR_ORDER, dry_run=dry_run), qn("w:val"),
@@ -409,7 +483,10 @@ def _apply_to_table(table, style, dry_run):
             if is_header:
                 want = style.header.get("align")
             else:
-                want = _body_align(style, cell, column_index)
+                span = _grid_span(cell)
+                available = _cell_available_width(table, column_index, span,
+                                                  style.cell_margins or {})
+                want = _body_align(style, cell, column_index, available)
             if want:
                 for paragraph in cell.iter(qn("w:p")):
                     ppr = _ensure(paragraph, "w:pPr", None, 0, dry_run)
@@ -432,8 +509,12 @@ def _apply_to_table(table, style, dry_run):
                         changes["表头加粗"] += 1
         if is_header and style.body.get("align"):
             pass                                    # 表头不受 body.align 影响
+    if style.header_wrap:
+        wrapped = apply_header_wrap(table, style, dry_run)
+        if wrapped:
+            changes["表头折行"] += wrapped
     if style.column_widths in ("equal", "content"):
-        if _apply_column_widths(table, style.column_widths, dry_run):
+        if _apply_column_widths(table, style.column_widths, dry_run, style, page_width):
             changes["列宽"] += 1
     if style.font_size_half_points or style.font_east_asia:
         if _apply_table_font(table, style, dry_run):
@@ -469,14 +550,91 @@ def looks_numeric(text):
     return all(ch in NUMERIC_CHARS for ch in stripped)
 
 
-def _body_align(style, cell, column_index):
-    """数据行里这一格该用什么对齐：第一列 → 数字 → 文本，依次取款式里的规定。"""
-    text = u"".join((node.text or "") for node in cell.iter(qn("w:t")))
+def _body_align(style, cell, column_index, available=None):
+    """数据行里这一格该用什么对齐。
+
+    用户 2026-09-22 的口径：「**只有长文本，例如说明、备注左对齐，其余一律居中**。
+    长文本的判别方式是一行表格放不下，它需要在一个单元格内另起一行」——
+    所以**先按宽度判"是不是长文本"**，是就左对齐；否则走 数字 / 第一列 / 兜底 那几档。
+    """
+    text = _text_of_cell(cell)
+    if style.body.get("long_text_align") and _is_long_text(cell, available):
+        return style.body["long_text_align"]
     if column_index == 0 and style.body.get("first_column_align"):
         return style.body["first_column_align"]
     if looks_numeric(text) and style.body.get("numeric_align"):
         return style.body["numeric_align"]
     return style.body.get("text_align") or style.body.get("align")
+
+
+def _text_of_cell(cell):
+    return u"".join((node.text or "") for node in cell.iter(qn("w:t")))
+
+
+def _wrapped_header(requested, header_text):
+    """这一列表头是不是要被折成两行展示（按表头文字或列号匹配）。"""
+    return bool(requested) and (header_text in requested or u"*" in requested)
+
+
+def _is_long_text(cell, available):
+    """一行放不下吗？``available`` 是该格可用宽度（dxa）；算不出来时**保守判"不是长文本"**。"""
+    if not available or available <= 0:
+        return False
+    width = 0
+    for paragraph in cell.iter(qn("w:p")):
+        text = u"".join((node.text or "") for node in paragraph.iter(qn("w:t")))
+        if not text:
+            continue
+        width = max(width, _measured_width(text, _paragraph_size_half_points(paragraph)))
+    return width > available
+
+
+def _paragraph_size_half_points(paragraph, default=21):
+    """段落里第一个带 ``w:sz`` 的 run 的字号（**半磅**）；没有就用默认五号（21）。
+
+    与 `document.run_size_of` 同一口径，这里自己实现一份是为了不让本模块依赖 ops 包。
+    """
+    for run in paragraph.iter(qn("w:r")):
+        pr = run.find(qn("w:rPr"))
+        node = pr.find(qn("w:sz")) if pr is not None else None
+        if node is not None:
+            try:
+                return int(node.get(qn("w:val")))
+            except (TypeError, ValueError):
+                continue
+    return default
+
+
+def _measured_width(text, size_half_points):
+    """按"中文全角、其余半角"估文本宽度（dxa）—— 与表题居中用的同一套算法。"""
+    points = (size_half_points or 21) / 2.0
+    total = 0.0
+    for ch in text:
+        wide = (u"\u2e80" <= ch <= u"\u9fff" or u"\uff00" <= ch <= u"\uffef"
+                or ch in u"\u3000\u2018\u2019\u201c\u201d\u2014\u2026")
+        total += points * 20 * (1.0 if wide else 0.5)
+    return total
+
+
+def _cell_available_width(table, column_index, span, margins):
+    """这一格的可用宽度 = 它占的几列宽度之和 − 左右内边距（算不出来就返回 None）。"""
+    grid = table.find(qn("w:tblGrid"))
+    if grid is None:
+        return None
+    columns = [element for element in grid]
+    if not columns or column_index + span > len(columns):
+        return None
+    total = 0
+    for column in columns[column_index:column_index + span]:
+        try:
+            total += int(column.get(qn("w:w")) or 0)
+        except (TypeError, ValueError):
+            return None
+    if total <= 0:
+        return None
+    left = int(margins.get("left") or 0)
+    right = int(margins.get("right") or 0)
+    return max(1, total - left - right)
 
 
 def _apply_borders(pr, style, dry_run):
@@ -505,8 +663,117 @@ def _apply_cell_margins(pr, margins, dry_run):
     return changed
 
 
-def _apply_column_widths(table, mode, dry_run):
-    """列宽：``equal`` = 各列等宽；``content`` = 按内容长度估（渲染器说了算的事我们只能估）。"""
+def apply_header_wrap(table, style, dry_run=False):
+    """把指定的表头**折成两行展示**（在平衡点插一个换行 `w:br`）。
+
+    用户 2026-09-22：「自适应甚至允许它超出定义的页边距，且**能够选择某些标题作为两行展示**」。
+    折行的好处是那一列可以窄一半 —— 自适应算宽度时按"较长的那一半"算（见 `_header_need`）。
+    """
+    rows = [element for element in table if element.tag == qn("w:tr")]
+    if not rows:
+        return 0
+    header = rows[0]
+    count = 0
+    column_index = 0
+    for cell in [element for element in header if element.tag == qn("w:tc")]:
+        text = _text_of_cell(cell)
+        index_hit = u"%d" % (column_index + 1)
+        if text and (text in style.header_wrap or index_hit in style.header_wrap):
+            if _wrap_cell(cell, dry_run):
+                count += 1
+        column_index += _grid_span(cell)
+    return count
+
+
+def _wrap_cell(cell, dry_run=False):
+    """在**平衡点**把一格的文字折成两行（挑最接近中点、又不在数字/标点旁边的位置）。"""
+    paragraph = next(iter(cell.iter(qn("w:p"))), None)
+    if paragraph is None:
+        return False
+    text = u"".join((node.text or "") for node in paragraph.iter(qn("w:t")))
+    if len(text) < 4 or u"\n" in text or u"\v" in text:
+        return False
+    best = _wrap_split_point(text)
+    if not 0 < best < len(text):
+        return False
+    if dry_run:
+        return True
+    from .text import Paragraph as _Paragraph
+    _Paragraph(paragraph).replace(text, text[:best] + u"\v" + text[best:], count=1)
+    # `\v`（手动换行）会被文本层写成 `w:br`；这里换成它，Word 里就是"同一格两行"
+    for run in cell.iter(qn("w:r")):
+        node = run.find(qn("w:t"))
+        if node is not None and node.text and u"\v" in node.text:
+            before, _, after = node.text.partition(u"\v")
+            node.text = before
+            from xml.etree import ElementTree as ET
+            break_run = ET.Element(qn("w:br"))
+            after_run = ET.Element(qn("w:r"))
+            pr = run.find(qn("w:rPr"))
+            if pr is not None:
+                after_run.append(ET.fromstring(ET.tostring(pr)))
+            after_node = ET.SubElement(after_run, qn("w:t"))
+            after_node.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            after_node.text = after
+            parent = None
+            for candidate in cell.iter(qn("w:p")):
+                if run in list(candidate):
+                    parent = candidate
+                    break
+            if parent is None:
+                return False
+            index = list(parent).index(run)
+            parent.insert(index + 1, break_run)
+            parent.insert(index + 2, after_run)
+            return True
+    return False
+
+
+
+def _wrap_split_point(text):
+    """选一个"两行都好看"的折行点：取中点，再往两边挪到不切数字/标点的位置。
+
+    用户只说"某些标题作为两行展示"，没说断在哪 —— 那就按最不容易出错的办法：
+    **别把数字、小数、顿号劈开**（`1985`、`3.3`、`一、` 这类切开很难看）。
+    """
+    middle = len(text) // 2
+    for offset in range(0, len(text)):
+        for candidate in (middle - offset, middle + offset):
+            if not 0 < candidate < len(text):
+                continue
+            if text[candidate - 1] in u"0123456789." or text[candidate] in u"0123456789.、（）":
+                continue
+            return candidate
+    return middle
+
+def _header_need(table, column_index, style):
+    """这一列表头的"落位所需宽度"：折行后按较长的一半算，没折行按整串算。"""
+    rows = [element for element in table if element.tag == qn("w:tr")]
+    if not rows:
+        return 0.0
+    header_cells = [element for element in rows[0] if element.tag == qn("w:tc")]
+    if column_index >= len(header_cells):
+        return 0.0
+    cell = header_cells[column_index]
+    text = _text_of_cell(cell)
+    if not text:
+        return 0.0
+    if text in style.header_wrap or u"%d" % (column_index + 1) in style.header_wrap:
+        half = len(text) // 2
+        text = max(text[:half], text[half:], key=len)
+    half_points = _paragraph_size_half_points(next(iter(cell.iter(qn("w:p"))), None)) \
+        if next(iter(cell.iter(qn("w:p"))), None) is not None else 21
+    return _measured_width(text, half_points)
+
+
+def _apply_column_widths(table, mode, dry_run, style=None, page_width=None):
+    """列宽：``equal`` = 均布（各列等宽）；``content`` = 按内容自适应。
+
+    自适应的口径（用户要求"比 WPS 做得好"）：
+    * 每列**至少**放得下表头（折行款按折后较长的一半算）；
+    * 其余按内容权重分配；
+    * ``allow_overflow`` 时**不把总宽压进版心** —— 宁可宽一点，也不把每列挤扁。
+    """
     grid = table.find(qn("w:tblGrid"))
     columns = [element for element in grid] if grid is not None else []
     if not columns:
@@ -519,10 +786,19 @@ def _apply_column_widths(table, mode, dry_run):
         widths = [each] * len(columns)
     else:
         weights = _content_weights(table, len(columns))
-        if not weights or not total:
+        if not weights:
             return False
+        if style is not None:
+            for index in range(len(weights)):
+                weights[index] = max(weights[index], _header_need(table, index, style))
         base = sum(weights)
-        widths = [max(1, int(total * weight / base)) for weight in weights]
+        budget = total
+        if style is not None and getattr(style, "allow_overflow", False) and page_width:
+            budget = max(total, int(base * (total / max(base, 1.0))))     # 不压缩，按内容给
+            budget = max(budget, int(sum(weights)))
+        if not budget:
+            return False
+        widths = [max(1, int(budget * weight / base)) for weight in weights]
     changed = False
     for column, width in zip(columns, widths):
         if _set_attribute(column, qn("w:w"), width, dry_run):

@@ -86,7 +86,7 @@ class TestSpaces(TidyCase):
                 + fixtures.paragraph(fixtures.run(u"表2.3-1        库容特性表")))
         report, out = self.run_op(body, collapse_space_runs=True)
         self.assertEqual(report["changes"]["连续空格压缩"], 1)
-        self.assertEqual(report["changes"]["题注段落（跳过压缩）"], 1)
+        self.assertEqual(report["changes"]["题注段落（跳过）"], 1)
         self.assertEqual(self.texts(out),
                          [u"普通段落 A B", u"表2.3-1        库容特性表"])
 
@@ -172,3 +172,82 @@ class TestScopeAndSafety(TidyCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCopyPlusPlusSample(TidyCase):
+    """**金标准**：用户 2026-09-22 给的 `copy++演示.txt`（Copy++ 开「合并换行」+「去除空格」）。
+
+    前后对照在 `tests/copypp_sample.py` 里（从用户文件逐字抽出）：
+
+    * 「合并换行」= **删掉空行**（不是"压成一个"）→ 被空行隔开的行变成连续行；
+    * 「去除空格」= **删掉所有半角空格**（`工程经验 + 客户对接` → `工程经验+客户对接`、
+      `Word Factory` → `WordFactory`）。
+    """
+
+    def run_sample(self, options):
+        from tests.copypp_sample import BEFORE
+        body = u"".join(fixtures.paragraph(fixtures.run(line)) if line.strip() else u"<w:p/>"
+                        for line in BEFORE)
+        report, out = self.run_op(body, **options)
+        return report, out
+
+    def test_merge_lines_and_remove_spaces_reproduce_the_sample(self):
+        from tests.copypp_sample import AFTER
+        report, out = self.run_sample({"merge_lines": True, "remove_spaces": True})
+        self.assertEqual(self.texts(out), AFTER, u"必须与 Copy++ 的结果逐行一致")
+        self.assertEqual(report["changes"]["删除空行"], 13)
+        self.assertGreater(report["changes"]["去空格"], 0)
+
+    def test_merge_lines_alone_removes_blank_lines(self):
+        from tests.copypp_sample import BEFORE
+        report, out = self.run_sample({"merge_lines": True})
+        expected = [line for line in BEFORE if line.strip()]
+        self.assertEqual(self.texts(out), expected)
+
+    def test_remove_spaces_alone_keeps_blank_lines_but_strips_spaces(self):
+        from tests.copypp_sample import BEFORE
+        report, out = self.run_sample({"remove_spaces": True, "blank_lines": False})
+        expected = []
+        for line in BEFORE:
+            if line.strip():
+                expected.append(line.replace(u" ", u""))
+            else:
+                expected.append(u"")
+        while expected and expected[-1] == u"":
+            expected.pop()
+        self.assertEqual(self.texts(out), expected)
+
+    def test_the_two_modes_are_off_by_default(self):
+        """默认口径不变（保守）—— 这两个是"照 Copy++ 行为"的显式开关。"""
+        from wordfactory.ops.tidy import DEFAULT_TIDY
+        self.assertFalse(DEFAULT_TIDY["merge_lines"])
+        self.assertFalse(DEFAULT_TIDY["remove_spaces"])
+
+    def test_remove_spaces_skips_caption_paragraphs_by_default(self):
+        """题注的空格是"空格居中"用的 —— 默认整段跳过（否则一跑就把表题压平）。"""
+        body = (fixtures.paragraph(fixtures.run(u"正文 A B"))
+                + fixtures.paragraph(fixtures.run(u"表2.3-1        库容特性表")))
+        report, out = self.run_op(body, remove_spaces=True)
+        self.assertEqual(report["changes"]["去空格"], 2, u"数的是**空格字符**（A 与 B 之间两个空格）")
+        self.assertEqual(report["changes"]["题注段落（跳过）"], 1)
+        self.assertEqual(self.texts(out), [u"正文AB", u"表2.3-1        库容特性表"])
+
+    def test_include_captions_can_turn_the_skip_off(self):
+        body = fixtures.paragraph(fixtures.run(u"表2.3-1    库容表"))
+        report, out = self.run_op(body, remove_spaces=True, caption_skip=False)
+        self.assertGreater(report["changes"]["去空格"], 0)
+        self.assertEqual(self.texts(out), [u"表2.3-1库容表"])
+
+    def test_merge_lines_and_the_conservative_mode_do_not_double_count(self):
+        """两种口径互斥：merge_lines 时不再做"压成一个"的保守处理（否则两边都在数）。"""
+        body = (fixtures.paragraph(fixtures.run(u"甲")) + u"<w:p/>" + u"<w:p/>"
+                + fixtures.paragraph(fixtures.run(u"乙")))
+        report, out = self.run_op(body, merge_lines=True)
+        self.assertEqual(report["changes"].get("空白段压缩"), None)
+        self.assertEqual(report["changes"]["删除空行"], 2)
+        self.assertEqual(self.texts(out), [u"甲", u"乙"])
+
+    def test_the_full_width_space_is_kept_unless_asked(self):
+        report, out = self.run_op(fixtures.paragraph(fixtures.run(u"甲乙\u3000丙 丁")),
+                                  remove_spaces=True)
+        self.assertEqual(self.texts(out), [u"甲乙\u3000丙丁"], u"全角空格默认留着（可能是缩进）")

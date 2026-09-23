@@ -203,6 +203,15 @@ def _add_tidy_parser(sub):
     tidy_p.add_argument("--collapse-space-runs", dest="collapse_space_runs",
                         action="store_true", default=False,
                         help=u"把段内连续空格压成一个（自动跳过题注段落）")
+    tidy_p.add_argument("--include-captions", dest="include_captions", action="store_true",
+                        default=False,
+                        help=u"去空格/压空格时**连题注段落一起动**（默认跳过 —— 它们的空格是居中用的）")
+    tidy_p.add_argument("--merge-lines", dest="merge_lines", action="store_true",
+                        default=False,
+                        help=u"合并换行：**删掉全部空行**（照 Copy++ 的「合并换行」，见样本）")
+    tidy_p.add_argument("--remove-spaces", dest="remove_spaces", action="store_true",
+                        default=False,
+                        help=u"去除空格：删掉全部半角/不间断空格（照 Copy++ 的「去除空格」）")
     tidy_p.add_argument("--scope", choices=("body", "all"), default="body",
                         help=u"body=只动正文段落（默认）；all=连表格里的也动")
     tidy_p.add_argument("--out", default=None, help=u"输出文件")
@@ -228,14 +237,19 @@ def _add_tablestyle_parser(sub):
     """表格款式：四个动作一个入口（款式文件是外置的，所以 show/init 也要有）。"""
     tstyle = sub.add_parser("tablestyle",
                             help=u"表格款式（外置规则）：套用 / 采集你调好的表 / 预览")
-    tstyle.add_argument("action", choices=("init", "show", "capture", "preview", "apply"),
-                        help=u"init 写默认款式；show 看款式；capture 采集；preview 预览；apply 套用")
+    tstyle.add_argument("action",
+                        choices=("init", "show", "list", "capture", "preview", "apply"),
+                        help=u"init 写默认款式；show 看款式；list 遍历表头（挑表用）；"
+                             u"capture 采集你调好的表；preview 预览；apply 套用")
     tstyle.add_argument("path", nargs="?", help=u"capture / apply 时要处理的 .docx")
     tstyle.add_argument("--styles", default=DEFAULT_STYLES_PATH, help=u"款式文件")
     tstyle.add_argument("--style", default=None, help=u"款式名（preview 可给多个，逗号分隔）")
     tstyle.add_argument("--table", default=None, help=u"capture 时采集第几张表（默认第 1 张）")
     tstyle.add_argument("--name", default=None, help=u"capture 时存成什么名字")
-    tstyle.add_argument("--tables", default="all", help=u"apply 作用范围：all / 3 / 1,4-6")
+    tstyle.add_argument("--tables", default="all",
+                        help=u"apply 作用范围：all ／ 序号 1,4-6 ／ **表头关键词**（如 \"序号,项目\"）")
+    tstyle.add_argument("--wrap-header", dest="wrap_header", action="append", default=None,
+                        help=u"把某个表头折成两行展示（可重复；给表头文字或列号，如 --wrap-header 备注）")
     tstyle.add_argument("--out", default=None, help=u"输出文件（capture/preview/apply 用）")
     tstyle.add_argument("--outdir", default=None, help=u"输出目录（apply 用）")
     tstyle.add_argument("--force", action="store_true", help=u"init 时覆盖已有款式文件")
@@ -658,7 +672,7 @@ def cmd_tableclean(args):
 
 
 def cmd_tablestyle(args):
-    """表格款式：外置款式文件 + 套用 + 采集（把你调好的表存成款式）+ 预览。"""
+    """表格款式：外置款式文件 + 套用 + 采集（把你调好的表存成款式）+ 预览 + 列表。"""
     from . import tablestyle as ts
     from .document import Document
 
@@ -675,6 +689,24 @@ def cmd_tablestyle(args):
                    u"、".join(ts.DEFAULT_STYLES["styles"])))
 
     # init 已提前返回；剩下四个动作都要用**现有**款式文件 —— 到这里才校验
+    if args.action == "list":
+        # **遍历表头**：把每张表的序号 + 表头文字列出来 —— 用户要的"按表头叫这些表格"，
+        # 也是将来 GUI 那排复选框的数据源（`--json` 下是结构化的 summaries）。
+        with Document(args.path) as doc:
+            summaries = ts.table_summaries(doc)
+        lines = [u"文件：%s" % doc.path, u"共 %d 张表：" % len(summaries), u""]
+        lines.append(u"  %-4s %-7s %-7s %-8s %s" % (u"序号", u"行数", u"列数", u"列宽", u"表头"))
+        for item in summaries:
+            lines.append(u"  %-4d %-7d %-7s %-8s %s"
+                         % (item["index"], item["rows"],
+                            item["columns"] if item["columns"] else u"?",
+                            u"等宽" if item["equal_widths"] else u"不匀",
+                            item["header_text"][:60] or u"（表头是空的）"))
+        lines.append(u"")
+        lines.append(u"选表方式（`apply --tables`）：`all` ／ 序号 `1,4-6` ／ "
+                     u"**表头关键词**（如 `--tables \"序号,项目\"` —— 表头里出现这些词的都会被选中）")
+        return ({"file": doc.path, "tables": summaries}, u"\n".join(lines))
+
     style_set = ts.StyleSet.load(args.styles)
     problems = style_set.check()
     if problems:
@@ -739,6 +771,13 @@ def cmd_tablestyle(args):
             raise RuleError(u"要写结果就得给 --out 文件或 --outdir 目录"
                             u"（本工具**不会**覆盖原文件）")
         style = style_set.get(args.style)
+        if args.wrap_header:
+            # 命令行指定的表头折行**叠加**在款式之上（款式文件里也能写 header_wrap）
+            for name in args.wrap_header:
+                for part in name.split(u","):
+                    part = part.strip()
+                    if part and part not in style.header_wrap:
+                        style.header_wrap.append(part)
         with Document(args.path) as doc:
             report = ts.apply(doc, style, selector=args.tables, dry_run=args.dry_run)
             out_path = None
@@ -828,6 +867,9 @@ def cmd_tidy(args):
                "trailing_spaces": not args.no_spaces,
                "trim_leading": args.trim_leading,
                "collapse_space_runs": args.collapse_space_runs,
+               "merge_lines": args.merge_lines,
+               "remove_spaces": args.remove_spaces,
+               "caption_skip": not args.include_captions,
                "scope": args.scope}
     with Document(args.path) as doc:
         report = tidy_op.tidy(doc, options, dry_run=args.dry_run)
@@ -848,6 +890,10 @@ def cmd_tidy(args):
         lines.append(u"    %-22s %d" % (key, report["changes"][key]))
     if not options["trim_leading"]:
         lines.append(u"    （段首空格默认**没动** —— 怕碰到「用空格当缩进」的文档；要动加 --trim-leading）")
+    if options["merge_lines"]:
+        lines.append(u"    （合并换行：空白行**全删**，不是压成一个 —— 与你给的 Copy++ 样本一致）")
+    if options["remove_spaces"]:
+        lines.append(u"    （去除空格：半角与不间断空格全删；**全角空格保留**，它常是段首缩进）")
     if not options["collapse_space_runs"]:
         lines.append(u"    （段内连续空格默认**没动** —— 它会把表题的空格居中压掉；要动加 --collapse-space-runs，"
                      u"会自动跳过题注段落）")

@@ -51,7 +51,7 @@ class StyleCase(unittest.TestCase):
         fixtures.write_fixture(self.path, body=body)
         return self.path
 
-    def style(self, name=u"三线表"):
+    def style(self, name=u"三线表·学术款"):
         return StyleSet(DEFAULT_STYLES).get(name)
 
     def first_table(self, path):
@@ -136,7 +136,7 @@ class TestApply(StyleCase):
         body = table([row(cell(u"A"), cell(u"B"))], widths=(2000, 4000))
         self.build(body)
         with Document(self.path) as doc:
-            report = apply(doc, self.style(u"默认表格·等宽"))
+            report = apply(doc, self.style(u"通用款·均布列宽"))
         table_element = list(tables_of(doc))[0]
         widths = [int(column.get(qn("w:w"))) for column in table_element.find(qn("w:tblGrid"))]
         self.assertEqual(widths[0], widths[1], u"等宽款要把各列拉平")
@@ -172,12 +172,12 @@ class TestStyleFile(StyleCase):
         StyleSet(DEFAULT_STYLES).save(path)
         again = StyleSet.load(path)
         self.assertEqual(sorted(again.styles), sorted(DEFAULT_STYLES["styles"]))
-        self.assertEqual(again.get(u"三线表").borders["top"]["sz"], 12)
+        self.assertEqual(again.get(u"三线表·学术款").borders["top"]["sz"], 12)
 
     def test_a_missing_style_says_what_exists(self):
         with self.assertRaises(TableStyleError) as caught:
             StyleSet(DEFAULT_STYLES).get(u"不存在的款式")
-        self.assertIn(u"三线表", u"%s" % caught.exception)
+        self.assertIn(u"三线表·学术款", u"%s" % caught.exception)
 
 
 class TestCapture(StyleCase):
@@ -259,7 +259,7 @@ class TestCapture(StyleCase):
 
 class TestPreview(StyleCase):
     def test_the_preview_is_a_new_document_with_every_style(self):
-        names = [u"默认表格（外粗内细）", u"全居中（偷懒款）"]
+        names = [u"通用款·外粗内细", u"通用款·全居中"]
         styles = [StyleSet(DEFAULT_STYLES).get(name) for name in names]
         path = build_preview(os.path.join(self.dir, u"preview.docx"), styles)
         with zipfile.ZipFile(path) as archive:
@@ -267,13 +267,13 @@ class TestPreview(StyleCase):
             doc = archive.read("word/document.xml").decode("utf-8")
         self.assertEqual(names_in_zip, {"[Content_Types].xml", "_rels/.rels",
                                         "word/document.xml"})
-        self.assertIn(u"【默认表格（外粗内细）】", doc)
-        self.assertIn(u"【全居中（偷懒款）】", doc)
+        self.assertIn(u"【通用款·外粗内细】", doc)
+        self.assertIn(u"【通用款·全居中】", doc)
         self.assertEqual(doc.count("<w:tbl>"), len(names) * 3, u"每种款式 3 张代表性表格")
 
     def test_the_preview_goes_through_the_same_apply_path(self):
         """预览里的表必须**真的被套过款式**（不是另写一套渲染代码）。"""
-        styles = [StyleSet(DEFAULT_STYLES).get(u"三线表")]
+        styles = [StyleSet(DEFAULT_STYLES).get(u"三线表·学术款")]
         path = build_preview(os.path.join(self.dir, u"p.docx"), styles)
         with zipfile.ZipFile(path) as archive:
             root = ET.fromstring(archive.read("word/document.xml").decode("utf-8"))
@@ -285,7 +285,7 @@ class TestPreview(StyleCase):
 
     def test_the_preview_is_reproducible(self):
         import time
-        styles = [StyleSet(DEFAULT_STYLES).get(u"三线表")]
+        styles = [StyleSet(DEFAULT_STYLES).get(u"三线表·学术款")]
         first = build_preview(os.path.join(self.dir, u"a.docx"), styles)
         time.sleep(1.1)
         second = build_preview(os.path.join(self.dir, u"b.docx"), styles)
@@ -295,10 +295,111 @@ class TestPreview(StyleCase):
     def test_the_preview_command_writes_a_file(self):
         from wordfactory.cli import main
         out = os.path.join(self.dir, u"从命令来.docx")
-        code = main(["tablestyle", "preview", "--out", out, "--style", u"默认表格（外粗内细）,全居中（偷懒款）"])
+        code = main(["tablestyle", "preview", "--out", out, "--style", u"通用款·外粗内细,通用款·全居中"])
         self.assertEqual(code, 0)
         self.assertTrue(os.path.exists(out))
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLongTextAndAutofit(StyleCase):
+    """用户 2026-09-22 的第二批口径：长文本按**宽度**判、自适应列宽、表头折行、按表头挑表。"""
+
+    def long_body(self, widths=(900, 900)):
+        return table([row(cell(u"项目"), cell(u"说明")),
+                      row(cell(u"防洪标准"), cell(u"按50年一遇设计、200年一遇校核，枢纽建筑物级别为3级")),
+                      row(cell(u"面积"), cell(u"0.8"))], widths=widths)
+
+    def long_one_cell(self, text, width):
+        """一列很窄的表：只有一格长文本 + 一格短文本，便于对比。"""
+        return table([row(cell(u"标题"), cell(text))], widths=(1200, width))
+
+    def test_a_dense_table_lists_headers_and_sizes(self):
+        """**遍历表头**（`table_summaries`）—— 将来 GUI 的复选框就渲染它。"""
+        from wordfactory.tablestyle import table_summaries
+        body = (table([row(cell(u"序号"), cell(u"项目"), cell(u"数量"))],
+                      columns=3, widths=(1200, 2000, 1500))
+                + fixtures.paragraph(fixtures.run(u"中间隔着一段正文"))
+                + table([row(cell(u"水位(m)"), cell(u"库容(万m3)"))]))
+        self.build(body)
+        with Document(self.path) as doc:
+            summaries = table_summaries(doc)
+        self.assertEqual([item["index"] for item in summaries], [1, 2])
+        self.assertEqual(summaries[0]["header"], [u"序号", u"项目", u"数量"])
+        self.assertEqual(summaries[1]["header_text"], u"水位(m) / 库容(万m3)")
+        self.assertEqual(summaries[0]["columns"], 3)
+
+    def test_tables_can_be_picked_by_their_header_text(self):
+        """按表头叫表格：`--tables "序号"` 只挑表头里有"序号"的那些。"""
+        body = (table([row(cell(u"序号"), cell(u"项目"))])
+                + fixtures.paragraph(fixtures.run(u"间隔"))
+                + table([row(cell(u"水位"), cell(u"库容"))]))
+        self.build(body)
+        with Document(self.path) as doc:
+            report = apply(doc, self.style(), selector=u"序号")
+        self.assertEqual(report["selected"], 1)
+        self.assertEqual(report["tables_changed"], [1])
+
+    def test_header_wrap_puts_a_line_break_in_the_header(self):
+        body = table([row(cell(u"水库所在地"), cell(u"值")), row(cell(u"某镇"), cell(u"1"))],
+                     widths=(2000, 2000))
+        self.build(body)
+        style = TableStyle(u"折行", {"header_wrap": [u"水库所在地"]})
+        with Document(self.path) as doc:
+            report = apply(doc, style)
+        self.assertEqual(report["changes"]["表头折行"], 1)
+        table_element = list(tables_of(doc))[0]
+        self.assertIsNotNone(next(iter(table_element.iter(qn("w:br"))), None),
+                             u"表头里要有一个换行（Word 里显示成两行）")
+
+    def test_the_wrap_point_avoids_splitting_a_number(self):
+        """折行点要避开数字/标点 —— 不能把 `1985` 或 `0.33` 劈成两半。"""
+        from wordfactory.tablestyle import _wrap_split_point
+        self.assertNotEqual(_wrap_split_point(u"高程（m，1985国家高程基准）"), 8)
+        for text in (u"高程（m，1985国家高程基准）", u"设计频率P=3.3%", u"库容变化率（%）"):
+            point = _wrap_split_point(text)
+            self.assertTrue(0 < point < len(text), text)
+            self.assertNotEqual(text[point - 1].isdigit() and text[point].isdigit(), True,
+                                u"不能在数字中间断：%s（断在 %d）" % (text, point))
+
+    def test_content_widths_respect_the_header_need(self):
+        """自适应：每列至少放得下表头（列宽不匀时，表头那列要留够）。"""
+        body = table([row(cell(u"序号"), cell(u"水库名称与特性说明列")),
+                      row(cell(u"1"), cell(u"甲"))], widths=(900, 900))
+        self.build(body)
+        with Document(self.path) as doc:
+            report = apply(doc, self.style(u"通用款·自适应列宽"))
+            out = doc.save(os.path.join(self.dir, u"自适应.docx"))
+        self.assertIn("列宽", report["changes"])
+        with Document(out) as doc:
+            widths = [int(c.get(qn("w:w"))) for c in
+                      list(tables_of(doc))[0].find(qn("w:tblGrid"))]
+        self.assertGreater(widths[1], widths[0], u"表头长的那列要更宽")
+
+    def test_allow_overflow_lets_the_table_get_wider(self):
+        """允许超出页边距：总宽可以大于原来（WPS 的自适应做不好，我们宁可宽一点）。"""
+        body = table([row(cell(u"项目"), cell(u"说明与备注信息比较长的一列")),
+                      row(cell(u"甲"), cell(u"这是一个很长的说明文字，原来的列宽根本放不下"))],
+                     widths=(900, 900))
+        self.build(body)
+        with Document(self.path) as doc:
+            apply(doc, self.style(u"通用款·自适应列宽"))
+            out = doc.save(os.path.join(self.dir, u"超宽.docx"))
+        with Document(out) as doc:
+            widths = [int(c.get(qn("w:w"))) for c in
+                      list(tables_of(doc))[0].find(qn("w:tblGrid"))]
+        self.assertGreater(sum(widths), 1800, u"自适应后总宽应该比原来大")
+
+    def test_equal_widths_makes_every_column_the_same(self):
+        body = table([row(cell(u"甲"), cell(u"乙"), cell(u"丙"))],
+                     widths=(1000, 3000, 2000))
+        self.build(body)
+        with Document(self.path) as doc:
+            apply(doc, self.style(u"通用款·均布列宽"))
+            out = doc.save(os.path.join(self.dir, u"等宽.docx"))
+        with Document(out) as doc:
+            widths = [int(c.get(qn("w:w"))) for c in
+                      list(tables_of(doc))[0].find(qn("w:tblGrid"))]
+        self.assertEqual(len(set(widths)), 1, u"均布：各列等宽")
