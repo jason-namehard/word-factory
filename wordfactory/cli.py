@@ -176,7 +176,21 @@ def build_parser():
     _add_textfix_parser(sub)
     _add_tidy_parser(sub)
     _add_mdclean_parser(sub)
+    _add_format_parser(sub)
     return parser
+
+
+def _add_format_parser(sub):
+    """格式规范化（宏里那套"变黑 + 去高亮 + 字体 + 上标"跑成一条命令）。"""
+    fmt = sub.add_parser("format", help=u"宏：格式规范化（通体黑 + 去高亮 + 字体合规 + 上下标规则）")
+    fmt.add_argument("path", help=u"要处理的 .docx")
+    fmt.add_argument("--fonts", default=DEFAULT_FONTS_PATH, help=u"字体规则文件")
+    fmt.add_argument("--rules", default=DEFAULT_RULES_PATH, help=u"上下标规则文件")
+    fmt.add_argument("--no-superscripts", dest="no_superscripts", action="store_true",
+                     default=False, help=u"不跑上下标规则（只做颜色/字体）")
+    fmt.add_argument("--out", default=None, help=u"输出文件")
+    fmt.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
+    fmt.add_argument("--dry-run", action="store_true", help=u"只报会改多少，不写文件")
 
 
 def _add_mdclean_parser(sub):
@@ -318,7 +332,13 @@ def cmd_rules(args):
             raise RuleError(u"要写结果就得给 --out 文件或 --outdir 目录"
                             u"（本工具**不会**覆盖原文件）")
         with DocxPackage(args.path) as pkg:
-            root = pkg.xml(DocxPackage.MAIN)
+            if args.dry_run:
+                # dry-run 在**副本**上跑：`apply_to_part` 只有"直接改树"这一条路，在真树上跑虽然
+                # 不落盘，但"dry-run 不改树"这条不变量就名存实亡了（`format` 那边踩过同一个坑）。
+                import copy
+                root = copy.deepcopy(pkg.xml(DocxPackage.MAIN))
+            else:
+                root = pkg.xml(DocxPackage.MAIN)
             report = apply_to_part(root, rule_set, limit=10)
             if args.dry_run:
                 payload = {"dry_run": True, "file": pkg.path, "rules": source,
@@ -945,6 +965,70 @@ def cmd_mdclean(args):
     return (dict(report, out=out_path), u"\n".join(lines))
 
 
+def cmd_format(args):
+    """宏「格式规范化」：通体黑 + 去高亮 + 字体合规 + 上下标规则（固定顺序一条命令跑完）。"""
+    from .document import Document
+    from .fonts import DEFAULT_FONTS, FontRuleSet
+    from .ops import normalize as normalize_op
+    from .rules import RuleSet, default_ruleset
+
+    if not args.out and not args.outdir and not args.dry_run:
+        raise RuleError(u"要写结果就得给 --out 文件或 --outdir 目录"
+                        u"（本工具**不会**覆盖原文件）")
+    font_rules = FontRuleSet.load(args.fonts)
+    problems = font_rules.check()
+    if problems:
+        raise RuleError(u"字体规则有问题：\n  - " + u"\n  - ".join(problems))
+    if args.rules and os.path.exists(args.rules):
+        text_rules = RuleSet.load(args.rules)
+        rule_problems = text_rules.validate()
+        if rule_problems:
+            raise RuleError(u"上下标规则有问题：\n  - " + u"\n  - ".join(rule_problems))
+    elif args.no_superscripts:
+        text_rules = None
+    else:
+        text_rules = default_ruleset()
+    with Document(args.path, writable_parts=("word/document.xml", "word/styles.xml",
+                                            "word/numbering.xml")) as doc:
+        report = normalize_op.format_normalize(doc, font_rules, text_rules,
+                                               dry_run=args.dry_run,
+                                               superscripts=not args.no_superscripts)
+        out_path = None
+        if not args.dry_run and report["total"]:
+            if args.out:
+                out_path = doc.save(os.path.abspath(args.out))
+            else:
+                out_dir = os.path.abspath(args.outdir)
+                if not os.path.isdir(out_dir):
+                    os.makedirs(out_dir)
+                out_path = doc.save(os.path.join(out_dir, os.path.basename(doc.path)))
+    lines = [u"文件：%s" % doc.path, u"步骤（固定顺序）："]
+    for step in report["steps"]:
+        if step["step"] == u"上下标规则":
+            lines.append(u"  ① 上下标规则：%d 处" % step["total"])
+            for key in sorted(step["counts"]):
+                lines.append(u"        %-14s %d" % (key, step["counts"][key]))
+        else:
+            lines.append(u"  ② 字体与颜色：处理 %d 个有文字的 run ｜ 颜色改正 %d ｜ 去高亮 %d"
+                         % (step["runs"], step["colors"], step["highlights"]))
+            for key in sorted(step["fonts"]):
+                lines.append(u"        %-34s %d 处" % (key, step["fonts"][key]))
+    lines.append(u"")
+    lines.append(u"合计 %d 项（各步相加，单位不同仅供概览）" % report["total"])
+    lines.append(u"改写的部件：%s" % (u"、".join(report["parts"]) or u"（无）"))
+    lines.append(u"")
+    lines.append(u"这个宏里还有两件事**本工具不做**（说清楚免得你等）：")
+    lines.append(u"  · 更新目录页码 —— 页码是排版结果，纯 XML 算不出（`PLAN.md` §6，另算）")
+    lines.append(u"  · 询问「保存并关闭文档」—— 工具只管改，存哪/关不关是调用方的事（`PLAN.md` §8.3）")
+    if args.dry_run:
+        lines.insert(0, u"--dry-run：一个字节都没写")
+    elif out_path:
+        lines.insert(0, u"已写出：%s" % out_path)
+    else:
+        lines.insert(0, u"没有需要改的地方")
+    return (dict(report, out=out_path), u"\n".join(lines))
+
+
 def cmd_audit(args):
     """体检：不信工具的报告，重新打开文件按继承链算一遍。"""
     from . import audit as audit_mod
@@ -989,6 +1073,8 @@ def main(argv=None):
             payload, human = cmd_tidy(args)
         elif args.command == "mdclean":
             payload, human = cmd_mdclean(args)
+        elif args.command == "format":
+            payload, human = cmd_format(args)
         else:
             log(u"未知命令：%s" % args.command)
             return 2

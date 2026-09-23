@@ -275,6 +275,31 @@ python -m wordfactory.cli tablestyle capture 报告.docx --table 3 --name 我调
 > 样例：[模板预览 v3](E:\Zspace\output60922_wordfactory_表格模板_预览v3.docx)、
 > [默认款样例 v3](E:\Zspace\output60922_wordfactory_表格_默认款样例v3.docx)
 
+### 格式规范化（`format`）—— 一条命令跑完一串步骤
+
+宏 `格式规范化.bas` 的对应实现（§2.7）。它是本项目**第一个"配方"**：
+把已有步骤按固定顺序串起来跑 —— 这也是 M4「勾选 + 排序 + 一键执行」的雏形。
+
+```bash
+python -m wordfactory.cli format "报告.docx" --dry-run          # 先看会改多少
+python -m wordfactory.cli format "报告.docx" --outdir out
+#   --fonts F 字体规则；--rules R 上下标规则；--no-superscripts 只做颜色/字体
+```
+
+固定顺序与理由：**先上下标规则 → 再字体与颜色**。上下标会把一个 run 切成几段
+（`split_run_at`，两半各留 `rPr`），先把结构改完再统一刷颜色/字体，报告里的数字更好解释。
+
+**宏里有两件事本工具明确不做**（命令输出里也会写一遍，免得你等）：
+
+| 宏做的 | 为什么不照做 |
+|---|---|
+| 更新目录页码 | 页码是**排版结果**，纯 XML 算不出来（`PLAN.md` §6，单独另算） |
+| 询问"保存并关闭文档" | 工具只管改；存哪、覆不覆盖、关不关是调用方的事（`PLAN.md` §8.3） |
+
+> 实测你的报告：`format` 报出上下标规则 **0 处**、字体与颜色 1761 项
+> （仿宋→宋体 1729、西文→Times New Roman 23、颜色改正 1、去高亮 1）；
+> 改写的部件 = `word/document.xml` + `styles.xml` + `numbering.xml`（其余逐字节未变）。
+
 ## 状态
 
 **M1 内核 + M3a 题注统一 + M3b 段落配方已落地**（含两版输出、体检、与宏产出的真实文件比对通过）；**M2 已做「去无意义空格」与「文本替换 + 对齐」**，**表格款式（外置规则 + 采集 + 预览）已落地**；剩下的「格式规范化」= 正式版那套 + 上下标规则（已有零件，待串起来）；GUI 未开始。
