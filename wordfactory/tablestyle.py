@@ -494,21 +494,16 @@ def _apply_to_table(table, style, dry_run, page_width=None):
                                       qn("w:val"), want, dry_run):
                         changes["单元格对齐(%s)" % want] += 1
             column_index += _grid_span(cell)
-        want_align = (style.header.get("align") if is_header else style.body.get("align"))
+        # 表头加粗（**对齐不在这里做** —— 上面已按单元格逐格定了：表头居中、数据行按
+        # "长文本/数字/第一列"分别处理）。踩过一次：这里原来还有一段"整行按 body.align 设对齐"
+        # 的旧逻辑，跑在逐格逻辑**之后**，把刚定好的"长文本左对齐"又刷回居中 —— 用户截图就是这么来的。
         want_bold = style.header.get("bold") if is_header else None
-        for paragraph in row.iter(qn("w:p")):
-            if want_align:
-                ppr = _ensure(paragraph, "w:pPr", None, 0, dry_run)
-                if _set_attribute(_ensure(ppr, "w:jc", PPR_ORDER), qn("w:val"),
-                                  want_align, dry_run):
-                    changes["段落对齐"] += 1
-            if want_bold:
+        if want_bold:
+            for paragraph in row.iter(qn("w:p")):
                 for run in paragraph.iter(qn("w:r")):
                     rpr = _ensure(run, "w:rPr", None, 0, dry_run)
                     if _ensure_flag(rpr, "w:b", RPR_ORDER, dry_run):
                         changes["表头加粗"] += 1
-        if is_header and style.body.get("align"):
-            pass                                    # 表头不受 body.align 影响
     if style.header_wrap:
         wrapped = apply_header_wrap(table, style, dry_run)
         if wrapped:

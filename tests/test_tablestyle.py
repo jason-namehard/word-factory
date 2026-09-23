@@ -403,3 +403,93 @@ class TestLongTextAndAutofit(StyleCase):
             widths = [int(c.get(qn("w:w"))) for c in
                       list(tables_of(doc))[0].find(qn("w:tblGrid"))]
         self.assertEqual(len(set(widths)), 1, u"均布：各列等宽")
+
+
+class TestPerCellAlignment(StyleCase):
+    """按单元格类型定对齐 —— 用户 2026-09-22 的口径：
+
+    > 「数字结果都是居中排版，第一行的标题一定居中…**只有长文本，例如说明、备注左对齐，
+    >   其余一律居中**。长文本的判别方式是一行表格放不下。」
+
+    以及边框的硬口径：**外框 1.5 磅（sz 12）/ 内框 0.5 磅（sz 4）**，外框一定比内框粗。
+    """
+
+    def jc_at(self, path, row_index, cell_index):
+        with Document(path) as doc:
+            table = list(tables_of(doc))[0]
+            row = [element for element in table if element.tag == qn("w:tr")][row_index]
+            cell = [element for element in row if element.tag == qn("w:tc")][cell_index]
+            paragraph = next(iter(cell.iter(qn("w:p"))))
+        pr = paragraph.find(qn("w:pPr"))
+        jc = pr.find(qn("w:jc")) if pr is not None else None
+        return jc.get(qn("w:val")) if jc is not None else None
+
+    def apply_style(self, name, widths=(1200, 12000), out_name=u"出.docx"):
+        body = table([row(cell(u"项目"), cell(u"说明")),
+                      row(cell(u"防洪标准"), cell(u"按50年一遇设计、200年一遇校核，枢纽建筑物级别为3级")),
+                      row(cell(u"面积"), cell(u"0.8"))], widths=widths)
+        self.build(body)
+        out = os.path.join(self.dir, out_name)
+        with Document(self.path) as doc:
+            apply(doc, self.style(name))
+            doc.save(out)
+        return out
+
+    def test_header_is_centred(self):
+        out = self.apply_style(u"通用款·外粗内细")
+        self.assertEqual(self.jc_at(out, 0, 0), "center")
+        self.assertEqual(self.jc_at(out, 0, 1), "center")
+
+    def test_numbers_and_short_text_are_centred(self):
+        out = self.apply_style(u"通用款·外粗内细")
+        self.assertEqual(self.jc_at(out, 2, 1), "center", u"数字结果居中")
+        self.assertEqual(self.jc_at(out, 1, 0), "center", u"短项目名也居中（不是长文本）")
+
+    def test_a_long_text_that_wraps_goes_left(self):
+        """**关键口径**：列放不下、要在格内另起一行的长文本 → 左对齐。"""
+        out = self.apply_style(u"通用款·外粗内细", widths=(1200, 2500))
+        self.assertEqual(self.jc_at(out, 1, 1), "left", u"放不下的长文本要左对齐")
+
+    def test_the_same_long_text_stays_centred_in_a_wide_column(self):
+        """同一句话，给足宽度就放得下 → 仍然居中（判据是宽度，不是字数）。"""
+        out = self.apply_style(u"通用款·外粗内细", widths=(1200, 12000))
+        self.assertEqual(self.jc_at(out, 1, 1), "center")
+
+    def test_the_lazy_style_centres_even_long_text(self):
+        out = self.apply_style(u"通用款·全居中", widths=(1200, 2500), out_name=u"偷懒.docx")
+        self.assertEqual(self.jc_at(out, 1, 1), "center")
+
+    def test_a_cell_with_a_unit_counts_as_text_not_a_number(self):
+        body = table([row(cell(u"项目"), cell(u"值")),
+                      row(cell(u"降雨"), cell(u"115mm")),
+                      row(cell(u"面积"), cell(u"0.8"))], widths=(1200, 12000))
+        self.build(body)
+        out = os.path.join(self.dir, u"单位.docx")
+        with Document(self.path) as doc:
+            apply(doc, self.style(u"通用款·外粗内细"))
+            doc.save(out)
+        self.assertEqual(self.jc_at(out, 1, 1), "center", u"带单位的短文本同样居中")
+        self.assertEqual(self.jc_at(out, 2, 1), "center")
+
+    def test_the_outer_border_is_1_5pt_and_the_inner_is_0_5pt(self):
+        out = self.apply_style(u"通用款·外粗内细")
+        with Document(out) as doc:
+            borders = list(tables_of(doc))[0].find(qn("w:tblPr")).find(qn("w:tblBorders"))
+        outer = borders.find(qn("w:top")).get(qn("w:sz"))
+        inner = borders.find(qn("w:insideH")).get(qn("w:sz"))
+        self.assertEqual(outer, "12", u"外框 1.5 磅（12 个 1/8 磅）")
+        self.assertEqual(inner, "4", u"内框 0.5 磅（4 个 1/8 磅）")
+        self.assertGreater(int(outer), int(inner), u"外框一定比内框粗")
+
+    def test_an_inner_border_as_thick_as_the_outer_is_rejected(self):
+        bad = TableStyle(u"外内一样粗", {
+            "borders": {"top": {"val": "single", "sz": 12},
+                        "insideH": {"val": "single", "sz": 12}}})
+        problems = bad.check()
+        self.assertTrue([p for p in problems if u"外框一定比内框粗" in p], problems)
+
+    def test_an_unknown_body_key_is_reported(self):
+        bad = TableStyle(u"x", {"body": {"long_text_align": "middle", "oops": 1}})
+        problems = bad.check()
+        self.assertTrue([p for p in problems if u"不认识的键" in p], problems)
+        self.assertTrue([p for p in problems if u"只能" in p], problems)
