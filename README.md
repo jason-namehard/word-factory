@@ -19,10 +19,11 @@
 
 ## 三个名词（先说清楚，后面全靠它）
 
-- **宏**：一个**具名的、带参数的修改步骤**。名字沿用你的说法叫"宏"，但**它不是 VBA 宏**——
-  例如 `格式规范化`、`表格去空格`、`段落配方生成`、`表头格式统一`、`特殊字符替换`。
-- **配方（pipeline）**：把若干宏**勾选 + 排序**后的执行清单，一次跑完。
-- **作业（job）**：配方 + 一批文件（可给目录），跑完给每个文件一份**改动报告**。
+- **宏**：一个**具名的、带参数**的修改步骤。名字沿用你的说法叫"宏"，但**它不是 VBA 宏**——
+  例如 `格式规范化`、`表格去空格`、`题注格式统一`、`文档数据外置更新`。
+- **执行方案**（旧叫"配方"）：把若干宏**勾选 + 排序**后的执行清单，一次跑完。
+  可以起名、存盘、随时载入 —— 界面上管它叫"执行方案"，命令行 `run --plan 方案.json` 跑同一份文件。
+- **作业（job）**：执行方案 + 一批文件（可给目录），跑完给每个文件一份**改动报告**。
 
 ## 明确不做（这几条是"做不到"，不是"先不做"）
 
@@ -166,19 +167,26 @@ python -m wordfactory.cli audit "某文档.docx"     # 末行 AUDIT=PASS / AUDIT
    符号字体（Symbol/Wingdings）换成 TNR/宋体后 ✔ ➜ ★ 会掉字形。
    > 实测（这份文档）：仿宋 → 宋体 1729 处、Arial → Times New Roman 18 处、Tahoma → Times New Roman 12 处。
 
-### 段落配方（`recipe`）—— 与 Word 宏**互读同一套格式**
+### 文档数据外置更新（`extdata`，旧名"段落配方"）—— 与 Word 宏**互读同一套格式**
 
 参考宏 `段落配方生成器`（把选中的段落变成"配方" + 写一份 `.xlsx`）与 `段落重配`（读配方 + 读 xlsx → 重建段落）。
 本工具照 `docs/REFERENCE-MACROS.md` §3 的契约实现，**同一份配方文本、同一份 xlsx，两边都能读**：
 
 ```bash
-python -m wordfactory.cli recipe show "带配方.docx"        # 解析并打印配方（也支持直接给 .txt）
-python -m wordfactory.cli recipe gen "模板.docx" --name 土方计算
-#   把正文里的高亮片段识别成变量 → 写 数据表.xlsx + 把配方追加到文档末尾
+python -m wordfactory.cli extdata show "带配方.docx"      # 解析并打印配方（也支持直接给 .txt）
+python -m wordfactory.cli extdata gen "模板.docx" --name 土方计算
+#   把正文里的高亮片段识别成变量 → 写「XX外置数据.xlsx」+ 把配方追加到文档末尾
 #   --mode chars --char xx   改用"占位符字符串"识别；--no-append 只写数据表不写文档
-python -m wordfactory.cli recipe rebuild "带配方.docx" --out 重建后.docx
+python -m wordfactory.cli extdata rebuild "带配方.docx" --out 重建后.docx
 #   --recipe-file F  配方不在文档里时单独给；--xlsx X / --data-dir D 指定数据表位置；--dry-run 先演练
 ```
+
+> **名字的由来（用户 2026-09-26）**：这套东西叫"段落配方"没人看得懂，改叫
+> **文档数据外置更新** —— "文档里要改的数字搬到 Excel 里，改完再写回文档"；
+> 那份 xlsx 就叫「**XX外置数据**」（XX = 文档名）。`recipe` 仍作为旧命令名可用。
+
+典型流程：**① `gen`**（文档里把会变的数值标成高亮 → 识别 → 写 xlsx + 配方落到文档末尾）
+→ 在 Excel/WPS 里改数值 → **② `rebuild`**（按新数值重建段落，另存为新文档，绝不覆盖输入）。
 
 契约（**逐条照抄参考宏，不"改得更合理"**）：
 
@@ -321,30 +329,32 @@ python -m wordfactory.cli textfix "报告.docx" --rules rules/replace.json --dry
 - **`textfix`**：外置 JSON 替换表（跨 run 替换，格式跟第一个 run 走）+ 把两端对齐改回左对齐
   （两端对齐在短行上会把字拉开，很丑）。
 
-### 配方编排（`run`）—— 勾选 + 排序 + 一键执行
+### 执行方案（`run`）—— 勾选 + 排序 + 一键执行
 
 ```bash
 python -m wordfactory.cli run "报告.docx" --steps captions,tidy --mode verify --dry-run
 python -m wordfactory.cli run "报告.docx" --steps captions,tidy --mode formal --outdir out
-python -m wordfactory.cli run "报告.docx" --recipe 配方.json --mode formal   # 配方文件（可排序、可勾选）
+python -m wordfactory.cli run "报告.docx" --plan 方案.json --mode formal   # 执行方案文件
 ```
 
 `--steps` 的顺序**就是执行顺序**（不是固定的）；`--mode verify` 只把改过的地方标蓝，
-`--mode formal` 收尾做通体黑 + 字体合规 + 体检。配方 JSON 长这样：
+`--mode formal` 收尾做通体黑 + 字体合规 + 体检。执行方案 JSON 长这样（`steps` 是**有序数组**，
+顺序即执行顺序；也接受 `{"op": "captions", "params": {...}}` 这种带参数的写法）：
 
 ```jsonc
 {"name": "报告规范化", "steps": [
-  {"id": "captions", "enabled": true},              // 题注统一
-  {"id": "sup", "rules": "rules/subscripts.json"},  // 上下标规则
-  {"id": "tableclean", "level": 3},
-  {"id": "textfix", "rules": "rules/replace.json"},
-  {"id": "mdclean"},
-  {"id": "tidy", "merge_lines": false}
+  "captions",                                 // 题注统一
+  {"op": "sup", "params": {"rules": "rules/subscripts.json"}},   // 上下标规则
+  {"op": "tableclean", "params": {"level": 3}},
+  "textfix",                                  // 文本替换 + 对齐
+  "mdclean",
+  {"op": "tidy", "params": {"merge_lines": false}}
 ]}
 ```
 
-GUI 与命令行**共用同一套引擎**（`wordfactory/pipeline.py`）——GUI 上勾选、拖动排序，
-存下来的配方文件命令行原样能跑。
+GUI 与命令行**共用同一套引擎**（`wordfactory/pipeline.py`）——GUI 上勾选、拖动排序、起名保存，
+存下来的方案文件命令行 `run --plan` 原样能跑。GUI 存的方案在 `~/.wordfactory/plans/`，
+**整个目录拷走就能带到别的机器**；另外还带 4 套出厂样例（删不掉，可以改完另存为自己的）。
 
 ### PDF 导出（`pdf`）—— 编排外部渲染器
 
@@ -378,21 +388,34 @@ python -m wordfactory.cli pdf "报告.docx" --renderer word --timeout 300
 ## 界面（GUI）
 
 ```bash
-python -m wordfactory.cli gui                 # 起本地服务，默认 http://127.0.0.1:8792
+python -m wordfactory.cli gui                 # 起本地服务，默认 http://127.0.0.1:8765
 python -m wordfactory.cli gui --port 9000 --no-browser
 ```
 
-浏览器里能干的事：**选文件 → 勾宏 → 拖拽排序 → 选表格款式 / 按表头挑表 → 跑验证版或正式版 → 看改动报告 → 体检 → 导出 PDF**。
-配方可存成 JSON 文件，命令行 `run --recipe` 原样能跑（两边共用 `pipeline.py`）。
-表格款式页的复选框，数据源就是 `tablestyle list` 的同一份清单。
+浏览器里能干的事：
 
-布局不是拍脑袋定的：先用 `gui-prototype/index.html`（SVG 拖拽设计稿）把界面排到用户满意，
-再照它写成真界面。**服务只绑 127.0.0.1**，下载走白名单，退出按钮即关服务。
+- **选文件**：对话框顶部有**盘符栏**（C:/D:/E:…），能挑到任何盘里的 `.docx`；
+  点背板或按 **Esc** 关闭。
+- **左边勾功能**：勾选 + 拖动排序；「**全选 / 全部取消**」一键切换；
+  「**管理执行方案…**」打开方案管理页。
+- **执行方案页**：给当前勾选+顺序**起名保存**，列表一眼看到所有方案（出厂 4 套 + 自己存的），
+  每套带步骤小标签，可**载入 / 删除 / 导出到文件 / 从文件导入**。
+- **表格款式页**：点模板 + 按表头勾选要套款的表（数据源 = `tablestyle list` 的同一份清单）。
+- **文档数据外置页**：`① 生成外置数据`（识别高亮/占位符 → 写「XX外置数据.xlsx」）→
+  在 Excel 里改数值 → `② 按数据表更新`。生成后会自动把当前文件切到带配方的那份，接着跑②不会找错文件。
+- **右上角一排**：dry-run / 出验证版 / 出正式版 / 体检 AUDIT / **导出 PDF** / 退出。
+- 右边：**预览**（下载链接）+ **改动报告**；底部：运行日志 + 状态条。
+
+**界面是临时形态，后面要升级成桌面 exe**（用户 2026-09-26 明确）。所以架构上刻意做成
+"**引擎 + REST 接口 + 静态页**"三层：`wordfactory/pipeline.py` 与各算子不碰界面，
+GUI 只是 `http.server` 上的一层薄壳（只绑 127.0.0.1、下载走白名单、退出即关服务）。
+换桌面壳（pywebview / Tauri / Electron 打包同一个服务）时**引擎和接口一行不用改**。
+布局也不是拍脑袋定的：先用 `gui-prototype/index.html`（SVG 拖拽设计稿）排到用户满意，再照它写成真界面。
 
 ## 状态
 
-**M1 内核 / M2 三个宏 / M3 题注与配方 / M4 配方编排 + GUI / M5 PDF 编排全部落地**；
-目录（TOC）外观按用户意见**押后**，页码仍"另算"。305 条单测全绿。
+**M1 内核 / M2 三个宏 / M3 题注与外置数据 / M4 执行方案编排 + GUI / M5 PDF 编排全部落地**；
+目录（TOC）外观按用户意见**押后**，页码仍"另算"。354 条单测全绿。
 
 - [x] 仓库与参考件入库
 - [x] `docs/REFERENCE-MACROS.md`（12 个参考宏的逐宏规格）
@@ -419,10 +442,11 @@ python -m wordfactory.cli gui --port 9000 --no-browser
       `textfix`（外置替换表 + 两端对齐改左对齐）、`tidy`（段尾空格/空白行 + 照 Copy++ 的
       `--merge-lines` / `--remove-spaces`）、外加 `mdclean` 清 Markdown 痕迹
 - [x] **表格款式**：外置模板（6 款）+ 采集 + 预览 + 按表头关键词挑表 + 表头折行
-- [x] **M4 配方编排**：`pipeline.py` 引擎（勾选 + 排序 + 一键执行 + 改动报告），
-      命令行 `run` 与 GUI 共用
-- [x] **M4 GUI**：本地 Web 界面（选文件/勾宏/拖拽排序/表格款式/配方存取/预览/报告/体检/导出 PDF），
-      布局经 SVG 设计稿定稿；只绑 127.0.0.1
+- [x] **M4 执行方案编排**：`pipeline.py` 引擎（勾选 + 排序 + 一键执行 + 改动报告），
+      命令行 `run --plan` 与 GUI 共用；方案存 `~/.wordfactory/plans/`，带 4 套出厂样例
+- [x] **M4 GUI**：本地 Web 界面（选文件带盘符栏+Esc/勾功能+拖动排序+全选取消/表格款式/
+      执行方案管理/文档数据外置/预览/报告/体检/导出 PDF），布局经 SVG 设计稿定稿；
+      只绑 127.0.0.1、下载走白名单。**形态是临时 Web 页，下一步换桌面 exe**（引擎与接口不变）
 - [x] **M5 PDF 编排**：`pdf` 命令 + GUI 按钮，Word / WPS / LibreOffice 三选一，
       页数从 PDF 自己数，超时与失败给人话
 - [x] **保真与兼容性**：未改部件逐字节不变；`mc:Ignorable` 前缀补齐（修掉"Word 打不开产物"的坑）

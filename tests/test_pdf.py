@@ -115,3 +115,28 @@ class TestRealExportIfAnyRenderer(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_renderer_detection_works_from_a_thread_without_com(self):
+        """GUI 的 HTTP 处理线程没初始化 COM —— 在那里探测不许误判成"没有渲染器"。
+
+        实测踩过：GUI 点「导出 PDF」报"本机没有可用的 PDF 渲染器"，
+        而命令行同一个文件导得出来。原因就是 Dispatch 跑在没 CoInitialize 的线程里。
+        """
+        import threading
+        box = {}
+
+        def worker():
+            try:
+                box["renderers"] = pdf_op.detect_renderers()
+            except Exception as exc:                      # noqa: BLE001 - 带出去
+                box["error"] = exc
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        thread.join(90)
+        self.assertNotIn("error", box, u"探测本身不该炸：%s" % box.get("error"))
+        found = [item for item in box["renderers"] if item["available"]]
+        main_found = [item for item in pdf_op.detect_renderers() if item["available"]]
+        self.assertEqual([item["name"] for item in found],
+                         [item["name"] for item in main_found],
+                         u"线程里探到的必须和主线程一样（否则 GUI 会说没有渲染器）")

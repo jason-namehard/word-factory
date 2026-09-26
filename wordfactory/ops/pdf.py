@@ -37,25 +37,75 @@ def _word_prog_ids():
     return [("word", "Word.Application"), ("wps", "KWPS.Application")]
 
 
+def _in_com_thread(func, timeout=60):
+    """在一个**自己初始化 COM** 的线程里跑 ``func``，拿回它的返回值。
+
+    为什么需要它：COM 对象必须在初始化过 `CoInitialize` 的线程里创建和使用。
+    GUI 的 HTTP 处理线程是 `ThreadingHTTPServer` 现拉的，没初始化过 COM ——
+    在那里直接 `Dispatch` 只会拿到"尚未调用 CoInitialize"，渲染器探测于是被误判成
+    "本机没有渲染器"（实测：GUI 点「导出 PDF」说没渲染器，命令行同一个文件却能导出来）。
+    """
+    box = {}
+
+    def worker():
+        try:
+            import pythoncom
+            try:
+                pythoncom.CoInitialize()
+            except Exception:                     # 已经初始化过就接着用
+                pass
+        except ImportError:                       # 没装 pywin32：让 func 自己报错
+            pass
+        try:
+            box["value"] = func()
+        except Exception as exc:                  # noqa: BLE001 - 原样带出线程
+            box["error"] = exc
+        finally:
+            try:
+                import pythoncom
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise PdfError(u"COM 调用超过 %d 秒没回来（渲染器可能卡在弹窗上）" % timeout)
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
+
+
+def _probe_com_renderer(prog_id):
+    """探某个 ProgID 起不起来（在自己的 COM 线程里），返回版本号；起不来就抛。"""
+    def work():
+        import win32com.client
+        app = win32com.client.Dispatch(prog_id)
+        try:
+            try:
+                version = app.Version
+            except Exception:
+                version = u"?"
+            return u"%s" % version
+        finally:
+            try:
+                app.Quit()
+            except Exception:
+                pass
+    return _in_com_thread(work)
+
+
 def detect_renderers():
     """本机有哪些渲染器可用。返回 ``[{name, kind, detail}, …]``。"""
     found = []
     for name, prog_id in _word_prog_ids():
         try:
-            import win32com.client
-            app = win32com.client.Dispatch(prog_id)
-        except Exception as exc:                        # noqa: BLE001 - 探测失败就是没有
+            version = _probe_com_renderer(prog_id)
+        except Exception as exc:                  # noqa: BLE001 - 探测失败就是没有
             found.append({"name": name, "kind": "com", "available": False,
                           "detail": u"%s 起不来：%s" % (prog_id, exc)})
             continue
-        try:
-            version = app.Version
-        except Exception:
-            version = u"?"
-        try:
-            app.Quit()
-        except Exception:
-            pass
         found.append({"name": name, "kind": "com", "available": True,
                       "detail": u"%s（版本 %s）" % (prog_id, version)})
     soffice = shutil.which("soffice") or shutil.which("soffice.bin")

@@ -10,6 +10,7 @@
 * 只监听 127.0.0.1。
 """
 
+import io
 import json
 import os
 import shutil
@@ -141,3 +142,215 @@ class GuiCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPlansAndDrives(GuiCase):
+    """执行方案管理 + 盘符浏览（用户 2026-09-26 提的五条里的第 1、3 条）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestPlansAndDrives, cls).setUpClass()
+        cls.plans = os.path.join(cls.dir, u"plans")
+        cls.loose = gui_server.ThreadingHTTPServer(
+            ("127.0.0.1", 0), type("LooseHandler", (gui_server.Handler,),
+                                   {"root": None, "plans_dir": cls.plans}))
+        cls.loose_port = cls.loose.server_address[1]
+        cls.loose_thread = threading.Thread(target=cls.loose.serve_forever, daemon=True)
+        cls.loose_thread.start()
+        cls.loose_base = "http://127.0.0.1:%d" % cls.loose_port
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.loose.shutdown()
+        cls.loose.server_close()
+        super(TestPlansAndDrives, cls).tearDownClass()
+
+    def loose_get(self, path):
+        with urllib.request.urlopen(self.loose_base + path) as response:
+            return response.read(), response.status
+
+    def loose_post(self, path, payload):
+        request = urllib.request.Request(
+            self.loose_base + path, data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(request) as response:
+            return json.loads(response.read().decode("utf-8")), response.status
+
+    # ------------------------------------------------------------------ 盘符
+    def test_drives_are_listed(self):
+        body, status = self.loose_get("/api/drives")
+        self.assertEqual(status, 200)
+        drives = json.loads(body.decode("utf-8"))["drives"]
+        self.assertTrue(all(drive.endswith(":\\") for drive in drives))
+
+    def test_browsing_without_a_dir_shows_the_drives(self):
+        body, _ = self.loose_get("/api/browse?dir=")
+        data = json.loads(body.decode("utf-8"))
+        self.assertEqual(data["dir"], u"")
+        self.assertTrue(data["drives"], u"没给目录要给盘符（此电脑）")
+        self.assertEqual(data["entries"], [])
+
+    def test_browsing_outside_the_old_root_now_works(self):
+        """默认不限目录：要能挑到别的盘/别的目录里的文件（用户的第 1 条意见）。"""
+        body, status = self.loose_get("/api/browse?dir="
+                                      + urllib.parse.quote(os.path.dirname(self.dir)))
+        self.assertEqual(status, 200)
+        data = json.loads(body.decode("utf-8"))
+        self.assertTrue(data["dir"])
+        self.assertTrue(data["drives"], u"任何一层都要带盘符栏")
+
+    def test_a_missing_dir_falls_back_to_the_drives(self):
+        body, status = self.loose_get("/api/browse?dir="
+                                      + urllib.parse.quote(os.path.join(self.dir, u"没有这个目录")))
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(body.decode("utf-8"))["drives"])
+
+    # ------------------------------------------------------------------ 执行方案
+    def test_builtin_plans_are_listed_first(self):
+        body, _ = self.get("/api/plans")
+        data = json.loads(body.decode("utf-8"))
+        self.assertTrue(data["plans"], u"至少要有出厂自带的几套")
+        self.assertTrue(data["plans"][0]["builtin"])
+        self.assertTrue(all(plan["steps"] for plan in data["plans"]),
+                        u"每套方案都要带步骤，不然「一眼看到有什么」是空的")
+
+    def test_save_list_and_delete_a_plan(self):
+        payload, status = self.loose_post("/api/plans/save",
+                                          {"name": u"我的方案", "steps": ["captions", "tidy"]})
+        self.assertEqual(status, 200)
+        self.assertTrue(os.path.isfile(os.path.join(self.plans, u"我的方案.json")))
+
+        body, _ = self.loose_get("/api/plans")
+        names = [plan["name"] for plan in json.loads(body.decode("utf-8"))["plans"]]
+        self.assertIn(u"我的方案", names)
+
+        payload, _ = self.loose_post("/api/plans/delete", {"name": u"我的方案"})
+        self.assertTrue(payload["ok"])
+        self.assertFalse(os.path.exists(os.path.join(self.plans, u"我的方案.json")))
+
+    def test_a_builtin_plan_cannot_be_deleted(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.loose_post("/api/plans/delete", {"name": gui_server.BUILTIN_PLANS[0]["name"]})
+        self.assertIn(u"出厂", caught.exception.read().decode("utf-8"))
+
+    def test_a_nasty_plan_name_is_refused(self):
+        """方案名会变成文件名 —— 路径穿越必须挡住。"""
+        for nasty in (u"../跑出去了", u"a/b", u"..", u"", u"x" * 41):
+            with self.assertRaises(urllib.error.HTTPError):
+                self.loose_post("/api/plans/save", {"name": nasty, "steps": ["captions"]})
+
+    def test_saving_a_plan_without_steps_is_refused(self):
+        with self.assertRaises(urllib.error.HTTPError):
+            self.loose_post("/api/plans/save", {"name": u"空方案", "steps": []})
+
+    def test_saving_a_plan_with_an_unknown_step_is_refused(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.loose_post("/api/plans/save", {"name": u"瞎写", "steps": ["nope"]})
+        self.assertIn(u"captions", caught.exception.read().decode("utf-8"))
+
+
+class TestExtdataEndpoint(GuiCase):
+    """文档数据外置更新（gen / rebuild）走 GUI：与 CLI 同一条路。"""
+
+    def test_gen_then_rebuild_end_to_end(self):
+        # 造一份带高亮变量的文档
+        path = os.path.join(self.dir, u"带高亮.docx")
+        body = (fixtures.paragraph(fixtures.run(u"库容为 "), fixtures.run(u"3.5", highlight="yellow"),
+                                   fixtures.run(u" 万m³。"),
+                                   fixtures.run(u"水位 "), fixtures.run(u"12.8", highlight="yellow"),
+                                   fixtures.run(u" m。"))
+                + fixtures.paragraph(fixtures.run(u"表2.3-1     库容特性表")))
+        fixtures.write_fixture(path, body=body)
+
+        payload, status = self.post("/api/extdata", {"action": "gen", "path": path,
+                                                     "dry_run": True})
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["report"]["variables"], 2)
+        self.assertIsNone(payload["download"], u"dry-run 不该给下载")
+
+        payload, _ = self.post("/api/extdata", {"action": "gen", "path": path})
+        self.assertTrue(payload["download"], u"要给出文档下载名")
+        self.assertTrue(payload["downloads"], u"数据表也要能下载")
+        xlsx = [name for name in payload["downloads"] if name.endswith(".xlsx")]
+        self.assertEqual(len(xlsx), 1, u"要写出一份 xlsx 数据表")
+        self.assertTrue(xlsx[0].endswith(u"外置数据.xlsx"),
+                        u"数据表默认叫「XX外置数据.xlsx」")
+        generated = payload["report"]["out"]
+        self.assertTrue(os.path.exists(generated))
+
+        body_bytes, status = self.get("/api/download?name="
+                                      + urllib.parse.quote(xlsx[0]))
+        self.assertEqual(status, 200)
+        self.assertGreater(len(body_bytes), 1000)
+
+        # 配方追加在**生成出来的文档**末尾 → 更新要对它跑，不是对原件跑
+        payload, _ = self.post("/api/extdata", {"action": "rebuild", "path": generated,
+                                                "xlsx": payload["report"]["xlsx"]})
+        self.assertIn(u"3.5", payload["text"])
+        self.assertTrue(payload["download"])
+        self.assertTrue(os.path.exists(payload["report"]["out"]))
+
+    def test_gen_refuses_to_overwrite_an_existing_data_table(self):
+        path = os.path.join(self.dir, u"带高亮2.docx")
+        body = fixtures.paragraph(fixtures.run(u"值 "), fixtures.run(u"1", highlight="yellow"))
+        fixtures.write_fixture(path, body=body)
+        taken = os.path.join(self.dir, u"带高亮2外置数据.xlsx")
+        with io.open(taken, "w", encoding="utf-8") as handle:
+            handle.write("占位")
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/extdata", {"action": "gen", "path": path})
+        self.assertIn(u"已经存在", caught.exception.read().decode("utf-8"))
+
+    def test_an_unknown_action_is_refused(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/extdata", {"action": "nope", "path": self.path})
+        self.assertIn(u"gen", caught.exception.read().decode("utf-8"))
+
+    def test_rebuild_without_a_data_table_says_where_it_looked(self):
+        path = os.path.join(self.dir, u"没数据表.docx")
+        body = fixtures.paragraph(fixtures.run(u"值 "), fixtures.run(u"1", highlight="yellow"))
+        fixtures.write_fixture(path, body=body)
+        generated = self.post("/api/extdata",
+                              {"action": "gen", "path": path})[0]["report"]["out"]
+        # 把刚写出来的数据表挪走，模拟"找不到"
+        xlsx = os.path.join(self.dir, u"没数据表外置数据.xlsx")
+        if os.path.exists(xlsx):
+            os.remove(xlsx)
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/extdata", {"action": "rebuild", "path": generated})
+        self.assertIn(u"找不到数据表", caught.exception.read().decode("utf-8"))
+
+
+class TestPdfEndpoint(GuiCase):
+    """GUI 的「导出 PDF」按钮真的接上了（不再是指向命令行的假按钮）。"""
+
+    def test_pdf_export_through_the_gui(self):
+        renderers = [item["name"] for item in
+                     __import__("wordfactory.ops.pdf", fromlist=["pdf"]).detect_renderers()
+                     if item["available"]]
+        if not renderers:
+            self.skipTest(u"本机没有 PDF 渲染器")
+        payload, status = self.post("/api/pdf", {"path": self.path, "hidden": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["download"].endswith(u".pdf"))
+        self.assertTrue(os.path.exists(payload["report"]["out"]))
+        self.assertGreater(payload["report"]["bytes"], 1000)
+        self.assertIn(u"渲染器", payload["text"])
+        body, status = self.get("/api/download?name="
+                                + urllib.parse.quote(payload["download"]))
+        self.assertEqual(status, 200)
+        self.assertTrue(body.startswith(b"%PDF-"), u"下载到的要是真 PDF")
+
+    def test_a_broken_endpoint_never_surfaces_as_an_import_error(self):
+        """接口里的相对导入写错会变成 500 + ModuleNotFoundError —— 用户看到的是天书。
+
+        判据：出错可以，但不许是 "No module named" 这种实现细节。
+        """
+        try:
+            self.post("/api/pdf", {"path": self.path, "hidden": True})
+        except urllib.error.HTTPError as caught:
+            message = caught.read().decode("utf-8")
+            self.assertNotIn(u"No module named", message)
+            self.assertTrue(u"渲染器" in message or u"PDF" in message, message)
+        else:
+            self.assertTrue(True)

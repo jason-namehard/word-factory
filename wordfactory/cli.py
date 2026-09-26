@@ -128,7 +128,9 @@ def build_parser():
     checker.add_argument("path", help=u"要体检的 .docx/.docm")
     checker.add_argument("--fonts", default=DEFAULT_FONTS_PATH, help=u"字体规则文件")
 
-    recipe = sub.add_parser("recipe", help=u"宏「段落配方」：解析配方（show）／按配方重建段落（rebuild）")
+    recipe = sub.add_parser(
+        "extdata", aliases=["recipe"],
+        help=u"宏「文档数据外置更新」（原段落配方）：生成外置数据表（gen）／按数据表更新文档（rebuild）")
     recipe_sub = recipe.add_subparsers(dest="action", metavar="<动作>")
     rshow = recipe_sub.add_parser("show", help=u"解析并打印配方（.docx 末尾那一段，或直接给 .txt）")
     rshow.add_argument("path", help=u"带配方的 .docx，或配方文本 .txt")
@@ -140,7 +142,7 @@ def build_parser():
     rbuild.add_argument("--out", default=None, help=u"输出文件")
     rbuild.add_argument("--dry-run", action="store_true", help=u"只演练，不写文件")
     rgen = recipe_sub.add_parser(
-        "gen", help=u"生成配方：识别高亮（或占位符）→ 写 .xlsx + 把配方追加到文档末尾")
+        "gen", help=u"生成外置数据：识别高亮（或占位符）→ 写 .xlsx 数据表 + 把配方追加到文档末尾")
     rgen.add_argument("path", help=u"要处理的 .docx")
     rgen.add_argument("--mode", choices=("highlight", "chars"), default="highlight",
                       help=u"highlight=所有高亮片段算变量（默认）；chars=按占位符字符串算")
@@ -214,15 +216,19 @@ def _add_gui_parser(sub):
     gui = sub.add_parser("gui", help=u"起本地网页 GUI（默认只监听 127.0.0.1）")
     gui.add_argument("--host", default="127.0.0.1", help=u"监听地址（默认只监听本机）")
     gui.add_argument("--port", type=int, default=8765, help=u"端口（默认 8765）")
-    gui.add_argument("--root", default=None, help=u"文件浏览的根目录（默认用户主目录）")
+    gui.add_argument("--root", default=None,
+                     help=u"把文件浏览关进某个目录（默认不限，能挑到其它盘的文件）")
+    gui.add_argument("--plans", default=None,
+                     help=u"执行方案存哪（默认 ~/.wordfactory/plans）")
     gui.add_argument("--no-browser", dest="no_browser", action="store_true",
                      default=False, help=u"不自动打开浏览器")
 
-    runner = sub.add_parser("run", help=u"按配方一键跑（与 GUI 同一条路）")
+    runner = sub.add_parser("run", help=u"按执行方案一键跑（与 GUI 同一条路）")
     runner.add_argument("path", help=u"要处理的 .docx")
     runner.add_argument("--steps", default=None,
-                        help=u"配方步骤，逗号分隔（如 captions,sup,tidy）")
-    runner.add_argument("--recipe", default=None, help=u"配方 JSON 文件（含 steps 数组）")
+                        help=u"功能步骤，逗号分隔（如 captions,sup,tidy）")
+    runner.add_argument("--plan", "--recipe", dest="plan", default=None,
+                        help=u"执行方案 JSON 文件（含 steps 数组）")
     runner.add_argument("--mode", choices=("verify", "formal"), default="verify",
                         help=u"verify=改过的地方标蓝；formal=通体黑 + 字体合规")
     runner.add_argument("--out", default=None, help=u"输出文件（默认「某报告（验证版）.docx」）")
@@ -1069,23 +1075,25 @@ def cmd_gui(args):
     """起本地网页 GUI（只监听 127.0.0.1）。"""
     from .gui import server as gui_server
 
-    root = os.path.abspath(args.root) if args.root else os.path.expanduser(u"~")
+    # root=None = 不限目录（要能挑到其它盘的文件）；给了 --root 才关起来
+    root = os.path.abspath(args.root) if args.root else None
     return {"ok": True}, gui_server.serve(host=args.host, port=args.port,
-                                          open_browser=not args.no_browser, root=root)
+                                          open_browser=not args.no_browser, root=root,
+                                          plans=args.plans)
 
 
 def cmd_run(args):
-    """按配方跑（CLI 版的一键执行；和 GUI 同一条路）。"""
+    """按执行方案跑（CLI 版的一键执行；和 GUI 同一条路）。"""
     from . import pipeline as pipeline_mod
 
-    recipe = []
-    if args.recipe:
+    steps = []
+    if args.plan:
         import json as json_mod
-        with io.open(args.recipe, "r", encoding="utf-8-sig") as handle:
-            recipe = json_mod.load(handle).get("steps") or []
+        with io.open(args.plan, "r", encoding="utf-8-sig") as handle:
+            steps = json_mod.load(handle).get("steps") or []
     elif args.steps:
-        recipe = [step.strip() for step in args.steps.split(u",") if step.strip()]
-    report = pipeline_mod.run_pipeline(args.path, recipe, mode=args.mode,
+        steps = [step.strip() for step in args.steps.split(u",") if step.strip()]
+    report = pipeline_mod.run_pipeline(args.path, steps, mode=args.mode,
                                        out_path=args.out, dry_run=args.dry_run)
     return report, pipeline_mod.format_report(report)
 
