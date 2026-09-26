@@ -2,114 +2,137 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>word 工厂 · GUI 布局（SVG 版）</title>
+<title>word 工厂 · GUI 布局设计稿</title>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
-  body {
-    font: 14px/1.6 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
-    color: #1f2933; background: #eef1f5; display: flex; flex-direction: column;
-  }
-  header { background: #fff; border-bottom: 1px solid #d7dee8; padding: 10px 16px;
-           display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  header h1 { font-size: 16px; margin: 0 6px 0 0; font-weight: 600; }
-  header .hint { color: #64748b; font-size: 12px; }
-  .toolbar { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; align-items: center; }
-  button, select { font: inherit; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+  body { font: 14px/1.6 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+         color: #1f2933; background: #eef1f5; display: flex; flex-direction: column; }
+  header { background: #fff; border-bottom: 1px solid #d7dee8; }
+  #bar1 { display: flex; align-items: center; gap: 10px; padding: 9px 16px; flex-wrap: wrap; }
+  #bar1 h1 { font-size: 16px; margin: 0 8px 0 0; font-weight: 600; }
+  #bar1 .hint { color: #64748b; font-size: 12px; }
+  #bar1 .spacer { margin-left: auto; }
+  #bar2 { display: flex; align-items: center; gap: 6px; padding: 8px 16px;
+          border-top: 1px solid #eef1f5; flex-wrap: wrap; background: #fcfdff; }
+  #bar2 .group { display: flex; gap: 4px; align-items: center; padding-right: 10px;
+                 margin-right: 4px; border-right: 1px solid #e8edf5; }
+  #bar2 .group:last-child { border-right: none; }
+  #bar2 .cap { font-size: 12px; color: #94a3b8; margin-right: 2px; }
+  button, select { font: inherit; padding: 5px 11px; border-radius: 6px; cursor: pointer;
                    border: 1px solid #c7d0dd; background: #fff; color: #1f2933; }
   button:hover { background: #f4f7fb; }
   button.primary { background: #2f6fed; border-color: #2f6fed; color: #fff; }
   button.primary:hover { background: #2a62d4; }
   button.ghost { border-style: dashed; color: #64748b; }
+  button.on { background: #eef4ff; border-color: #2f6fed; color: #1d4fd7; }
   main { flex: 1; display: flex; min-height: 0; }
-  #palette { width: 218px; background: #fff; border-right: 1px solid #d7dee8;
-             overflow: auto; padding: 12px; }
-  #palette h2 { font-size: 12px; color: #64748b; margin: 14px 0 6px; font-weight: 600; }
-  .chip { display: block; width: 100%; text-align: left; margin-bottom: 6px; font: inherit;
-          color: #1f2933; border: 1px solid #d7dee8; background: #fbfcfe; border-radius: 6px;
-          padding: 7px 10px; cursor: pointer; }
-  .chip:hover { background: #eef4ff; border-color: #b9cdf5; }
-  .chip small { color: #8a97a8; display: block; font-size: 11px; }
-  #stage-wrap { flex: 1; overflow: auto; padding: 16px; background: #e9edf3; }
-  #stage-box { position: relative; margin: 0 auto; }
-  #stage { display: block; background: #fff; box-shadow: 0 1px 4px rgba(31,41,51,.12); }
-  #inspector { width: 262px; background: #fff; border-left: 1px solid #d7dee8;
+  #palette { width: 148px; background: #fff; border-right: 1px solid #d7dee8;
+             padding: 12px 10px; overflow: auto; }
+  #palette h2 { font-size: 12px; color: #64748b; margin: 0 0 8px; }
+  #palette .chip { display: block; width: 100%; text-align: left; margin-bottom: 5px;
+                   font: inherit; font-size: 12px; color: #1f2933; padding: 6px 8px;
+                   border: 1px solid #d7dee8; background: #fbfcfe; border-radius: 6px; }
+  #palette .chip:hover { background: #eef4ff; border-color: #b9cdf5; }
+  #legend .legend-row { font-size: 11px; color: #475569; padding: 4px 6px; border-radius: 5px;
+                        cursor: pointer; white-space: nowrap; overflow: hidden;
+                        text-overflow: ellipsis; }
+  #legend .legend-row:hover { background: #fffbeb; color: #92600a; }
+  #legend .legend-row.on { background: #eef4ff; color: #1d4fd7; font-weight: 600; }
+  #stage-wrap { flex: 1; overflow: auto; padding: 18px; background: #e9edf3; }
+  #stage { display: block; background: #fff; box-shadow: 0 1px 5px rgba(31,41,51,.12); }
+  #inspector { width: 268px; background: #fff; border-left: 1px solid #d7dee8;
                padding: 14px; overflow: auto; }
   #inspector h2 { font-size: 12px; color: #64748b; margin: 0 0 10px; }
   #inspector label { display: block; font-size: 12px; color: #64748b; margin: 10px 0 4px; }
   #inspector input[type=text], #inspector input[type=number] {
     width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit; }
   #inspector .empty { color: #9aa7b8; font-size: 12px; }
+  #inspector .desc { font-size: 12px; color: #92600a; background: #fffbeb;
+                     border: 1px solid #f0d9a8; border-radius: 6px; padding: 8px 10px; }
   #inspector textarea { width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1;
                         border-radius: 6px; font: inherit; }
   footer { background: #fff; border-top: 1px solid #d7dee8; padding: 8px 16px;
            color: #64748b; font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap; }
   code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; }
   .guide { stroke: #f05f6b; stroke-width: 1; stroke-dasharray: 4 3; }
+  .note-line { stroke: #f0a500; stroke-width: 1; }
 </style>
 </head>
 <body>
 <header>
-  <h1>word 工厂 · GUI 布局</h1>
-  <span class="hint">SVG 画布 1440×900（= 软件窗口外框）｜ 元件画成真实控件的样子，拖一下、拉一下大小</span>
-  <div class="toolbar">
-    <select id="preset" title="从现成骨架开始">
-      <option value="">— 预设布局 —</option>
-      <option value="sidebar">左栏 + 主区</option>
-      <option value="toolbar">顶部工具条 + 主区</option>
-      <option value="wizard">单列向导式</option>
-      <option value="blank">空白</option>
-    </select>
+  <div id="bar1">
+    <h1>word 工厂 · GUI 布局</h1>
+    <span class="hint">SVG 画布 1440×900（= 软件窗口外框，1 单位 = 1 像素）｜ 元件画成真实控件的样子</span>
+    <span class="spacer"></span>
     <button id="undo" class="ghost">撤销</button>
     <button id="clear" class="ghost">清空</button>
-    <button id="zoomout">−</button><button id="zoomin">＋</button><button id="zoomfit">适应</button>
     <button id="export">导出布局</button>
     <button id="import" class="ghost">导入</button>
     <button id="approve" class="primary">就是它了（存下这版）</button>
+  </div>
+  <div id="bar2">
+    <div class="group">
+      <span class="cap">布局</span>
+      <select id="preset">
+        <option value="">— 换一个布局 —</option>
+        <option value="design">设计稿（我排的这一版）</option>
+        <option value="sidebar">左栏 + 主区</option>
+        <option value="toolbar">顶部工具条 + 主区</option>
+        <option value="wizard">单列向导式</option>
+        <option value="blank">空白画布</option>
+      </select>
+      <button id="notes-toggle" class="on">选中元件显示说明</button>
+    </div>
+    <div class="group">
+      <span class="cap">贴齐</span>
+      <button data-align="left">贴左</button>
+      <button data-align="hcenter">水平居中</button>
+      <button data-align="right">贴右</button>
+      <button data-align="top">贴上</button>
+      <button data-align="vcenter">垂直居中</button>
+      <button data-align="bottom">贴下</button>
+    </div>
+    <div class="group">
+      <span class="cap">复制</span>
+      <button id="duplicate">复制选中（Ctrl+D）</button>
+      <button id="same-size">与画布同宽</button>
+    </div>
+    <div class="group">
+      <span class="cap">缩放</span>
+      <button id="zoomout">−</button><button id="zoomin">＋</button>
+      <button id="zoomfit">适应窗口</button>
+    </div>
   </div>
 </header>
 
 <main>
   <aside id="palette">
-    <h2>点一下就把元件加到画布中间</h2>
-    <button class="chip" data-add="zone" data-w="260" data-h="300">分区 / 面板<small>侧栏、主工作区</small></button>
-    <button class="chip" data-add="button" data-w="130" data-h="34">按钮<small>运行 / 出验证版…</small></button>
-    <button class="chip" data-add="tab" data-w="120" data-h="34">标签页</button>
-    <button class="chip" data-add="checkbox" data-w="120" data-h="28">复选框</button>
-    <button class="chip" data-add="select" data-w="160" data-h="34">下拉选择</button>
-    <button class="chip" data-add="list" data-w="240" data-h="180">清单<small>可勾选 + 拖排序</small></button>
-    <button class="chip" data-add="table-list" data-w="280" data-h="200">表格清单<small>按表头勾选哪几张套模板</small></button>
-    <button class="chip" data-add="style-picker" data-w="240" data-h="150">模板选择器<small>6 个表格模板</small></button>
-    <button class="chip" data-add="preview" data-w="240" data-h="160">预览窗<small>套用后的样子</small></button>
-    <button class="chip" data-add="log" data-w="420" data-h="110">运行日志<small>改了多少处</small></button>
-    <h2>操作提示</h2>
-    <div style="font-size:12px;color:#64748b">
-      拖动移动（自动吸附 8px 网格；靠近别的元件边缘会出红色参考线）<br>
-      右下角小方块拉大小<br>
-      方向键微调 1 单位，按 <code>Shift</code> 一次 10<br>
-      <code>Delete</code> 删除 · <code>Ctrl+Z</code> 撤销
-    </div>
+    <h2>点一下加元件</h2>
+    <h2 style="margin-top:14px">这一版有什么</h2>
+    <div id="legend"></div>
   </aside>
 
   <div id="stage-wrap">
-    <div id="stage-box">
-      <svg id="stage" width="1440" height="900" viewBox="0 0 1440 900"
-           xmlns="http://www.w3.org/2000/svg"></svg>
-    </div>
+    <svg id="stage" width="1440" height="900" viewBox="0 0 1440 900"
+         xmlns="http://www.w3.org/2000/svg"></svg>
   </div>
 
   <aside id="inspector">
-    <h2>属性</h2>
-    <div id="inspector-body" class="empty">点画布里的元件 → 这里改文字/位置/大小</div>
+    <h2>属性（选中元件的文字/位置/大小）</h2>
+    <div id="inspector-body" class="empty">点画布里的元件 → 这里改</div>
+    <h2 style="margin-top:18px">这个元件是干什么的</h2>
+    <div id="desc-body" class="empty">选中元件后这里显示它的用途</div>
     <h2 style="margin-top:18px">备注（会一起导出）</h2>
     <textarea id="notes" rows="5" placeholder="想改哪儿写这儿，比如：表格清单要显示行数 / 运行日志要能折叠…"></textarea>
   </aside>
 </main>
 
 <footer>
-  <span>画布 1440×900 ｜ 1 单位 = 1 像素</span>
+  <span>拖动移动（吸附 8px；靠近别的元件边缘出红色参考线）</span>
+  <span>右下角小方块拉大小 ｜ 方向键微调（Shift 一次 10）</span>
+  <span><code>Ctrl+D</code> 复制 ｜ <code>Delete</code> 删除 ｜ <code>Ctrl+Z</code> 撤销</span>
   <span id="status">画布是空的</span>
-  <span>自动保存在浏览器里</span>
 </footer>
 
 <script>
@@ -117,20 +140,35 @@
 const STAGE = document.getElementById('stage');
 const STATUS = document.getElementById('status');
 const INSPECTOR = document.getElementById('inspector-body');
+const DESC = document.getElementById('desc-body');
 const GRID = 8, CW = 1440, CH = 900;
 const SVGNS = 'http://www.w3.org/2000/svg';
-
-let items = [], selected = null, history = [], seq = 1, zoom = 1;
+let items = [], selected = null, history = [], seq = 1, zoom = 1, showNotes = true;
 
 const TYPE_LABEL = {
   zone: '分区/面板', button: '按钮', tab: '标签页', checkbox: '复选框', select: '下拉选择',
   list: '清单', 'table-list': '表格清单', 'style-picker': '模板选择器', preview: '预览窗',
-  log: '运行日志',
+  log: '日志/报告', label: '文字标签', statusbar: '状态条',
+};
+/* 每个元件的用途说明 —— 选中或开「说明」时给用户看，他知道这块是干什么的 */
+const TYPE_DESC = {
+  zone: '分区/面板：把一类内容框在一起（侧栏、主工作区、右侧预览区…）',
+  button: '按钮：一个动作（运行 dry-run / 出验证版 / 出正式版 / 体检 / 导出 PDF）',
+  tab: '标签页：切换主工作区里显示哪个功能',
+  checkbox: '复选框：勾选要不要跑这一项',
+  select: '下拉选择：从固定选项里挑一个',
+  list: '清单：可勾选 + 可拖排序的功能列表',
+  'table-list': '表格清单：按表头列出文档里每张表，勾选哪几张要套模板',
+  'style-picker': '模板选择器：6 个表格模板缩略图，点一个套到勾选的表上',
+  preview: '预览窗：套用后的样子（先生成一份给你用 Word 看）',
+  log: '日志/报告：每步改了多少处、动了哪些部件',
+  label: '文字标签：说明性文字',
+  statusbar: '状态条：显示当前文件、选中了几张表之类的状态',
 };
 const DEFAULT_TEXT = {
-  zone: '分区 / 面板', button: '按钮', tab: '标签页', checkbox: '复选框',
-  select: '请选择', list: '清单（勾选 + 拖排序）', 'table-list': '按表头勾选表格',
-  'style-picker': '表格模板', preview: '预览窗', log: '运行日志',
+  zone: '分区 / 面板', button: '按钮', tab: '标签页', checkbox: '复选框', select: '请选择',
+  list: '清单（勾选 + 拖排序）', 'table-list': '按表头勾选表格', 'style-picker': '表格模板',
+  preview: '预览窗', log: '运行日志', label: '标签', statusbar: '状态条',
 };
 
 /* ---------------------------------------------------------------- SVG 小工具 */
@@ -143,35 +181,36 @@ function el(name, attrs, text) {
   return node;
 }
 
-/** 把一个元件画成"真实控件的样子" —— 所见即所得：画布上看到的就是真界面的样子。 */
+/** 把一个元件画成"真实控件的样子" —— 所见即所得。 */
 function paint(item) {
   const accent = item.id === selected;
-  const isPanel = ['zone', 'preview', 'log', 'table-list', 'style-picker', 'list'].includes(item.type);
+  const isPanel = ['zone', 'preview', 'log', 'table-list', 'style-picker', 'list',
+                   'statusbar'].includes(item.type);
   const group = el('g', {'data-id': item.id, cursor: 'move'});
   group.appendChild(el('rect', {
     x: item.x, y: item.y, width: item.w, height: item.h,
-    rx: (item.type === 'button' || item.type === 'tab') ? 6 : 4,
+    rx: (item.type === 'button' || item.type === 'tab') ? 6 : 5,
     fill: isPanel ? '#fbfcfe' : '#ffffff',
     stroke: accent ? '#2f6fed' : '#cbd5e1', 'stroke-width': accent ? 2 : 1,
-    'stroke-dasharray': item.type === 'zone' ? '5 3' : undefined,
+    'stroke-dasharray': (item.type === 'zone' || item.type === 'statusbar') ? '5 3' : undefined,
   }));
 
   if (item.type === 'table-list') {
     group.appendChild(el('rect', {x: item.x, y: item.y, width: item.w, height: 26,
-                                  fill: '#f1f5fb'}));
+                                  fill: '#eef3fb', rx: 5}));
     group.appendChild(el('text', {x: item.x + 10, y: item.y + 18, 'font-size': 12,
-                                  fill: '#334155'}, item.text));
+                                  'font-weight': 600, fill: '#334155'}, item.text));
     ['☑ 水位（m） / 库容（万m3）', '☑ 序号 / 高程 / 面积',
      '☐ 设计频率 / P=3.3% / P=0.33%', '☐ 项目 / 特性指标 / 单位'].forEach((row, index) =>
-      group.appendChild(el('text', {x: item.x + 10, y: item.y + 46 + index * 22,
+      group.appendChild(el('text', {x: item.x + 10, y: item.y + 48 + index * 24,
                                     'font-size': 12, fill: '#475569'}, row)));
   } else if (item.type === 'style-picker') {
     group.appendChild(el('text', {x: item.x + 10, y: item.y + 18, 'font-size': 12,
-                                  fill: '#334155'}, item.text));
-    const cellW = (item.w - 20) / 3 - 6, cellH = (item.h - 36) / 2 - 5;
+                                  'font-weight': 600, fill: '#334155'}, item.text));
+    const cellW = (item.w - 22) / 3 - 6, cellH = (item.h - 40) / 2 - 5;
     ['外粗内细', '全居中', '均布列宽', '自适应', '三线表', '三线表·均布'].forEach((name, index) => {
-      const cx = item.x + 10 + (index % 3) * (cellW + 6);
-      const cy = item.y + 32 + Math.floor(index / 3) * (cellH + 5);
+      const cx = item.x + 11 + (index % 3) * (cellW + 6);
+      const cy = item.y + 32 + Math.floor(index / 3) * (cellH + 6);
       group.appendChild(el('rect', {x: cx, y: cy, width: cellW, height: cellH, rx: 3,
                                     fill: '#fff', stroke: '#d7dee8'}));
       group.appendChild(el('text', {x: cx + cellW / 2, y: cy + cellH / 2 + 4, 'font-size': 11,
@@ -179,52 +218,58 @@ function paint(item) {
     });
   } else if (item.type === 'preview') {
     group.appendChild(el('text', {x: item.x + 10, y: item.y + 18, 'font-size': 12,
-                                  fill: '#334155'}, item.text));
+                                  'font-weight': 600, fill: '#334155'}, item.text));
     const tx = item.x + 10, ty = item.y + 34, tw = item.w - 20;
-    group.appendChild(el('rect', {x: tx, y: ty, width: tw, height: 24, fill: '#fff',
+    group.appendChild(el('rect', {x: tx, y: ty, width: tw, height: 26, fill: '#fff',
                                   stroke: '#94a3b8'}));
-    group.appendChild(el('line', {x1: tx, y1: ty + 24, x2: tx + tw, y2: ty + 24,
+    group.appendChild(el('line', {x1: tx, y1: ty + 26, x2: tx + tw, y2: ty + 26,
                                   stroke: '#111827', 'stroke-width': 1.5}));
-    group.appendChild(el('text', {x: tx + tw / 4, y: ty + 17, 'font-size': 11,
-                                  'text-anchor': 'middle'}, '项目'));
-    group.appendChild(el('text', {x: tx + tw * 0.75, y: ty + 17, 'font-size': 11,
-                                  'text-anchor': 'middle'}, '说明'));
-    group.appendChild(el('text', {x: tx + tw / 4, y: ty + 42, 'font-size': 11,
+    group.appendChild(el('text', {x: tx + tw / 4, y: ty + 18, 'font-size': 11,
+                                  'text-anchor': 'middle', 'font-weight': 600}, '项目'));
+    group.appendChild(el('text', {x: tx + tw * 0.75, y: ty + 18, 'font-size': 11,
+                                  'text-anchor': 'middle', 'font-weight': 600}, '说明'));
+    group.appendChild(el('text', {x: tx + tw / 4, y: ty + 46, 'font-size': 11,
                                   'text-anchor': 'middle'}, '防洪标准'));
-    group.appendChild(el('text', {x: tx + tw * 0.75, y: ty + 42, 'font-size': 11}, '按50年一遇设计、200年一遇校核…'));
+    group.appendChild(el('text', {x: tx + tw * 0.75, y: ty + 46, 'font-size': 11},
+                         '按50年一遇设计、200年一遇校核…'));
   } else if (item.type === 'log') {
     group.appendChild(el('text', {x: item.x + 10, y: item.y + 18, 'font-size': 12,
-                                  fill: '#334155'}, item.text));
+                                  'font-weight': 600, fill: '#334155'}, item.text));
     ['· 表格 12 张，改了 12 张（131 处）',
-     '· 单元格对齐(left) 9 处 ｜ 框线 12 处 ｜ 表头折行 1 处'].forEach((line, index) =>
-      group.appendChild(el('text', {x: item.x + 10, y: item.y + 40 + index * 20,
+     '· 单元格对齐(left) 9 处 ｜ 框线 12 处 ｜ 表头折行 1 处',
+     '· 只重写 word/document.xml，其余 41 个部件逐字节未变'].forEach((line, index) =>
+      group.appendChild(el('text', {x: item.x + 10, y: item.y + 42 + index * 22,
                                     'font-size': 11, fill: '#64748b',
                                     'font-family': 'Consolas, monospace'}, line)));
   } else if (item.type === 'list') {
     group.appendChild(el('text', {x: item.x + 10, y: item.y + 18, 'font-size': 12,
-                                  fill: '#334155'}, item.text));
-    ['☑ 格式规范化', '☑ 表格款式', '☐ 段落配方', '☐ 体检 AUDIT'].forEach((row, index) =>
-      group.appendChild(el('text', {x: item.x + 10, y: item.y + 38 + index * 20,
+                                  'font-weight': 600, fill: '#334155'}, item.text));
+    ['☑ 格式规范化（变黑+字体+上下标）', '☑ 表格款式（6 套模板）', '☑ 文本替换 + 对齐',
+     '☑ 一键整理（去空格/空行）', '☐ 段落配方（xlsx 数据表）', '☐ 体检 AUDIT'].forEach((row, index) =>
+      group.appendChild(el('text', {x: item.x + 10, y: item.y + 40 + index * 22,
                                     'font-size': 11, fill: '#475569'}, row)));
   } else if (item.type === 'checkbox') {
-    group.appendChild(el('rect', {x: item.x, y: item.y + 5, width: 14, height: 14, rx: 2,
+    group.appendChild(el('rect', {x: item.x, y: item.y + 5, width: 14, height: 14, rx: 3,
                                   fill: '#fff', stroke: '#64748b'}));
     group.appendChild(el('text', {x: item.x + 20, y: item.y + 18, 'font-size': 13}, item.text));
   } else if (item.type === 'select') {
     group.appendChild(el('rect', {x: item.x, y: item.y, width: item.w, height: item.h,
-                                  rx: 4, fill: '#fff', stroke: '#cbd5e1'}));
-    group.appendChild(el('text', {x: item.x + 10, y: item.y + 22, 'font-size': 13,
+                                  rx: 5, fill: '#fff', stroke: '#cbd5e1'}));
+    group.appendChild(el('text', {x: item.x + 10, y: item.y + 23, 'font-size': 13,
                                   fill: '#475569'}, item.text));
-    group.appendChild(el('text', {x: item.x + item.w - 14, y: item.y + 22, 'font-size': 10,
+    group.appendChild(el('text', {x: item.x + item.w - 14, y: item.y + 23, 'font-size': 10,
                                   fill: '#94a3b8', 'text-anchor': 'middle'}, '▼'));
   } else if (item.type === 'tab') {
     group.appendChild(el('rect', {x: item.x, y: item.y + 2, width: item.w, height: item.h - 3,
-                                  rx: 4, fill: '#fff', stroke: '#cbd5e1'}));
+                                  rx: 5, fill: '#fff', stroke: '#cbd5e1'}));
     group.appendChild(el('line', {x1: item.x, y1: item.y + item.h - 1,
                                   x2: item.x + item.w, y2: item.y + item.h - 1,
                                   stroke: '#fff', 'stroke-width': 3}));
     group.appendChild(el('text', {x: item.x + item.w / 2, y: item.y + 23, 'font-size': 13,
                                   'text-anchor': 'middle'}, item.text));
+  } else if (item.type === 'label' || item.type === 'statusbar') {
+    group.appendChild(el('text', {x: item.x + 10, y: item.y + item.h / 2 + 5, 'font-size': 12,
+                                  fill: '#64748b'}, item.text));
   } else {
     const centered = item.type === 'button';
     group.appendChild(el('text', {
@@ -234,8 +279,8 @@ function paint(item) {
     }, item.text));
   }
   if (item.id === selected) {
-    group.appendChild(el('rect', {x: item.x + item.w - 8, y: item.y + item.h - 8,
-                                  width: 8, height: 8, fill: '#2f6fed',
+    group.appendChild(el('rect', {x: item.x + item.w - 9, y: item.y + item.h - 9,
+                                  width: 9, height: 9, fill: '#2f6fed',
                                   cursor: 'nwse-resize', 'data-handle': '1'}));
   }
   return group;
@@ -246,17 +291,62 @@ function render() {
   STAGE.appendChild(el('rect', {x: 0, y: 0, width: CW, height: CH,
                                 fill: '#fff', stroke: '#94a3b8'}));
   for (let x = 0; x <= CW; x += 80) STAGE.appendChild(
-    el('line', {x1: x, y1: 0, x2: x, y2: CH, stroke: '#eef1f5'}));
+    el('line', {x1: x, y1: 0, x2: x, y2: CH, stroke: '#f2f5f9'}));
   for (let y = 0; y <= CH; y += 80) STAGE.appendChild(
-    el('line', {x1: 0, y1: y, x2: CW, y2: y, stroke: '#eef1f5'}));
+    el('line', {x1: 0, y1: y, x2: CW, y2: y, stroke: '#f2f5f9'}));
   items.forEach(item => STAGE.appendChild(paint(item)));
+  const noted = showNotes && items.find(entry => entry.id === selected);
+  if (noted) STAGE.appendChild(annotation(noted));
   STAGE.appendChild(el('g', {id: 'guides'}));
   STATUS.textContent = items.length ? ('画布上有 %d 个元件').replace('%d', items.length)
-                                    : '画布是空的 —— 从左边点一个元件加进来';
+                                    : '画布是空的 —— 从上面选个预设布局';
+  renderLegend();
   renderInspector();
 }
 
-/* ---------------------------------------------------------------- 坐标换算（关键） */
+/** 左侧「这一版有什么」清单：鼠标指上去画布里对应元件高亮，点一下选中。 */
+function renderLegend() {
+  const holder = document.getElementById('legend');
+  if (!holder) return;
+  holder.textContent = '';
+  items.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'legend-row' + (item.id === selected ? ' on' : '');
+    row.dataset.id = item.id;
+    row.title = (item.desc || TYPE_DESC[item.type] || '');
+    row.textContent = (TYPE_LABEL[item.type] || item.type) + ' | ' + String(item.text).slice(0, 14);
+    row.addEventListener('mouseenter', () => {
+      const node = STAGE.querySelector('g[data-id="' + item.id + '"] rect');
+      if (node) node.setAttribute('stroke', '#f0a500');
+    });
+    row.addEventListener('mouseleave', () => {
+      const node = STAGE.querySelector('g[data-id="' + item.id + '"] rect');
+      if (node) node.setAttribute('stroke', item.id === selected ? '#2f6fed' : '#cbd5e1');
+    });
+    row.addEventListener('click', () => { selected = item.id; render(); });
+    holder.appendChild(row);
+  });
+}
+
+/** 说明气泡：告诉用户这块是干什么的（开「说明」时出现）。 */
+function annotation(item) {
+  const group = el('g', {'data-note': item.id});
+  const text = item.desc || TYPE_DESC[item.type] || '界面元件';
+  const boxW = Math.min(340, 16 + text.length * 7.2);
+  let bx = item.x + item.w + 12;
+  const by = item.y + item.h - 30;
+  if (bx + boxW > CW - 4) bx = Math.max(4, item.x - boxW - 12);
+  group.appendChild(el('line', {x1: bx < item.x ? bx + boxW : bx, y1: by + 13,
+                                x2: bx < item.x ? item.x : item.x + item.w,
+                                y2: item.y + item.h / 2, class: 'note-line'}));
+  group.appendChild(el('rect', {x: bx, y: by, width: boxW, height: 26, rx: 4,
+                                fill: '#fffbeb', stroke: '#f0a500', 'stroke-width': 0.8}));
+  group.appendChild(el('text', {x: bx + 7, y: by + 17, 'font-size': 11, fill: '#92600a'},
+                       text.slice(0, 46)));
+  return group;
+}
+
+/* ---------------------------------------------------------------- 坐标换算 */
 function toSvg(event) {
   const point = STAGE.createSVGPoint();
   point.x = event.clientX;
@@ -276,7 +366,6 @@ STAGE.addEventListener('mousedown', event => {
   const start = toSvg(event);
   const origin = {x: item.x, y: item.y, w: item.w, h: item.h};
   let moved = false;
-
   const move = ev => {
     const point = toSvg(ev);
     moved = true;
@@ -290,10 +379,7 @@ STAGE.addEventListener('mousedown', event => {
       drawGuides(item);
     }
     const node = STAGE.querySelector('g[data-id="' + item.id + '"]');
-    if (node) {
-      node.remove();
-      STAGE.insertBefore(paint(item), STAGE.lastChild);
-    }
+    if (node) { node.remove(); STAGE.insertBefore(paint(item), STAGE.lastChild); }
   };
   const up = () => {
     document.removeEventListener('mousemove', move);
@@ -307,25 +393,25 @@ STAGE.addEventListener('mousedown', event => {
   document.addEventListener('mouseup', up);
 });
 
-/** 吸附：靠近别的元件边缘/中线就贴上去（贴的时候画红色参考线）。 */
 function snap(item) {
   const guides = [];
   const near = (a, b) => Math.abs(a - b) <= 5;
   for (const other of items) {
     if (other.id === item.id) continue;
-    const xs = [other.x, other.x + other.w, (other.x * 2 + other.w) / 2];
-    const ys = [other.y, other.y + other.h, (other.y * 2 + other.h) / 2];
-    const mineX = [item.x, item.x + item.w, (item.x * 2 + item.w) / 2];
-    const mineY = [item.y, item.y + item.h, (item.y * 2 + item.h) / 2];
-    xs.forEach(value => mineX.forEach(mine => { if (near(mine, value)) guides.push(['v', value]); }));
-    ys.forEach(value => mineY.forEach(mine => { if (near(mine, value)) guides.push(['h', value]); }));
+    [other.x, other.x + other.w, (other.x * 2 + other.w) / 2].forEach(value =>
+      [item.x, item.x + item.w, (item.x * 2 + item.w) / 2].forEach(mine => {
+        if (near(mine, value)) guides.push(['v', value]);
+      }));
+    [other.y, other.y + other.h, (other.y * 2 + other.h) / 2].forEach(value =>
+      [item.y, item.y + item.h, (item.y * 2 + item.h) / 2].forEach(mine => {
+        if (near(mine, value)) guides.push(['h', value]);
+      }));
   }
   if (near(item.x, CW / 2)) guides.push(['v', CW / 2]);
   if (near(item.y, CH / 2)) guides.push(['h', CH / 2]);
   for (const guide of guides) {
-    const axis = guide[0], value = guide[1];
-    if (axis === 'v') item.x = clamp(value, 0, CW - item.w);
-    else item.y = clamp(value, 0, CH - item.h);
+    if (guide[0] === 'v') item.x = clamp(guide[1], 0, CW - item.w);
+    else item.y = clamp(guide[1], 0, CH - item.h);
   }
 }
 
@@ -345,18 +431,34 @@ function round8(value) { return Math.round(value / GRID) * GRID; }
 function clamp(value, low, high) { return Math.max(low, Math.min(high, value)); }
 
 /* ---------------------------------------------------------------- 加元件 */
-document.querySelectorAll('.chip').forEach(chip => {
-  chip.addEventListener('click', () => {
+const PALETTE = [
+  ['zone', '分区/面板'], ['button', '按钮'], ['tab', '标签页'], ['checkbox', '复选框'],
+  ['select', '下拉选择'], ['list', '清单'], ['table-list', '表格清单'],
+  ['style-picker', '模板选择器'], ['preview', '预览窗'], ['log', '日志/报告'],
+  ['label', '文字标签'], ['statusbar', '状态条'],
+];
+const PALETTE_SIZE = {zone: [240, 200], button: [120, 34], tab: [118, 34], checkbox: [120, 28],
+                      select: [150, 34], list: [240, 180], 'table-list': [300, 200],
+                      'style-picker': [240, 150], preview: [240, 160], log: [420, 110],
+                      label: [160, 28], statusbar: [300, 30]};
+PALETTE.forEach(entry => {
+  const button = document.createElement('button');
+  button.className = 'chip';
+  button.dataset.add = entry[0];
+  button.textContent = entry[1];
+  button.addEventListener('click', () => {
     pushHistory();
-    const type = chip.dataset.add;
-    const w = +chip.dataset.w, h = +chip.dataset.h;
+    const type = button.dataset.add;
+    const size = PALETTE_SIZE[type];
     const item = {id: 'i' + (seq++), type: type,
-                  x: round8(Math.max(0, (CW - w) / 2)), y: round8(Math.max(0, (CH - h) / 2)),
-                  w: w, h: h, text: DEFAULT_TEXT[type] || type};
+                  x: round8(Math.max(0, (CW - size[0]) / 2)),
+                  y: round8(Math.max(0, (CH - size[1]) / 2)),
+                  w: size[0], h: size[1], text: DEFAULT_TEXT[type] || type, desc: null};
     items.push(item);
     selected = item.id;
     render();
   });
+  document.getElementById('palette').appendChild(button);
 });
 
 /* ---------------------------------------------------------------- 属性面板 */
@@ -364,7 +466,9 @@ function renderInspector() {
   const item = items.find(entry => entry.id === selected);
   if (!item) {
     INSPECTOR.className = 'empty';
-    INSPECTOR.textContent = '点画布里的元件 → 这里改文字/位置/大小';
+    INSPECTOR.textContent = '点画布里的元件 → 这里改';
+    DESC.className = 'empty';
+    DESC.textContent = '选中元件后这里显示它的用途';
     return;
   }
   INSPECTOR.className = '';
@@ -391,6 +495,8 @@ function renderInspector() {
     selected = null;
     render();
   });
+  DESC.className = 'desc';
+  DESC.textContent = item.desc || TYPE_DESC[item.type] || '（这个类型没有说明）';
 }
 
 function escapeHtml(text) {
@@ -418,10 +524,51 @@ document.addEventListener('keydown', event => {
   } else if (event.key === 'z' && (event.ctrlKey || event.metaKey)) {
     event.preventDefault();
     undo();
+  } else if (event.key === 'd' && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    duplicate();
   }
 });
 
-/* ---------------------------------------------------------------- 缩放 */
+/* ---------------------------------------------------------------- 贴齐 / 复制 */
+function duplicate() {
+  const item = items.find(entry => entry.id === selected);
+  if (!item) return;
+  pushHistory();
+  const copy = Object.assign({}, item, {id: 'i' + (seq++)});
+  copy.x = clamp(round8(item.x + 16), 0, CW - item.w);
+  copy.y = clamp(round8(item.y + 16), 0, CH - item.h);
+  items.push(copy);
+  selected = copy.id;
+  render();
+}
+
+document.getElementById('duplicate').addEventListener('click', duplicate);
+document.getElementById('same-size').addEventListener('click', () => {
+  const item = items.find(entry => entry.id === selected);
+  if (!item) return;
+  pushHistory();
+  item.w = CW;
+  item.x = 0;
+  render();
+});
+document.querySelectorAll('[data-align]').forEach(button => {
+  button.addEventListener('click', () => {
+    const item = items.find(entry => entry.id === selected);
+    if (!item) return;
+    pushHistory();
+    const mode = button.dataset.align;
+    if (mode === 'left') item.x = 0;
+    else if (mode === 'right') item.x = CW - item.w;
+    else if (mode === 'hcenter') item.x = round8((CW - item.w) / 2);
+    else if (mode === 'top') item.y = 0;
+    else if (mode === 'bottom') item.y = CH - item.h;
+    else if (mode === 'vcenter') item.y = round8((CH - item.h) / 2);
+    render();
+  });
+});
+
+/* ---------------------------------------------------------------- 缩放 / 说明开关 */
 function setZoom(value) {
   zoom = clamp(value, 0.25, 2);
   STAGE.setAttribute('width', CW * zoom);
@@ -430,6 +577,12 @@ function setZoom(value) {
 document.getElementById('zoomin').addEventListener('click', () => setZoom(zoom + 0.15));
 document.getElementById('zoomout').addEventListener('click', () => setZoom(zoom - 0.15));
 document.getElementById('zoomfit').addEventListener('click', () => setZoom(1));
+document.getElementById('notes-toggle').addEventListener('click', event => {
+  showNotes = !showNotes;
+  event.target.classList.toggle('on', !showNotes);
+  event.target.textContent = showNotes ? '隐藏说明' : '显示说明';
+  render();
+});
 
 /* ---------------------------------------------------------------- 工具 */
 let historyTimer = null;
@@ -461,9 +614,7 @@ function load() {
     if (data.zoom) setZoom(data.zoom);
     seq = nextSeq();
     renumber();
-  } catch (error) {
-    items = [];
-  }
+  } catch (error) { items = []; }
 }
 function nextSeq() {
   let max = 0;
@@ -517,9 +668,7 @@ document.getElementById('import').addEventListener('click', () => {
         renumber();
         selected = null;
         render();
-      } catch (error) {
-        alert('这个 JSON 读不动：' + error.message);
-      }
+      } catch (error) { alert('这个 JSON 读不动：' + error.message); }
     };
     reader.readAsText(file);
   });
@@ -530,15 +679,39 @@ document.getElementById('approve').addEventListener('click', () => {
   alert('已存下这版（浏览器里也记住）。\n\n点「导出布局」把 JSON 发我，我照它做真界面。');
 });
 
+/* ---------------------------------------------------------------- 预设布局 */
 document.getElementById('preset').addEventListener('change', event => {
   const kind = event.target.value;
   if (!kind) return;
   pushHistory();
   items = [];
   seq = 1;
-  const add = (type, x, y, w, h, text) => items.push(
-    {id: 'i' + (seq++), type: type, x: x, y: y, w: w, h: h, text: text});
-  if (kind === 'sidebar') {
+  const add = (type, x, y, w, h, text, desc) => items.push(
+    {id: 'i' + (seq++), type: type, x: x, y: y, w: w, h: h, text: text, desc: desc || null});
+  if (kind === 'design') {
+    add('zone', 24, 20, 1392, 60, '顶部工具条', '文件、运行、出验证版/正式版、体检、导出 PDF');
+    add('button', 40, 33, 118, 34, '运行 dry-run', '先看会改多少，一个字节都不写');
+    add('button', 170, 33, 118, 34, '出验证版', '改过的地方标蓝，你用 Word 核对');
+    add('button', 300, 33, 118, 34, '出正式版', '通体黑 + 字体合规，直接交付');
+    add('button', 430, 33, 118, 34, '体检 AUDIT', '重新打开文件核对「通体黑/无不合格字体」');
+    add('button', 560, 33, 118, 34, '导出 PDF', '编排外部渲染器出 PDF');
+    add('label', 1180, 33, 236, 34, '文件：欧峪水库防洪安全复核报告.docx', null);
+    add('zone', 24, 100, 260, 560, '侧栏：可跑的功能', '勾选要跑哪些 + 拖排序；下面进规则文件');
+    add('list', 40, 152, 228, 300, '宏清单（勾选 + 拖排序）', '每个宏是一个具名修改步骤');
+    add('button', 40, 476, 228, 34, '打开规则文件…', '字体/上下标/表格模板都是外置 JSON');
+    add('button', 40, 526, 228, 34, '存为配方', '把当前勾选+顺序存起来，下次一键跑');
+    add('zone', 308, 100, 760, 560, '主工作区', '上面标签页切功能，下面放这个功能的界面');
+    add('tab', 324, 130, 118, 34, '表格款式', null);
+    add('tab', 452, 130, 118, 34, '段落配方', null);
+    add('tab', 580, 130, 118, 34, '规则文件', null);
+    add('style-picker', 324, 182, 236, 240, '表格模板（6 套）', '点一个套到勾选的表上');
+    add('table-list', 576, 182, 476, 240, '表格清单（按表头勾选）', '勾选哪几张表套这个模板');
+    add('zone', 1092, 100, 324, 560, '预览 / 改动报告', '先看效果，再决定出不出正式版');
+    add('preview', 1108, 152, 292, 200, '预览窗（套用后的样子）', null);
+    add('log', 1108, 372, 292, 268, '改动报告', '每步改了多少处、动了哪些部件');
+    add('log', 308, 680, 760, 144, '运行日志', '过程输出：跑没跑、报没报错');
+    add('statusbar', 24, 844, 1392, 32, '就绪 ｜ 12 张表 ｜ 上次改 131 处', null);
+  } else if (kind === 'sidebar') {
     add('zone', 20, 60, 220, 400, '侧栏：宏库 / 表格 / 规则 / 体检');
     add('zone', 260, 60, 700, 220, '主工作区');
     add('list', 280, 240, 260, 180, '宏清单（勾选 + 拖排序）');
@@ -569,7 +742,7 @@ document.getElementById('preset').addEventListener('change', event => {
 
 load();
 if (!items.length) {
-  document.getElementById('preset').value = 'sidebar';
+  document.getElementById('preset').value = 'design';
   document.getElementById('preset').dispatchEvent(new Event('change'));
 } else {
   render();
