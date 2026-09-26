@@ -166,19 +166,22 @@ def normalize(document, rule_set=None, dry_run=False, parts=None):
     if parts is None:
         parts = [name for name in FONT_PARTS
                  if name == document.package.MAIN or document.package.has(name)]
-    for name in parts:
-        # 宁可当场报错，也不"偷偷只改正文" —— 继承来源没改却报"没有不合格字体"是假报告
-        if name != document.package.MAIN and name not in document.writable_parts:
-            raise ValueError(
-                u"这个算子不允许改部件 %s（白名单：%s）。换字体要连样式表/编号表一起改"
-                u"（它们是继承来源），请把 %s 加进 writable_parts。"
-                % (name, sorted(document.writable_parts), list(FONT_PARTS)))
     font_changes = {}
     color_changes = 0
     highlight_removed = 0
     text_runs = 0
     touched = set()
     for part_name in parts:
+        # **不管是谁传进来的 parts 都要过滤**：不少文档压根没有 numbering.xml，
+        # 直接去读会 PackageError（配方引擎显式传 parts 时踩到过）。
+        if part_name != document.package.MAIN and not document.package.has(part_name):
+            continue
+        # 宁可当场报错，也不"偷偷只改正文" —— 继承来源没改却报"没有不合格字体"是假报告
+        if part_name not in document.writable_parts:
+            raise ValueError(
+                u"这个算子不允许改部件 %s（白名单：%s）。换字体要连样式表/编号表一起改"
+                u"（它们是继承来源），请把 %s 加进 writable_parts。"
+                % (part_name, sorted(document.writable_parts), list(FONT_PARTS)))
         root = document.part(part_name)
         is_main = part_name == document.package.MAIN
         for element in root.iter():

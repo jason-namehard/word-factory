@@ -6,6 +6,7 @@
 
 import io
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -13,7 +14,7 @@ import unittest
 import zipfile
 
 from wordfactory.inspect import inspect, scan_part
-from wordfactory.ooxml import DocxPackage, PackageError, file_sha256, qn
+from wordfactory.ooxml import NAMESPACES, DocxPackage, PackageError, file_sha256, qn
 
 from . import fixtures
 
@@ -148,5 +149,83 @@ class TestOutputIsReproducible(unittest.TestCase):
                 time.sleep(1.1)                      # 跨过一秒，让"写入时刻"必然不同
             with io.open(out1, "rb") as h1, io.open(out2, "rb") as h2:
                 self.assertEqual(h1.read(), h2.read(), u"两次保存的字节必须完全相同")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+class TestIgnorablePrefixesSurvive(unittest.TestCase):
+    """``mc:Ignorable`` 点名的前缀必须还在，否则 Word 打不开我们产出的文件。
+
+    实测踩过（2026-09-26）：真实文档根上声明了 29 个命名空间，其中 ``wp14`` 全文一次都没用到；
+    ElementTree 只给"树里真用到的"发声明，于是 ``mc:Ignorable="w14 w15 wp14"`` 里的 ``wp14``
+    变成未声明前缀 —— 工具产出的每个 .docx（连只跑一步 tidy 的也是）Word 都报
+    "文件可能已经损坏"，而原样复制的部件一点问题没有。修法：保存时按原件把根上的声明补齐。
+    """
+
+    WP14 = NAMESPACES["wp14"]
+    MC = NAMESPACES["mc"]
+
+    def _write(self, document_xml):
+        work = tempfile.mkdtemp(prefix="wf_ignorable_")
+        path = os.path.join(work, "in.docx")
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("[Content_Types].xml", (
+                u'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+                u'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                u'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+                u'<Default Extension="xml" ContentType="application/xml"/>'
+                u'<Override PartName="/word/document.xml" ContentType="application/vnd.'
+                u'openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+                u'</Types>').encode("utf-8"))
+            archive.writestr("_rels/.rels", (
+                u'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+                u'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                u'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+                u'relationships/officeDocument" Target="word/document.xml"/></Relationships>'
+            ).encode("utf-8"))
+            archive.writestr("word/document.xml", document_xml.encode("utf-8"))
+        return work, path
+
+    def test_unused_prefix_declaration_is_kept(self):
+        work, src = self._write(
+            u'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
+            u'<w:document xmlns:w="%s" xmlns:mc="%s" xmlns:wp14="%s" mc:Ignorable="wp14">'
+            u'<w:body><w:p><w:r><w:t>文字</w:t></w:r></w:p></w:body></w:document>'
+            % (NAMESPACES["w"], self.MC, self.WP14))
+        try:
+            out = os.path.join(work, "out.docx")
+            with DocxPackage(src) as pkg:
+                pkg.xml(DocxPackage.MAIN).find(qn("w:body")).find(qn("w:p")) \
+                    .find(qn("w:r")).find(qn("w:t")).text = u"改过的文字"
+                pkg.mark_dirty(DocxPackage.MAIN)
+                pkg.save(out)
+            with zipfile.ZipFile(out) as archive:
+                text = archive.read("word/document.xml").decode("utf-8")
+            self.assertIn('xmlns:wp14="%s"' % self.WP14, text,
+                          u"根上声明过、但树里没用到的命名空间必须原样保留")
+            self.assertIn('mc:Ignorable="wp14"', text)
+            ignorable = re.search(r'mc:Ignorable="([^"]*)"', text).group(1)
+            declared = set(re.findall(r'xmlns:([A-Za-z0-9_]+)=', text))
+            missing = [p for p in ignorable.split() if p not in declared]
+            self.assertEqual(missing, [], u"Ignorable 点名了未声明的前缀：%s" % missing)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def test_serializing_without_any_change_keeps_root_declarations(self):
+        work, src = self._write(
+            u'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
+            u'<w:document xmlns:w="%s" xmlns:mc="%s" xmlns:w14="%s" xmlns:wp14="%s" '
+            u'mc:Ignorable="w14 wp14"><w:body><w:p><w:r><w:t>文字</w:t></w:r></w:p></w:body>'
+            u'</w:document>' % (NAMESPACES["w"], self.MC, NAMESPACES["w14"], self.WP14))
+        try:
+            out = os.path.join(work, "out.docx")
+            with DocxPackage(src) as pkg:
+                pkg.xml(DocxPackage.MAIN)             # 先读一遍（一个字不改）
+                pkg.mark_dirty(DocxPackage.MAIN)      # 也要能保存
+                pkg.save(out)
+            with zipfile.ZipFile(out) as archive:
+                text = archive.read("word/document.xml").decode("utf-8")
+            for prefix, uri in (("w14", NAMESPACES["w14"]), ("wp14", self.WP14)):
+                self.assertIn('xmlns:%s="%s"' % (prefix, uri), text)
         finally:
             shutil.rmtree(work, ignore_errors=True)

@@ -28,9 +28,10 @@
 
 1. **算页码**。目录里的页码是**排版结果**——谁在第几页取决于行距、字体、图、分页符……
    XML 里没有这个信息，**任何纯 XML 工具都算不出页码**。目录页码这件事**单独另算**（见 `PLAN.md` 的"页码"一节）。
-2. **渲染成 PDF**。`.docx → .pdf` 同样需要**排版/渲染引擎**。
-   本工具能做的是**编排**（挑文件、命名、输出目录、批量、失败重试），渲染本身要交给一个引擎
-   （Word / WPS / LibreOffice）。所以"导出 PDF"会做成**可选后端**，装了哪个用哪个。
+2. **自己渲染成 PDF**。`.docx → .pdf` 需要**排版/渲染引擎**，XML 层做不到。
+   本工具做的是**编排**：挑文件、命名、输出目录、挑渲染器、超时与失败报告
+   （`pdf` 命令 + GUI 的「导出 PDF」按钮）。渲染本身交给本机装着的引擎——
+   Word / WPS / LibreOffice，装了哪个用哪个，一个都没装就明说（见 §PDF 导出）。
 3. 不处理老的 `.doc`（二进制格式）——先用别的工具转成 `.docx`。
 4. 不动 `.docm` 里的 VBA 工程（只改文档正文部分，宏部件原样保留）。
 
@@ -46,10 +47,14 @@
 
 ```
 wordfactory/        代码（纯标准库；不装任何第三方包）
-docs/               规格、架构、验收策略、未决问题
-reference/          VBA 宏原件（只读参考，不参与运行）
-tests/              单测与差分测试夹具
-tmp/                临时件（不入库）
+  gui/               本地 Web 界面（stdlib http.server + 前端页面）
+  ops/               算子（宏）：题注 / 上下标 / 表格 / 文本 / 整理 / PDF
+  pipeline.py        配方引擎（GUI 与命令行共用）
+docs/                规格、架构、验收策略、未决问题
+gui-prototype/       GUI 布局设计稿（SVG 原型，定稿用的，不参与运行）
+reference/           VBA 宏原件（只读参考，不参与运行）
+tests/               单测与差分测试夹具
+tmp/                 临时件（不入库）
 ```
 
 ## 怎么跑
@@ -300,9 +305,94 @@ python -m wordfactory.cli format "报告.docx" --outdir out
 > （仿宋→宋体 1729、西文→Times New Roman 23、颜色改正 1、去高亮 1）；
 > 改写的部件 = `word/document.xml` + `styles.xml` + `numbering.xml`（其余逐字节未变）。
 
+### 一键整理（`tidy`）/ Markdown 清理（`mdclean`）/ 文本替换与对齐（`textfix`）
+
+```bash
+python -m wordfactory.cli tidy "报告.docx" --dry-run
+python -m wordfactory.cli mdclean "报告.docx" --dry-run
+python -m wordfactory.cli textfix "报告.docx" --rules rules/replace.json --dry-run
+```
+
+- **`tidy`**：段尾空格、空白行、首尾空白段、连续空格；外加照 Copy++ 的
+  `--merge-lines`（合并换行）与 `--remove-spaces`（去空格），后者**默认跳过题注段**
+  （题注的空格是排版用的，删了就歪）。每条都能单独关（`--no-blank-lines` 等）。
+- **`mdclean`**：清 Markdown 痕迹（`**加粗**`→正文、`` `代码` ``→中文引号、段首 `#`、
+  列表符号、多余星号、双空格）。替换是**局部**的——同一段里没碰到的字保持原 run 不动。
+- **`textfix`**：外置 JSON 替换表（跨 run 替换，格式跟第一个 run 走）+ 把两端对齐改回左对齐
+  （两端对齐在短行上会把字拉开，很丑）。
+
+### 配方编排（`run`）—— 勾选 + 排序 + 一键执行
+
+```bash
+python -m wordfactory.cli run "报告.docx" --steps captions,tidy --mode verify --dry-run
+python -m wordfactory.cli run "报告.docx" --steps captions,tidy --mode formal --outdir out
+python -m wordfactory.cli run "报告.docx" --recipe 配方.json --mode formal   # 配方文件（可排序、可勾选）
+```
+
+`--steps` 的顺序**就是执行顺序**（不是固定的）；`--mode verify` 只把改过的地方标蓝，
+`--mode formal` 收尾做通体黑 + 字体合规 + 体检。配方 JSON 长这样：
+
+```jsonc
+{"name": "报告规范化", "steps": [
+  {"id": "captions", "enabled": true},              // 题注统一
+  {"id": "sup", "rules": "rules/subscripts.json"},  // 上下标规则
+  {"id": "tableclean", "level": 3},
+  {"id": "textfix", "rules": "rules/replace.json"},
+  {"id": "mdclean"},
+  {"id": "tidy", "merge_lines": false}
+]}
+```
+
+GUI 与命令行**共用同一套引擎**（`wordfactory/pipeline.py`）——GUI 上勾选、拖动排序，
+存下来的配方文件命令行原样能跑。
+
+### PDF 导出（`pdf`）—— 编排外部渲染器
+
+```bash
+python -m wordfactory.cli pdf --list                    # 本机有哪些渲染器
+python -m wordfactory.cli pdf "报告.docx" --dry-run     # 只报打算怎么导
+python -m wordfactory.cli pdf "报告.docx" --renderer word --timeout 300
+```
+
+- 渲染器按 Word → WPS → LibreOffice 的顺序挑第一个装了的；`--renderer` 可指定。
+- **页数从 PDF 自己数**（读 `/Count`），不信 Word 的 `ComputeStatistics`——
+  实测同一份文档它报 1 页，PDF 里其实是 24 页。
+- 用 COM 驱动时**只读打开、导完就关、绝不去 kill 进程**；超时会明说"窗口可能还开着"，
+  并告诉你手动关掉即可。
+- **只有 `.docx` 本身没问题才导得出来**——所以导出成功同时也是"文件没被我们写坏"的一条实证。
+
+## 保真与兼容性：两处会悄悄弄坏文档的坑
+
+工具每写一个文件都靠两条不变式兜底（`tests/test_ooxml.py` 钉住）：
+
+1. **只重写改过的部件**：没碰的部件按**原字节**复制（连 zip 的时间戳、压缩方式都不变），
+   所以"除了正文别的都没动"可以被逐字节验证。被改的那个部件会整份重序列化，
+   想证明"没误伤"要靠段落级 / 元素级核对，不能只看字节数。
+2. **命名空间声明一个都不能少**：`mc:Ignorable="w14 w15 wp14"` 这类属性**引用前缀**，
+   而 ElementTree 只给"树里真用到的"命名空间发声明。Word 习惯在根上多声明几个备用的
+   （`wp14` 常常全文一次都没出现），声明一丢，`Ignorable` 就指向未声明前缀——
+   **Word 打开时报"文件可能已经损坏"**。实测踩过：那一刻工具产出的每个 `.docx`
+   （连只跑一步 `tidy` 的）都打不开，而原样复制的部件一点问题没有。
+   修法是保存时按原件把根上的声明补齐；两条回归测试盯着这条。
+
+## 界面（GUI）
+
+```bash
+python -m wordfactory.cli gui                 # 起本地服务，默认 http://127.0.0.1:8792
+python -m wordfactory.cli gui --port 9000 --no-browser
+```
+
+浏览器里能干的事：**选文件 → 勾宏 → 拖拽排序 → 选表格款式 / 按表头挑表 → 跑验证版或正式版 → 看改动报告 → 体检 → 导出 PDF**。
+配方可存成 JSON 文件，命令行 `run --recipe` 原样能跑（两边共用 `pipeline.py`）。
+表格款式页的复选框，数据源就是 `tablestyle list` 的同一份清单。
+
+布局不是拍脑袋定的：先用 `gui-prototype/index.html`（SVG 拖拽设计稿）把界面排到用户满意，
+再照它写成真界面。**服务只绑 127.0.0.1**，下载走白名单，退出按钮即关服务。
+
 ## 状态
 
-**M1 内核 + M3a 题注统一 + M3b 段落配方已落地**（含两版输出、体检、与宏产出的真实文件比对通过）；**M2 已做「去无意义空格」与「文本替换 + 对齐」**，**表格款式（外置规则 + 采集 + 预览）已落地**；剩下的「格式规范化」= 正式版那套 + 上下标规则（已有零件，待串起来）；GUI 未开始。
+**M1 内核 / M2 三个宏 / M3 题注与配方 / M4 配方编排 + GUI / M5 PDF 编排全部落地**；
+目录（TOC）外观按用户意见**押后**，页码仍"另算"。305 条单测全绿。
 
 - [x] 仓库与参考件入库
 - [x] `docs/REFERENCE-MACROS.md`（12 个参考宏的逐宏规格）
@@ -323,8 +413,17 @@ python -m wordfactory.cli format "报告.docx" --outdir out
       实测端到端：模板（2 处高亮）→ 生成（变量 2 个、数据表 3.5/12.8、配方 11 段）→
       换新数据（88.8/246.0）→ 重配 → 段落骨架与模板一致、数字已替换
 - [x] M3b 收尾：**与宏产出的真实文件比对通过**（用户 2026-09-22 给的样本，见
-      ）：我们的读端读得进宏的 xlsx 与配方、重建结果与宏自己写的 39 个
+      `docs/GOLD-STANDARD.md`）：我们的读端读得进宏的 xlsx 与配方、重建结果与宏自己写的 39 个
       内容段落**逐字一致**；「隐形修正」经用户明确是**宏的缺陷**，故默认不照抄
-- [ ] M2：其余宏（格式规范化 / 去无意义空格 / 特殊字符替换）
-- [ ] M4：配方编排（选定 + 排序 + 一键批量）+ 改动报告 + GUI
-- [ ] M5：PDF 导出（外部渲染器编排）
+- [x] **M2 三个宏齐了**：`tableclean`（表格去空格/回车，三档 + 保守口径）、
+      `textfix`（外置替换表 + 两端对齐改左对齐）、`tidy`（段尾空格/空白行 + 照 Copy++ 的
+      `--merge-lines` / `--remove-spaces`）、外加 `mdclean` 清 Markdown 痕迹
+- [x] **表格款式**：外置模板（6 款）+ 采集 + 预览 + 按表头关键词挑表 + 表头折行
+- [x] **M4 配方编排**：`pipeline.py` 引擎（勾选 + 排序 + 一键执行 + 改动报告），
+      命令行 `run` 与 GUI 共用
+- [x] **M4 GUI**：本地 Web 界面（选文件/勾宏/拖拽排序/表格款式/配方存取/预览/报告/体检/导出 PDF），
+      布局经 SVG 设计稿定稿；只绑 127.0.0.1
+- [x] **M5 PDF 编排**：`pdf` 命令 + GUI 按钮，Word / WPS / LibreOffice 三选一，
+      页数从 PDF 自己数，超时与失败给人话
+- [x] **保真与兼容性**：未改部件逐字节不变；`mc:Ignorable` 前缀补齐（修掉"Word 打不开产物"的坑）
+- [ ] 目录（TOC）外观：**押后**（用户 2026-09-22 意见；页码仍单独另算）

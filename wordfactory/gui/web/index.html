@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>word 工厂</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font: 14px/1.6 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+         color: #1f2933; background: #eef1f5; display: flex; flex-direction: column; }
+  button, select, input { font: inherit; }
+  button { padding: 6px 12px; border-radius: 6px; cursor: pointer;
+           border: 1px solid #c7d0dd; background: #fff; color: #1f2933; }
+  button:hover { background: #f4f7fb; }
+  button.primary { background: #2f6fed; border-color: #2f6fed; color: #fff; }
+  button.primary:hover { background: #2a62d4; }
+  button.ghost { border-style: dashed; color: #64748b; }
+  button[disabled] { opacity: .5; cursor: default; }
+
+  /* ---------- 顶部工具条 ---------- */
+  #toolbar { background: #fff; border-bottom: 1px solid #d7dee8; padding: 8px 14px;
+             display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #toolbar .title { font-weight: 600; margin-right: 6px; }
+  #toolbar .file { color: #475569; background: #f6f8fc; border: 1px solid #e2e8f2;
+                   border-radius: 6px; padding: 5px 10px; max-width: 340px;
+                   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #toolbar .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+  main { flex: 1; display: flex; min-height: 0; }
+
+  /* ---------- 左侧：可跑的功能 ---------- */
+  #side { width: 268px; background: #fff; border-right: 1px solid #d7dee8;
+          display: flex; flex-direction: column; }
+  #side h3 { font-size: 12px; color: #64748b; margin: 12px 12px 6px; font-weight: 600; }
+  #steps { flex: 1; overflow: auto; padding: 0 10px 10px; }
+  .step { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px;
+          border: 1px solid #e2e8f2; border-radius: 8px; margin-bottom: 6px;
+          background: #fbfcfe; cursor: grab; }
+  .step.dragging { opacity: .45; }
+  .step.over { border-color: #2f6fed; }
+  .step .grip { color: #b6c2d2; font-size: 12px; line-height: 1.4; }
+  .step .name { font-weight: 600; }
+  .step .note { font-size: 11px; color: #8a97a8; }
+  .step input { margin-top: 3px; }
+  #side .bottom { border-top: 1px solid #eef1f6; padding: 10px 12px; display: grid; gap: 6px; }
+
+  /* ---------- 中间：主工作区 ---------- */
+  #work { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #tabs { display: flex; gap: 4px; padding: 8px 12px 0; background: #fff;
+          border-bottom: 1px solid #d7dee8; }
+  #tabs button { border: 1px solid #d7dee8; border-bottom: none; border-radius: 8px 8px 0 0;
+                 background: #f6f8fc; color: #64748b; }
+  #tabs button.on { background: #fff; color: #1f2933; font-weight: 600; }
+  #panels { flex: 1; overflow: auto; padding: 14px; }
+  .panel { display: none; }
+  .panel.on { display: block; }
+  .card { background: #fff; border: 1px solid #d7dee8; border-radius: 10px;
+          padding: 14px; margin-bottom: 12px; }
+  .card h4 { margin: 0 0 10px; font-size: 13px; }
+  .card .hint { font-size: 12px; color: #8a97a8; margin-bottom: 10px; }
+  .tpl { display: inline-block; margin: 0 8px 8px 0; padding: 10px 14px;
+         border: 1px solid #d7dee8; border-radius: 8px; background: #fbfcfe;
+         cursor: pointer; text-align: center; }
+  .tpl:hover { border-color: #b9cdf5; }
+  .tpl.on { border-color: #2f6fed; background: #eef4ff; font-weight: 600; }
+  .tpl small { display: block; color: #8a97a8; font-size: 11px; }
+  table.grid { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.grid th, table.grid td { border: 1px solid #e5eaf2; padding: 6px 8px;
+                                 text-align: left; }
+  table.grid th { background: #f6f8fc; font-weight: 600; }
+  table.grid td.center { text-align: center; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px;
+          background: #eef4ff; color: #1d4fd7; font-size: 11px; }
+  .pill.grey { background: #f1f5f9; color: #64748b; }
+
+  /* ---------- 右侧：预览 / 报告 ---------- */
+  #right { width: 340px; background: #fff; border-left: 1px solid #d7dee8;
+           display: flex; flex-direction: column; }
+  #right h3 { font-size: 12px; color: #64748b; margin: 12px 12px 6px; font-weight: 600; }
+  #preview { margin: 0 12px 10px; padding: 14px; border: 1px dashed #cbd5e1;
+             border-radius: 8px; color: #64748b; font-size: 12px; min-height: 90px; }
+  #report { flex: 1; overflow: auto; margin: 0 12px 12px; padding: 12px;
+            background: #0f172a; color: #e2e8f0; border-radius: 8px;
+            font: 12px/1.7 Consolas, "Microsoft YaHei", monospace; white-space: pre-wrap; }
+
+  /* ---------- 底部：日志 + 状态条 ---------- */
+  #log { height: 132px; overflow: auto; background: #fff; border-top: 1px solid #d7dee8;
+         padding: 8px 14px; font: 12px/1.7 Consolas, monospace; color: #475569; }
+  #status { background: #fff; border-top: 1px solid #eef1f6; padding: 6px 14px;
+            font-size: 12px; color: #64748b; display: flex; gap: 16px; }
+
+  /* ---------- 选文件对话框 ---------- */
+  #picker { position: fixed; inset: 0; background: rgba(15,23,42,.35);
+            display: none; align-items: center; justify-content: center; }
+  #picker.on { display: flex; }
+  #picker .box { width: 620px; max-height: 70vh; overflow: auto; background: #fff;
+                 border-radius: 10px; padding: 14px; }
+  #picker .row { display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+                 border-radius: 6px; cursor: pointer; }
+  #picker .row:hover { background: #f4f7fb; }
+  #picker .dir { color: #2f6fed; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <span class="title">word 工厂</span>
+  <button id="pick">选择文件…</button>
+  <span class="file" id="file">（还没选文件）</span>
+  <span class="right">
+    <button id="dryrun">运行 dry-run</button>
+    <button id="verify" class="primary">出验证版</button>
+    <button id="formal" class="primary">出正式版</button>
+    <button id="audit">体检 AUDIT</button>
+    <button id="pdf" class="ghost">导出 PDF</button>
+    <button id="quit" class="ghost">退出</button>
+  </span>
+</div>
+
+<main>
+  <aside id="side">
+    <h3>可跑的功能（勾选 + 拖动排序）</h3>
+    <div id="steps"></div>
+    <div class="bottom">
+      <button id="open-rules">打开规则文件…</button>
+      <button id="save-recipe">存为配方</button>
+      <button id="load-recipe">载入配方</button>
+    </div>
+  </aside>
+
+  <section id="work">
+    <div id="tabs">
+      <button data-tab="style" class="on">表格款式</button>
+      <button data-tab="recipe">配方</button>
+      <button data-tab="rules">规则文件</button>
+      <button data-tab="about">这是什么</button>
+    </div>
+    <div id="panels">
+      <div class="panel on" id="panel-style">
+        <div class="card">
+          <h4>表格模板（点一个，套到勾选的表上）</h4>
+          <div class="hint">模板存在 rules/tablestyle.json 里，可以直接编辑；这里点选。</div>
+          <div id="templates"></div>
+        </div>
+        <div class="card">
+          <h4>表格清单（按表头列出；勾选哪几张要套模板）</h4>
+          <div class="hint" id="tables-hint">先选一个 .docx</div>
+          <div id="tables"></div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-recipe">
+        <div class="card">
+          <h4>当前配方（顺序 = 左边列表的顺序）</h4>
+          <div class="hint">这一步就是「宏 = 具名修改步骤、配方 = 勾选 + 排序 + 一键执行」。</div>
+          <pre id="recipe-json" style="background:#f6f8fc;padding:10px;border-radius:8px;
+               font-size:12px;overflow:auto;margin:0"></pre>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-rules">
+        <div class="card">
+          <h4>规则文件（外置 JSON，改完即生效）</h4>
+          <div class="hint">字体 / 上下标 / 表格模板都是数据不是代码 —— 改规则不用改程序。</div>
+          <div id="rule-files"></div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-about">
+        <div class="card">
+          <h4>这是什么</h4>
+          <p>不依赖 Word/WPS/VBA 的 Word 文档批量规范化工具：直接读写 `.docx` 的 OOXML
+             （zip + XML，只用 Python 标准库）。</p>
+          <p>用法：<b>选文件 → 左边勾要跑的宏并排序 → 先 dry-run 看会改多少 → 出验证版核对 →
+             出正式版交付</b>。正式版跑完会自动体检（AUDIT=PASS）。</p>
+          <p>文件不会被覆盖：结果另存为「某报告（验证版）.docx / （正式版）.docx」。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <aside id="right">
+    <h3>预览</h3>
+    <div id="preview">跑一次就会生成文件，这里出现下载链接；下载后用 Word 打开看效果。</div>
+    <h3>改动报告</h3>
+    <div id="report">（还没跑）</div>
+  </aside>
+</main>
+
+<div id="log"></div>
+<div id="status">
+  <span id="st-file">未选文件</span>
+  <span id="st-recipe">配方：空</span>
+  <span id="st-last">上次：—</span>
+</div>
+
+<div id="picker"><div class="box">
+  <h4 style="margin:0 0 8px">选择文件</h4>
+  <div id="picker-path" style="font-size:12px;color:#64748b;margin-bottom:8px"></div>
+  <div id="picker-list"></div>
+  <div style="margin-top:10px;text-align:right"><button id="picker-close">关闭</button></div>
+</div></div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const state = {file: null, steps: [], tables: [], picked: new Set(), template: null, lastOut: null};
+
+/* ---------------------------------------------------------------- 日志 */
+function log(text, cls) {
+  const row = document.createElement('div');
+  if (cls) row.className = cls;
+  const time = new Date().toTimeString().slice(0, 8);
+  row.textContent = '[' + time + '] ' + text;
+  $('log').appendChild(row);
+  $('log').scrollTop = $('log').scrollHeight;
+}
+
+async function api(url, options) {
+  const response = await fetch(url, options);
+  const data = await response.json();
+  if (!data.ok) throw new Error(data.error || ('HTTP ' + response.status));
+  return data;
+}
+
+/* ---------------------------------------------------------------- 左边：步骤 */
+async function loadSteps() {
+  const data = await api('/api/steps');
+  state.steps = data.steps.map(step => ({op: step.op, note: step.note,
+                                         params: step.params, on: step.op === 'captions'}));
+  renderSteps();
+}
+
+function renderSteps() {
+  const holder = $('steps');
+  holder.textContent = '';
+  state.steps.forEach((step, index) => {
+    const row = document.createElement('label');
+    row.className = 'step';
+    row.draggable = true;
+    row.dataset.index = index;
+    row.innerHTML = '<span class="grip">⣿</span>'
+      + '<input type="checkbox" ' + (step.on ? 'checked' : '') + '>'
+      + '<span><span class="name">' + step.op + '</span>'
+      + '<span class="note">' + step.note + '</span></span>';
+    row.querySelector('input').addEventListener('change', e => {
+      step.on = e.target.checked;
+      renderRecipe();
+    });
+    row.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', index); row.classList.add('dragging'); });
+    row.addEventListener('dragend', () => row.classList.remove('dragging'));
+    row.addEventListener('dragover', e => { e.preventDefault(); row.classList.add('over'); });
+    row.addEventListener('dragleave', () => row.classList.remove('over'));
+    row.addEventListener('drop', e => {
+      e.preventDefault();
+      row.classList.remove('over');
+      const from = +e.dataTransfer.getData('text/plain');
+      const to = index;
+      if (from === to) return;
+      const moved = state.steps.splice(from, 1)[0];
+      state.steps.splice(to, 0, moved);
+      log('配方顺序调整：' + moved.op + ' 移到第 ' + (to + 1) + ' 步');
+      renderSteps();
+      renderRecipe();
+    });
+    holder.appendChild(row);
+  });
+  renderRecipe();
+}
+
+function recipe() {
+  return state.steps.filter(step => step.on);
+}
+
+function renderRecipe() {
+  const chosen = recipe();
+  $('st-recipe').textContent = '配方：' + (chosen.length ? chosen.map(s => s.op).join(' → ') : '空');
+  $('recipe-json').textContent = JSON.stringify(
+    {file: state.file, mode: 'verify', steps: chosen.map(s => s.op)}, null, 2);
+}
+
+/* ---------------------------------------------------------------- 选文件 */
+$('pick').addEventListener('click', () => browse(''));
+$('picker-close').addEventListener('click', () => $('picker').classList.remove('on'));
+
+async function browse(dir) {
+  const data = await api('/api/browse?dir=' + encodeURIComponent(dir));
+  $('picker').classList.add('on');
+  $('picker-path').textContent = data.dir;
+  const holder = $('picker-list');
+  holder.textContent = '';
+  if (data.parent && data.parent !== data.dir) {
+    const row = document.createElement('div');
+    row.className = 'row dir';
+    row.textContent = '.. （上一级）';
+    row.addEventListener('click', () => browse(data.parent));
+    holder.appendChild(row);
+  }
+  data.entries.forEach(entry => {
+    const row = document.createElement('div');
+    row.className = 'row' + (entry.dir ? ' dir' : '');
+    row.textContent = (entry.dir ? '📁 ' : '📄 ') + entry.name
+      + (entry.dir ? '' : '  ' + Math.max(1, Math.round(entry.size / 1024)) + ' KB');
+    row.addEventListener('click', () => {
+      if (entry.dir) browse(data.dir + '\\' + entry.name);
+      else if (/\.docx?$/i.test(entry.name)) choose(data.dir + '\\' + entry.name);
+    });
+    holder.appendChild(row);
+  });
+}
+
+async function choose(path) {
+  state.file = path;
+  state.lastOut = null;
+  $('file').textContent = path.split('\\').pop() + '  (' + path + ')';
+  $('st-file').textContent = '文件：' + path.split('\\').pop();
+  $('preview').textContent = '跑一次就会生成文件，这里出现下载链接；下载后用 Word 打开看效果。';
+  $('report').textContent = '（还没跑）';
+  $('picker').classList.remove('on');
+  log('已选文件：' + path);
+  await loadTables();
+}
+
+/* ---------------------------------------------------------------- 表格清单 */
+async function loadTables() {
+  if (!state.file) return;
+  $('tables').textContent = '';
+  $('tables-hint').textContent = '正在读表格清单…';
+  try {
+    const data = await api('/api/tables?path=' + encodeURIComponent(state.file));
+    state.tables = data.tables;
+    state.picked = new Set(data.tables.map(t => t.index));
+    $('tables-hint').textContent = '共 ' + data.tables.length + ' 张表（默认全选；取消勾选的表不套模板）';
+    renderTables();
+  } catch (error) {
+    $('tables-hint').textContent = '读不出来：' + error.message;
+  }
+}
+
+function renderTables() {
+  const holder = $('tables');
+  holder.textContent = '';
+  if (!state.tables.length) {
+    holder.textContent = '（这份文档里没有表格）';
+    return;
+  }
+  const table = document.createElement('table');
+  table.className = 'grid';
+  table.innerHTML = '<tr><th></th><th>#</th><th>表头</th><th>行×列</th><th>列宽</th></tr>';
+  state.tables.forEach(item => {
+    const tr = document.createElement('tr');
+    const td0 = document.createElement('td');
+    td0.className = 'center';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = state.picked.has(item.index);
+    box.addEventListener('change', () => {
+      if (box.checked) state.picked.add(item.index); else state.picked.delete(item.index);
+    });
+    td0.appendChild(box);
+    const td1 = document.createElement('td');
+    td1.className = 'center';
+    td1.textContent = item.index;
+    const td2 = document.createElement('td');
+    td2.textContent = item.header_text || '（表头是空的）';
+    const td3 = document.createElement('td');
+    td3.className = 'center';
+    td3.textContent = item.rows + '×' + (item.columns || '?');
+    const td4 = document.createElement('td');
+    td4.innerHTML = item.equal_widths ? '<span class="pill">等宽</span>'
+                                      : '<span class="pill grey">不匀</span>';
+    tr.append(td0, td1, td2, td3, td4);
+    table.appendChild(tr);
+  });
+  holder.appendChild(table);
+}
+
+/* ---------------------------------------------------------------- 模板 */
+async function loadTemplates() {
+  const data = await api('/api/templates');
+  const holder = $('templates');
+  holder.textContent = '';
+  data.styles.forEach(style => {
+    const box = document.createElement('div');
+    box.className = 'tpl' + (style.name === state.template ? ' on' : '');
+    box.innerHTML = style.name + '<small>' + (style.note || '').slice(0, 22) + '…</small>';
+    box.addEventListener('click', () => {
+      state.template = style.name;
+      log('选中表格模板：' + style.name);
+      loadTemplates();
+    });
+    holder.appendChild(box);
+  });
+  if (!state.template && data.styles.length) {
+    state.template = data.styles[0].name;
+    loadTemplates();
+  }
+}
+
+/* ---------------------------------------------------------------- 跑 */
+async function run(mode, dry) {
+  if (!state.file) { log('先选一个文件', 'err'); return; }
+  const chosen = recipe();
+  if (!chosen.length && !dry) { log('配方是空的 —— 左边至少勾一个', 'err'); return; }
+  const steps = chosen.map(step => step.op);
+  if (state.template && state.tables.length) {
+    const picked = state.tables.filter(t => state.picked.has(t.index)).map(t => t.index);
+    for (const step of steps) {
+      if (step === 'captions') { /* 题注步骤不带模板参数 */ }
+    }
+  }
+  const buttons = ['dryrun', 'verify', 'formal'].map($);
+  buttons.forEach(b => b.disabled = true);
+  $('report').textContent = '正在跑…';
+  log('开始：' + (dry ? 'dry-run' : mode) + ' ｜ 配方 ' + steps.join(' → '));
+  try {
+    const data = await api('/api/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: state.file, steps: steps, mode: mode, dry_run: dry}),
+    });
+    $('report').textContent = data.text;
+    $('st-last').textContent = '上次：' + (dry ? 'dry-run' : mode);
+    log('完成：' + (data.report.out || '（没写文件）'));
+    if (data.download) {
+      state.lastOut = data.download;
+      $('preview').innerHTML = '已生成：<b>' + data.download + '</b><br><br>'
+        + '<a href="/api/download?name=' + encodeURIComponent(data.download)
+        + '" download><button>下载这个文件</button></a>'
+        + '<br><br><span style="color:#8a97a8">下载后用 Word 打开看效果</span>';
+    } else {
+      $('preview').textContent = '没有需要改的地方（也没写文件）';
+    }
+    if (data.report.audit) {
+      log('体检：' + (data.report.audit.verdict === 'PASS' ? 'AUDIT=PASS' : 'AUDIT=FAIL'));
+    }
+  } catch (error) {
+    $('report').textContent = '出错：' + error.message;
+    log('出错：' + error.message, 'err');
+  } finally {
+    buttons.forEach(b => b.disabled = false);
+  }
+}
+
+$('dryrun').addEventListener('click', () => run('verify', true));
+$('verify').addEventListener('click', () => run('verify', false));
+$('formal').addEventListener('click', () => run('formal', false));
+$('audit').addEventListener('click', async () => {
+  if (!state.file) { log('先选一个文件', 'err'); return; }
+  $('report').textContent = '正在体检…';
+  try {
+    const data = await api('/api/audit', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: state.file})});
+    $('report').textContent = data.text;
+    log('体检：' + (data.verdict === 'PASS' ? 'AUDIT=PASS' : 'AUDIT=FAIL'));
+  } catch (error) {
+    $('report').textContent = '出错：' + error.message;
+  }
+});
+$('pdf').addEventListener('click', () => {
+  $('report').textContent = 'PDF 导出是编排外部渲染器（Word/WPS/LibreOffice）——命令行里跑：\n\n'
+    + '  python -m wordfactory.cli pdf  "某文件.docx" --out out.pdf\n\n'
+    + '这里先留位置；装哪个渲染器就用哪个，没装会给出人话提示。';
+});
+$('quit').addEventListener('click', async () => {
+  await api('/api/shutdown', {method: 'POST'});
+  document.body.innerHTML = '<h2 style="padding:40px">已退出，可以关掉这个窗口。</h2>';
+});
+
+/* ---------------------------------------------------------------- 标签页 / 规则 */
+document.querySelectorAll('#tabs button').forEach(button => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('on'));
+    button.classList.add('on');
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
+    $('panel-' + button.dataset.tab).classList.add('on');
+  });
+});
+
+async function loadRuleFiles() {
+  const names = [['fonts.json', '字体规则（哪些字体算不合格）'],
+                 ['subscripts.json', '上下标规则'],
+                 ['replacements.json', '文本替换与对齐'],
+                 ['tablestyle.json', '表格模板']];
+  const holder = $('rule-files');
+  holder.textContent = '';
+  for (const [name, note] of names) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:6px 0';
+    row.innerHTML = '<b>' + name + '</b><span style="color:#8a97a8">' + note + '</span>';
+    const button = document.createElement('button');
+    button.textContent = '看内容';
+    button.addEventListener('click', async () => {
+      const text = await fetch('/api/read?path=' + encodeURIComponent(
+        'rules/' + name)).then(r => r.text());
+      $('report').textContent = '==== ' + name + ' ====\n' + text;
+    });
+    row.appendChild(button);
+    holder.appendChild(row);
+  }
+}
+
+$('save-recipe').addEventListener('click', () => {
+  const chosen = recipe().map(s => s.op);
+  const blob = new Blob([JSON.stringify({steps: chosen}, null, 2)], {type: 'application/json'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = '配方.json';
+  link.click();
+  URL.revokeObjectURL(link.href);
+  log('配方已导出：' + chosen.join(' → '));
+});
+
+$('load-recipe').addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.addEventListener('change', () => {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        const wanted = new Set(data.steps || []);
+        state.steps.forEach(step => { step.on = wanted.has(step.op); });
+        renderSteps();
+        log('配方已载入');
+      } catch (error) { log('配方读不动：' + error.message, 'err'); }
+    };
+    reader.readAsText(file);
+  });
+  input.click();
+});
+
+/* ---------------------------------------------------------------- 启动 */
+loadSteps();
+loadTemplates();
+loadRuleFiles();
+log('界面就绪。先「选择文件」，再勾功能、跑 dry-run。');
+</script>
+</body>
+</html>

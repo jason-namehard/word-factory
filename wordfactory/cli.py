@@ -177,6 +177,8 @@ def build_parser():
     _add_tidy_parser(sub)
     _add_mdclean_parser(sub)
     _add_format_parser(sub)
+    _add_gui_parser(sub)
+    _add_pdf_parser(sub)
     return parser
 
 
@@ -191,6 +193,40 @@ def _add_format_parser(sub):
     fmt.add_argument("--out", default=None, help=u"输出文件")
     fmt.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
     fmt.add_argument("--dry-run", action="store_true", help=u"只报会改多少，不写文件")
+
+
+def _add_pdf_parser(sub):
+    """PDF 导出（编排外部渲染器）。"""
+    pdf = sub.add_parser("pdf", help=u"导出 PDF（编排 Word / WPS / LibreOffice）")
+    pdf.add_argument("path", nargs="?", help=u"要导出的 .docx")
+    pdf.add_argument("--out", default=None, help=u"输出 .pdf（默认与文档同名的 .pdf）")
+    pdf.add_argument("--renderer", default=None, choices=("word", "wps", "libreoffice"),
+                     help=u"指定渲染器（默认用第一个可用的）")
+    pdf.add_argument("--timeout", type=int, default=300, help=u"超时秒数（默认 300）")
+    pdf.add_argument("--hidden", action="store_true", default=False,
+                     help=u"不显示渲染器窗口（Word/WPS 可见更容易发现卡住）")
+    pdf.add_argument("--dry-run", action="store_true", help=u"只报打算怎么导，不真跑")
+    pdf.add_argument("--list", action="store_true", help=u"看本机有哪些渲染器")
+
+
+def _add_gui_parser(sub):
+    """本地网页 GUI + 配方一键跑。"""
+    gui = sub.add_parser("gui", help=u"起本地网页 GUI（默认只监听 127.0.0.1）")
+    gui.add_argument("--host", default="127.0.0.1", help=u"监听地址（默认只监听本机）")
+    gui.add_argument("--port", type=int, default=8765, help=u"端口（默认 8765）")
+    gui.add_argument("--root", default=None, help=u"文件浏览的根目录（默认用户主目录）")
+    gui.add_argument("--no-browser", dest="no_browser", action="store_true",
+                     default=False, help=u"不自动打开浏览器")
+
+    runner = sub.add_parser("run", help=u"按配方一键跑（与 GUI 同一条路）")
+    runner.add_argument("path", help=u"要处理的 .docx")
+    runner.add_argument("--steps", default=None,
+                        help=u"配方步骤，逗号分隔（如 captions,sup,tidy）")
+    runner.add_argument("--recipe", default=None, help=u"配方 JSON 文件（含 steps 数组）")
+    runner.add_argument("--mode", choices=("verify", "formal"), default="verify",
+                        help=u"verify=改过的地方标蓝；formal=通体黑 + 字体合规")
+    runner.add_argument("--out", default=None, help=u"输出文件（默认「某报告（验证版）.docx」）")
+    runner.add_argument("--dry-run", action="store_true", help=u"只报会改多少，不写文件")
 
 
 def _add_mdclean_parser(sub):
@@ -1029,6 +1065,56 @@ def cmd_format(args):
     return (dict(report, out=out_path), u"\n".join(lines))
 
 
+def cmd_gui(args):
+    """起本地网页 GUI（只监听 127.0.0.1）。"""
+    from .gui import server as gui_server
+
+    root = os.path.abspath(args.root) if args.root else os.path.expanduser(u"~")
+    return {"ok": True}, gui_server.serve(host=args.host, port=args.port,
+                                          open_browser=not args.no_browser, root=root)
+
+
+def cmd_run(args):
+    """按配方跑（CLI 版的一键执行；和 GUI 同一条路）。"""
+    from . import pipeline as pipeline_mod
+
+    recipe = []
+    if args.recipe:
+        import json as json_mod
+        with io.open(args.recipe, "r", encoding="utf-8-sig") as handle:
+            recipe = json_mod.load(handle).get("steps") or []
+    elif args.steps:
+        recipe = [step.strip() for step in args.steps.split(u",") if step.strip()]
+    report = pipeline_mod.run_pipeline(args.path, recipe, mode=args.mode,
+                                       out_path=args.out, dry_run=args.dry_run)
+    return report, pipeline_mod.format_report(report)
+
+
+def cmd_pdf(args):
+    """导出 PDF：编排外部渲染器（Word / WPS / LibreOffice）。"""
+    from .ops import pdf as pdf_op
+
+    if args.list:
+        renderers = pdf_op.detect_renderers()
+        lines = [u"本机的 PDF 渲染器："]
+        for item in renderers:
+            lines.append(u"  %s %-14s %s"
+                         % (u"✓" if item["available"] else u"✗", item["name"], item["detail"]))
+        lines.append(u"")
+        lines.append(u"（本工具只做编排，不自己渲染；一个都没装时会给出人话提示）")
+        return ({"renderers": renderers}, chr(10).join(lines))
+
+    if args.dry_run:
+        plan = pdf_op.plan(args.path, args.out or u"", prefer=args.renderer)
+        return ({"plan": plan},
+                u"打算这么导（没真跑）：" + chr(10)
+                + u"  " + plan["command"] + chr(10)
+                + u"  渲染器：%s（%s）" % (plan["renderer"], plan["detail"]))
+    report = pdf_op.export(args.path, args.out, prefer=args.renderer,
+                           timeout=args.timeout, visible=not args.hidden)
+    return report, pdf_op.format_report(report)
+
+
 def cmd_audit(args):
     """体检：不信工具的报告，重新打开文件按继承链算一遍。"""
     from . import audit as audit_mod
@@ -1075,6 +1161,12 @@ def main(argv=None):
             payload, human = cmd_mdclean(args)
         elif args.command == "format":
             payload, human = cmd_format(args)
+        elif args.command == "gui":
+            payload, human = cmd_gui(args)
+        elif args.command == "run":
+            payload, human = cmd_run(args)
+        elif args.command == "pdf":
+            payload, human = cmd_pdf(args)
         else:
             log(u"未知命令：%s" % args.command)
             return 2

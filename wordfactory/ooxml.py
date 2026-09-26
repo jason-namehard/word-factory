@@ -8,14 +8,18 @@
 我们只改 ``word/document.xml`` 之类的少数部件，保存时**其余部件必须按原字节搬过去**
 （不重新序列化、不重新压缩它们的内容），这样才敢说"只动了该动的"。
 
-**二、命名空间前缀不能变。**
+**二、命名空间前缀不能变、也不能丢。**
 文档里会出现 ``mc:Ignorable="w14 w15 wp14"`` 这种**引用前缀**的属性。
-用 ``ElementTree`` 反序列化再序列化，如果不把常用前缀注册回去，它会写成 ``ns0:``，
-那些引用就会指向不存在的名字——Word 可能直接报文件损坏。所以本模块在导入时就注册全部前缀。
+用 ``ElementTree`` 反序列化再序列化，有两处会悄悄改掉名字：
+① 不把常用前缀注册回去，它会写成 ``ns0:``，那些引用就指向不存在的名字；
+② 它**只给树里真用到的命名空间发声明** —— 而 Word 习惯在根上多声明几个备用的
+（``wp14`` 常常全文一次都没出现）。声明一丢，``Ignorable`` 就指向未声明前缀，
+Word 打开时报"文件可能已经损坏"。所以保存时要按原件把根上的声明补齐。
 """
 
 import io
 import os
+import re
 import shutil
 import zipfile
 from xml.etree import ElementTree as ET
@@ -59,6 +63,71 @@ def register_namespaces():
 
 
 register_namespaces()
+
+#: 根开始标签里的命名空间声明（双引号或单引号都认）
+_DECL_RE = re.compile(
+    r'xmlns:([A-Za-z_][A-Za-z0-9_.\-]*)\s*=\s*(?:"([^"]*)"|\'([^\']*)\')')
+#: 只看文件头这么多字节就够拿到根标签了（Word 的根标签才一两 KB）
+_HEAD_BYTES = 65536
+
+
+def _root_start_tag(text):
+    """XML 原文里**根元素**的开始标签（属性值里的 ``>`` 不算结束）。"""
+    index = 0
+    length = len(text)
+    while index < length:
+        start = text.find("<", index)
+        if start < 0:
+            return None
+        if text.startswith("<?", start) or text.startswith("<!", start):
+            index = start + 2
+            continue
+        cursor = start + 1
+        while cursor < length:
+            char = text[cursor]
+            if char in "\"'":
+                closing = text.find(char, cursor + 1)
+                cursor = length if closing < 0 else closing + 1
+                continue
+            if char == ">":
+                return text[start:cursor + 1]
+            cursor += 1
+        return None
+    return None
+
+
+def _declared_prefixes(tag):
+    """开始标签里声明的 ``[(prefix, uri), ...]``（保序）。"""
+    out = []
+    for prefix, double, single in _DECL_RE.findall(tag or ""):
+        out.append((prefix, double or single))
+    return out
+
+
+def _register_declared_prefixes(text):
+    """把原文根标签里的命名空间声明注册进 ElementTree（幂等、只增不改）。
+
+    不注册的话 ElementTree 会退回 ``ns0``/``ns1`` —— 前缀一变，
+    想跟原件做字节级比对就全乱了，人读 diff 也没法读。
+    """
+    for prefix, _uri in _declared_prefixes(_root_start_tag(text)):
+        if re.match(r"^ns\d+$", prefix):
+            continue
+        try:
+            ET.register_namespace(prefix, _uri)
+        except ValueError:                      # 保留前缀（ns\d+）或不合法时忽略
+            pass
+
+
+def _inject_root_declarations(text, declarations):
+    """把 ``xmlns:…`` 补到根元素的开始标签里（追加在原有属性之后）。"""
+    tag = _root_start_tag(text)
+    if not tag:
+        return text
+    head, tail = (tag[:-2], "/>") if tag.endswith("/>") else (tag[:-1], ">")
+    extra = "".join(' xmlns:%s="%s"' % (prefix, uri) for prefix, uri in declarations)
+    start = text.find(tag)
+    return text[:start] + head + extra + tail + text[start + len(tag):]
 
 
 def qn(tag):
@@ -116,6 +185,7 @@ class DocxPackage(object):
             self._zip.close()
             raise PackageError(u"%s 里没有 %s —— 这看起来不是 Word 文档。" % (self.path, self.MAIN))
         self._trees = {}          # part name -> ElementTree
+        self._raw = {}            # part name -> 原文（保存时补命名空间声明用）
         self._dirty = set()
 
     # ------------------------------------------------------------------ 读
@@ -134,8 +204,12 @@ class DocxPackage(object):
     def xml(self, name):
         """解析并缓存一个 XML 部件；返回它的根元素。"""
         if name not in self._trees:
+            data = self.read_bytes(name)
+            self._raw[name] = data
+            # 先按原文注册前缀，否则序列化时 ElementTree 会自己编 ns0/ns1
+            _register_declared_prefixes(data[:_HEAD_BYTES].decode("utf-8", "replace"))
             try:
-                self._trees[name] = ET.fromstring(self.read_bytes(name))
+                self._trees[name] = ET.fromstring(data)
             except ET.ParseError as exc:
                 raise PackageError(u"%s 解析失败：%s" % (name, exc))
         return self._trees[name]
@@ -151,11 +225,33 @@ class DocxPackage(object):
         return sorted(self._dirty)
 
     # ------------------------------------------------------------------ 写
+    def _dropped_root_declarations(self, name, serialized):
+        """原件根上声明了、但 ElementTree 因为"树里没用到"而没发出来的命名空间。
+
+        Word 常在根上多声明几个备用的（``mc:Ignorable="w14 w15 wp14"`` 里的
+        ``wp14`` 可能全文一次都没出现）。丢掉它们，``Ignorable`` 就指向未声明前缀，
+        Word 打开时报"文件可能已经损坏"—— 实测复现过。
+        """
+        original = self._raw.get(name)
+        if not original:
+            return []
+        old_tag = _root_start_tag(original[:_HEAD_BYTES].decode("utf-8", "replace"))
+        new_tag = _root_start_tag(serialized)
+        if not old_tag or not new_tag:
+            return []
+        present = set(prefix for prefix, _uri in _declared_prefixes(new_tag))
+        return [(prefix, uri) for prefix, uri in _declared_prefixes(old_tag)
+                if prefix not in present]
+
     def serialize(self, name):
-        """把（已改的）XML 部件序列化成字节：声明头 + 注册好的前缀。"""
+        """把（已改的）XML 部件序列化成字节：声明头 + 注册好的前缀 + 补齐根声明。"""
         element = self._trees[name]
-        body = ET.tostring(element, encoding="utf-8", xml_declaration=False)
-        return _XML_HEADER.encode("utf-8") + body
+        body = ET.tostring(element, encoding="utf-8", xml_declaration=False).decode("utf-8")
+        text = _XML_HEADER + body
+        missing = self._dropped_root_declarations(name, body)
+        if missing:
+            text = _inject_root_declarations(text, missing)
+        return text.encode("utf-8")
 
     def save(self, out_path):
         """写到新文件：改过的部件重写，其余按原字节搬。"""
