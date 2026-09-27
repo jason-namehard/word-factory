@@ -239,20 +239,29 @@ def _run_properties(run, dry_run=False):
 
 
 def _set_color(pr, value, dry_run):
+    """设 ``w:color`` 并**清主题色覆盖**（themeColor 系列属性 + w14:textFill）。
+
+    主题色的渲染优先级高于 ``w:val``，不清掉的话"设黑/设蓝显示原样"
+    （实测踩过；``ooxml.clear_color_overrides`` 有完整说明）。
+    """
+    from .ooxml import clear_color_overrides
     if pr is None:                             # dry-run 且缺 rPr：算作"要补一个黑色"
         return True
     node = pr.find(qn("w:color"))
+    changed = False
     if node is None:
         if dry_run:
             return True
         node = ET.SubElement(pr, qn("w:color"))
         node.set(qn("w:val"), value)
-        return True
-    if node.get(qn("w:val")) == value:
-        return False
-    if not dry_run:
-        node.set(qn("w:val"), value)
-    return True
+        changed = True
+    elif node.get(qn("w:val")) != value:
+        if not dry_run:
+            node.set(qn("w:val"), value)
+        changed = True
+    if not dry_run and clear_color_overrides(pr):
+        changed = True
+    return changed
 
 
 def _drop_highlight(pr, dry_run):

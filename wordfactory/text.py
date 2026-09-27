@@ -353,8 +353,13 @@ def apply_character_property(paragraph, start, end, tag, value):
 
 
 def _set_run_property(run, tag, value):
-    """设 ``w:rPr/<tag>``；**只有真的变了才返回 True**（这样重跑能报"0 处"）。"""
+    """设 ``w:rPr/<tag>``；**只有真的变了才返回 True**（这样重跑能报"0 处"）。
+
+    设**颜色**时同时清主题色覆盖（``w:themeColor`` 等 + ``w14:textFill``）——
+    主题色的渲染优先级高于 ``w:val``，不清掉的话"设蓝显示黑"（实测踩过）。
+    """
     from xml.etree import ElementTree as ET
+    from .ooxml import clear_color_overrides
     pr = run.find(qn("w:rPr"))
     if pr is None:
         pr = ET.Element(qn("w:rPr"))
@@ -367,14 +372,16 @@ def _set_run_property(run, tag, value):
         if len(pr) == 0:
             run.remove(pr)
         return True
-    if element is not None:
-        if element.get(qn("w:val")) == value:
-            return False
+    changed = False
+    if element is None:
+        element = ET.SubElement(pr, qn("w:" + tag))
+        changed = True
+    if element.get(qn("w:val")) != value:
         element.set(qn("w:val"), value)
-        return True
-    element = ET.SubElement(pr, qn("w:" + tag))
-    element.set(qn("w:val"), value)
-    return True
+        changed = True
+    if tag == "color" and clear_color_overrides(pr):
+        changed = True
+    return changed
 
 
 def set_vertical_align(paragraph, start, end, kind):

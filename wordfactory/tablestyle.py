@@ -1240,7 +1240,8 @@ def preview_svg(style):
              % (left, _escape(u"表4.2-1  %s" % style.name))]
 
     header_bottom = (style.borders.get("header_bottom") or {}).get("sz")
-    rows_y = [top, top + row_h, top + row_h * 2, top + row_h * 3]
+    # 最后一行给 36px 高（长文本折两行要占的地方），其余 24px
+    rows_y = [top, top + 24, top + 48, top + 84]
     parts.append(line(left, rows_y[0], left + table_w, rows_y[0], "top"))
     parts.append(line(left, rows_y[3], left + table_w, rows_y[3], "bottom"))
     parts.append(line(left, rows_y[0], left, rows_y[3], "left"))
@@ -1262,23 +1263,44 @@ def preview_svg(style):
                 u'font-family="sans-serif" text-anchor="%s"%s>%s</text>'
                 % (x, y, size, anchor, weight, _escape(text)))
 
+    def wrapped_label(x_left, x_center, y, text, anchor, max_px):
+        """一格文字：**放得下就一行，放不下折成两行**（用户 2026-09-27：
+        样图必须把"一行放不下 → 两行 + 左对齐/居中"演出来，不然分不清款式）。"""
+        width = sum(11.0 if ord(ch) > 0x2e7f else 5.5 for ch in text)
+        if width <= max_px:
+            return label(x_center if anchor == "middle" else x_left, y + 14, text,
+                         anchor=anchor)
+        half = (len(text) + 1) // 2
+        return (label(x_center if anchor == "middle" else x_left, y + 8, text[:half],
+                      anchor=anchor)
+                + label(x_center if anchor == "middle" else x_left, y + 22, text[half:],
+                        anchor=anchor))
+
+    header_y = rows_y[0]
     for i, text in enumerate([u"序号", u"项目", u"数值", u"备注"]):
         bold = bool(style.header.get("bold", True))
-        parts.append(label((xs[i] + xs[i + 1]) / 2, rows_y[0] + 16, text, bold=bold,
+        parts.append(label((xs[i] + xs[i + 1]) / 2, header_y + 15, text, bold=bold,
                            anchor={"center": "middle", "left": "start", "right": "end"}
                            .get(style.header.get("align") or "center", "middle")))
     sample_rows = [[u"1", u"正常水位", u"135.50", u"汛期限制水位"],
                    [u"2", u"设计洪水位", u"137.20", u"说明文字较长的一格"]]
     body_align = style.body.get("align") or "center"
+    row_bottoms = rows_y[1:]
     for r, row in enumerate(sample_rows[:2]):
-        y = rows_y[1 + r] + 16
+        y_top = row_bottoms[r]
         for i, text in enumerate(row):
             align = body_align
             if i == len(row) - 1 and style.body.get("long_text_align"):
                 align = style.body.get("long_text_align")     # 长文本列：左对齐
             anchor = {"center": "middle", "left": "start", "right": "end"}.get(align, "middle")
-            x = xs[i] + (8 if anchor == "start" else (xs[i + 1] - xs[i]) / 2)
-            parts.append(label(x, y, text, anchor=anchor))
+            x_left = xs[i] + 6
+            x_center = (xs[i] + xs[i + 1]) / 2
+            if i == len(row) - 1 and r == 1:
+                # 备注列的长文本：超宽就折两行（对齐随款式）
+                parts.append(wrapped_label(x_left, x_center, y_top,
+                                           text, anchor, xs[i + 1] - xs[i] - 10))
+            else:
+                parts.append(label(x_center, y_top + 15, text, anchor=anchor))
     parts.append(u"</svg>")
     return u"".join(parts)
 

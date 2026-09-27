@@ -61,6 +61,17 @@ class GuiCase(unittest.TestCase):
         with urllib.request.urlopen(request) as response:
             return json.loads(response.read().decode("utf-8")), response.status
 
+    def loose_post_json(self, path, payload):
+        request = urllib.request.Request(
+            self.loose_base + path, data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(request) as response:
+            return json.loads(response.read().decode("utf-8")), response.status
+
+    def loose_get_json(self, path):
+        with urllib.request.urlopen(self.loose_base + path) as response:
+            return response.read(), response.status
+
     # ------------------------------------------------------------------ 页面与元数据
     def test_the_page_comes_up(self):
         body, status = self.get("/")
@@ -178,13 +189,13 @@ class TestPlansAndDrives(GuiCase):
 
     # ------------------------------------------------------------------ 盘符
     def test_drives_are_listed(self):
-        body, status = self.loose_get("/api/drives")
+        body, status = self.loose_get_json("/api/drives")
         self.assertEqual(status, 200)
         drives = json.loads(body.decode("utf-8"))["drives"]
         self.assertTrue(all(drive.endswith(":\\") for drive in drives))
 
     def test_browsing_without_a_dir_shows_the_drives(self):
-        body, _ = self.loose_get("/api/browse?dir=")
+        body, _ = self.loose_get_json("/api/browse?dir=")
         data = json.loads(body.decode("utf-8"))
         self.assertEqual(data["dir"], u"")
         self.assertTrue(data["drives"], u"没给目录要给盘符（此电脑）")
@@ -192,7 +203,7 @@ class TestPlansAndDrives(GuiCase):
 
     def test_browsing_outside_the_old_root_now_works(self):
         """默认不限目录：要能挑到别的盘/别的目录里的文件（用户的第 1 条意见）。"""
-        body, status = self.loose_get("/api/browse?dir="
+        body, status = self.loose_get_json("/api/browse?dir="
                                       + urllib.parse.quote(os.path.dirname(self.dir)))
         self.assertEqual(status, 200)
         data = json.loads(body.decode("utf-8"))
@@ -200,7 +211,7 @@ class TestPlansAndDrives(GuiCase):
         self.assertTrue(data["drives"], u"任何一层都要带盘符栏")
 
     def test_a_missing_dir_falls_back_to_the_drives(self):
-        body, status = self.loose_get("/api/browse?dir="
+        body, status = self.loose_get_json("/api/browse?dir="
                                       + urllib.parse.quote(os.path.join(self.dir, u"没有这个目录")))
         self.assertEqual(status, 200)
         self.assertTrue(json.loads(body.decode("utf-8"))["drives"])
@@ -220,7 +231,7 @@ class TestPlansAndDrives(GuiCase):
         self.assertEqual(status, 200)
         self.assertTrue(os.path.isfile(os.path.join(self.plans, u"我的方案.json")))
 
-        body, _ = self.loose_get("/api/plans")
+        body, _ = self.loose_get_json("/api/plans")
         names = [plan["name"] for plan in json.loads(body.decode("utf-8"))["plans"]]
         self.assertIn(u"我的方案", names)
 
@@ -447,25 +458,14 @@ class TestPlanRoundEndpoints(GuiCase):
     def test_replace_rules_crud(self):
         rules = {"name": u"界面规则", "text": [{"find": u"其它", "replace": u"其他"}],
                  "font": [], "para": []}
-        payload, status = self.loose_post_rules("/api/replace-rules/save",
+        payload, status = self.loose_post_json("/api/replace-rules/save",
                                                 {"name": u"界面规则", "rules": rules})
         self.assertEqual(status, 200)
-        body, _ = self.loose_get("/api/replace-rules")
+        body, _ = self.loose_get_json("/api/replace-rules")
         names = [r["name"] for r in json.loads(body.decode("utf-8"))["rules"]]
         self.assertIn(u"界面规则", names)
-        payload, _ = self.loose_post_rules("/api/replace-rules/delete", {"name": u"界面规则"})
+        payload, _ = self.loose_post_json("/api/replace-rules/delete", {"name": u"界面规则"})
         self.assertTrue(payload["ok"])
-
-    def loose_post_rules(self, path, payload):
-        request = urllib.request.Request(
-            self.loose_base + path, data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(request) as response:
-            return json.loads(response.read().decode("utf-8")), response.status
-
-    def loose_get(self, path):
-        with urllib.request.urlopen(self.loose_base + path) as response:
-            return response.read(), response.status
 
     def test_frontmatter_endpoint(self):
         body, status = self.get("/api/frontmatter?path="
@@ -494,3 +494,50 @@ class TestPlanRoundEndpoints(GuiCase):
                                                 "xlsx": xlsx, "scope": "body"})
         self.assertEqual(payload["report"]["replaced"], 1)
         self.assertTrue(os.path.exists(payload["report"]["out"]))
+
+
+class TestPlanDictSteps(GuiCase):
+    """带参数的步骤（表格模板/替换规则）必须能存进方案、载入还原（用户 2026-09-27：
+    加入执行方案后保存报错/显示不进去——就是这里只认字符串步骤导致的）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestPlanDictSteps, cls).setUpClass()
+        cls.loose = gui_server.ThreadingHTTPServer(
+            ("127.0.0.1", 0), type("DictHandler", (gui_server.Handler,),
+                                   {"root": None, "plans_dir": os.path.join(cls.dir, u"plans"),
+                                    "rules_base_dir": os.path.join(cls.dir, u"rules")}))
+        cls.loose_port = cls.loose.server_address[1]
+        threading.Thread(target=cls.loose.serve_forever, daemon=True).start()
+        cls.loose_base = "http://127.0.0.1:%d" % cls.loose_port
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.loose.shutdown()
+        cls.loose.server_close()
+        super(TestPlanDictSteps, cls).tearDownClass()
+
+    def test_save_and_retrieve_dict_steps(self):
+        steps = [{"op": "captions"},
+                 {"op": "tablestyle", "label": u"表格模板（验收款）",
+                  "params": {"style": u"三线表·学术款", "uniform": False,
+                             "tables": "all", "mapping": [{"index": 2, "style": u"三线表·学术款"}]}},
+                 {"op": "replace", "label": u"替换规则（甲）", "params": {"rules": u"甲"}}]
+        payload, status = self.loose_post_json(
+            "/api/plans/save", {"name": u"带参数方案", "steps": steps, "note": u"测试"})
+        self.assertEqual(status, 200)
+        body, _ = self.loose_get_json("/api/plans")
+        plan = next(p for p in json.loads(body.decode("utf-8"))["plans"]
+                    if p["name"] == u"带参数方案")
+        self.assertEqual(len(plan["steps"]), 3)
+        saved = plan["steps"][1]
+        self.assertEqual(saved["op"], "tablestyle")
+        self.assertEqual(saved["label"], u"表格模板（验收款）")
+        self.assertEqual(saved["params"]["style"], u"三线表·学术款")
+        self.assertEqual(saved["params"]["mapping"][0]["index"], 2)
+
+    def test_dict_step_with_unknown_op_is_rejected(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.loose_post_json("/api/plans/save",
+                                  {"name": u"坏方案", "steps": [{"op": "nope"}]})
+        self.assertIn(u"nope", caught.exception.read().decode("utf-8"))

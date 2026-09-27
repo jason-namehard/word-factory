@@ -136,6 +136,35 @@ def qn(tag):
     return "{%s}%s" % (NAMESPACES[prefix], local)
 
 
+#: 主题色系列属性：渲染优先级**高于** ``w:color/w:val``，设色时不清掉就白设
+_THEME_COLOR_ATTRS = ("w:themeColor", "w:themeTint", "w:themeShade")
+
+
+def clear_color_overrides(rpr):
+    """清掉 ``w:color`` 之外**会盖掉它**的东西（实测经验，WB 总结 + 本机复现）：
+
+    * ``w:color`` 上的 ``w:themeColor`` / ``w:themeTint`` / ``w:themeShade`` ——
+      主题色优先于 ``w:val``，不清掉的话"设蓝显示黑"；
+    * ``w14:textFill``（WPS 扩展的文本填充）—— 用 ``schemeClr`` 按主题色填充，同样盖掉 ``w:color``。
+
+    只动了主题色相关的东西才返回 True（调用方拿它算幂等改动数）。
+    deepcopy / 切 run 复制出来的 rPr 会原样带着这些属性 —— 凡是设色都必须清。
+    """
+    if rpr is None:
+        return False
+    changed = False
+    color = rpr.find(qn("w:color"))
+    if color is not None:
+        for attr in _THEME_COLOR_ATTRS:
+            if color.get(qn(attr)) is not None:
+                del color.attrib[qn(attr)]
+                changed = True
+    for text_fill in list(rpr.findall(qn("w14:textFill"))):
+        rpr.remove(text_fill)
+        changed = True
+    return changed
+
+
 def local_name(tag):
     """``"{http://…/main}p"`` -> ``"w:p"``（打印用）。"""
     if tag.startswith("{"):

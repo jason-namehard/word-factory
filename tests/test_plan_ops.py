@@ -279,3 +279,52 @@ class TestFontColorBoldRule(PlanCase):
             replace_rules_mod.apply(doc, rules)
             second = replace_rules_mod.apply(doc, rules)
         self.assertEqual(second["font"], 0)
+
+
+class TestColorOverridesCleared(PlanCase):
+    """设色必须清主题色覆盖（用户给的 WB 经验 + 本机复现）。
+
+    ``w:themeColor`` 渲染优先于 ``w:val``；WPS 的 ``w14:textFill`` 同样盖掉 ``w:color``。
+    不清掉它们，"设蓝/设黑显示原样" —— 预览版的标蓝就是这么看不见的。
+    """
+
+    W14 = "http://schemas.microsoft.com/office/word/2010/wordml"
+
+    def _doc_with_theme_color(self, name):
+        path = os.path.join(self.dir, name)
+        body = (u'<w:p><w:r><w:rPr>'
+                u'<w:color w:val="0070C0" w:themeColor="text1"/>'
+                u'<w14:textFill xmlns:w14="%s"><w14:solidFill>'
+                u'<w14:schemeClr w14:val="tx1"/></w14:solidFill></w14:textFill>'
+                u'</w:rPr><w:t>蓝色其实是黑</w:t></w:r></w:p>' % self.W14)
+        fixtures.write_fixture(path, body=body)
+        return path
+
+    def test_mark_blue_survives_theme_color(self):
+        from wordfactory import mark as mark_mod
+        from wordfactory.text import Paragraph
+        path = self._doc_with_theme_color(u"标蓝.docx")
+        with Document(path) as doc:
+            paragraph = doc.paragraphs()[0]
+            touched = mark_mod.mark_ranges(doc, [(paragraph, 0, 6)])
+            out = os.path.join(self.dir, u"标蓝出.docx")
+            doc.save(out)
+        self.assertEqual(touched, 1)
+        with zipfile.ZipFile(out) as archive:
+            text = archive.read("word/document.xml").decode("utf-8")
+        self.assertIn(u'w:val="0000FF"', text)
+        self.assertNotIn(u"themeColor", text, u"主题色属性必须清掉，否则蓝显示不出来")
+        self.assertNotIn(u"textFill", text, u"w14:textFill 必须删掉，否则蓝显示不出来")
+
+    def test_fonts_black_also_clears_overrides(self):
+        from wordfactory import fonts as fonts_mod
+        path = self._doc_with_theme_color(u"变黑.docx")
+        with Document(path, writable_parts=fonts_mod.FONT_PARTS) as doc:
+            fonts_mod.normalize(doc, fonts_mod.FontRuleSet(fonts_mod.DEFAULT_FONTS))
+            out = os.path.join(self.dir, u"变黑出.docx")
+            doc.save(out)
+        with zipfile.ZipFile(out) as archive:
+            text = archive.read("word/document.xml").decode("utf-8")
+        self.assertNotIn(u"themeColor", text)
+        self.assertNotIn(u"textFill", text)
+        self.assertIn(u'w:val="000000"', text)

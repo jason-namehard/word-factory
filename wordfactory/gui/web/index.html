@@ -192,14 +192,11 @@
 
         <div class="card">
           <h4>前置区（封面 / 扉页 / 签字页）—— 这几页的空白行不许清理</h4>
-          <div class="hint">自动识别：从文档开头走到「目录 / 前言」为止。识别不对就手动指定"前置区到第几页"
-             （第几页 = 整份报告的物理页序，不看页脚页码），留空 = 自动。</div>
-          <div class="rowline">
-            <span id="frontmatter-text" style="font-size:12px;color:#475569">先选文件</span>
-            <input type="text" id="fm-pages" placeholder="前置区到第几页（留空=自动）"
-                   style="min-width:160px">
-            <button id="fm-apply">应用</button>
-          </div>
+          <div class="hint">自动识别：从文档开头走到「目录 / 前言」为止。识别不对就点各行的「手动调整」，
+             告诉工具它**到第几页**（第几页 = 整份报告的物理页序，不看页脚页码）。</div>
+          <table class="grid" id="fm-table">
+            <tr><th>页面</th><th>识别结果</th><th>保护范围</th><th style="width:110px"></th></tr>
+          </table>
         </div>
 
         <div class="card">
@@ -340,12 +337,13 @@
 <div id="picker" class="modal"><div class="box">
   <div class="rowline" style="margin-bottom:8px">
     <h4 style="margin:0;flex:1" id="picker-title">选择文件</h4>
+    <button id="picker-refresh">刷新</button>
     <button id="picker-close">关闭（Esc）</button>
   </div>
   <div class="drives" id="picker-drives"></div>
   <div id="picker-path" style="font-size:12px;color:#64748b;margin-bottom:8px"></div>
   <div id="picker-list"></div>
-  <div class="tip">点文件夹进入；点 .docx 选中。上面的盘符可以跳到其它盘。</div>
+  <div class="tip">点文件夹进入；点 .docx 选中（灰的是别的文件，红的 .doc 是老格式不认）。上面的盘符可以跳到其它盘。</div>
 </div></div>
 
 <!-- 替换规则编辑 -->
@@ -428,12 +426,28 @@
   </div>
 </div></div>
 
+<!-- 前置区手动调整 -->
+<div id="fm-dialog" class="modal"><div class="box" style="width:440px">
+  <div class="rowline" style="margin-bottom:8px">
+    <h4 style="margin:0;flex:1" id="fm-dialog-title">手动调整</h4>
+    <button id="fm-cancel">取消</button>
+  </div>
+  <div class="hint" id="fm-dialog-hint"></div>
+  <div class="rowline">
+    <input type="text" id="fm-page-input" placeholder="到第几页（如 2）" style="min-width:180px">
+  </div>
+  <div class="rowline" style="margin-top:12px">
+    <button id="fm-save" class="primary">保存</button>
+    <button id="fm-clear" class="danger">清除（回自动识别）</button>
+  </div>
+</div></div>
+
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
 const state = {files: [], file: null, steps: [], plans: [], planName: '',
                tables: [], picked: new Set(), tableStyle: {}, uniform: false,
-               template: null, tempDir: '', tempFiles: [], fmPages: 0,
+               template: null, tempDir: '', tempFiles: [], fmPages: {cover: 0, title: 0, signature: 0},
                extFiles: [], rule: {text: [], font: [], para: []}, docFormats: null,
                lastOut: null};
 
@@ -514,14 +528,24 @@ function renderExtFiles() {
 
 /* ---------------------------------------------------------------- 选文件对话框 */
 let pickerCallback = null;
-function pickDocx(callback) { pickerCallback = callback; browse(''); }
+let pickerDir = '';
+function pickDocx(callback) { pickerCallback = callback; browse(pickerDir || ''); }
+$('picker-refresh').addEventListener('click', () => browse(pickerDir || ''));
 $('picker-close').addEventListener('click', () => $('picker').classList.remove('on'));
 $('picker').addEventListener('click', e => { if (e.target === $('picker')) $('picker').classList.remove('on'); });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') document.querySelectorAll('.modal.on').forEach(m => m.classList.remove('on'));
 });
 async function browse(dir) {
-  const data = await api('/api/browse?dir=' + encodeURIComponent(dir));
+  let data;
+  try {
+    data = await api('/api/browse?dir=' + encodeURIComponent(dir));
+  } catch (error) {
+    log('打开目录失败：' + error.message, 'err');
+    $('picker').classList.add('on');
+    $('picker-path').textContent = '打开目录失败：' + error.message;
+    return;
+  }
   $('picker').classList.add('on');
   const holder = $('picker-list');
   holder.textContent = '';
@@ -534,6 +558,7 @@ async function browse(dir) {
     drives.appendChild(button);
   });
   if (!data.dir) { $('picker-path').textContent = '本机盘符（点一个进去）'; return; }
+  pickerDir = data.dir;
   $('picker-path').textContent = data.dir;
   if (data.parent) {
     const row = document.createElement('div');
@@ -544,6 +569,8 @@ async function browse(dir) {
   }
   data.entries.forEach(entry => {
     const row = document.createElement('div');
+    const isDocx = /\.docx$/i.test(entry.name);
+    const isOldDoc = /\.doc$/i.test(entry.name) && !isDocx;
     row.className = 'row' + (entry.dir ? ' dir' : '');
     row.textContent = (entry.dir ? '📁 ' : '📄 ') + entry.name;
     if (!entry.dir) {
@@ -551,12 +578,22 @@ async function browse(dir) {
       size.className = 'size';
       size.textContent = Math.max(1, Math.round(entry.size / 1024)) + ' KB';
       row.appendChild(size);
+      if (isOldDoc) {
+        row.style.color = '#b42318';
+        row.title = '老 .doc 二进制格式不支持 —— 用 Word 另存为 .docx 再导入';
+      } else if (!isDocx && !/\.docm$/i.test(entry.name)) {
+        row.style.color = '#b9c2d2';
+        row.title = '不是 Word 文档，点不了';
+      }
     }
     row.addEventListener('click', () => {
-      if (entry.dir) browse(data.dir + '\\' + entry.name);
-      else if (/\.docx?$/i.test(entry.name)) {
+      if (entry.dir) { browse(data.dir + '\\' + entry.name); return; }
+      const name = entry.name.toLowerCase();
+      if (name.endsWith('.docx') || name.endsWith('.docm')) {
         $('picker').classList.remove('on');
         if (pickerCallback) pickerCallback(data.dir + '\\' + entry.name);
+      } else if (name.endsWith('.doc')) {
+        log('「' + entry.name + '」是老 .doc 格式，本工具不认 —— 用 Word 另存为 .docx 再导入', 'err');
       }
     });
     holder.appendChild(row);
@@ -592,7 +629,7 @@ function renderSteps() {
     row.draggable = true;
     row.innerHTML = '<span class="grip">⣿</span>'
       + '<input type="checkbox" ' + (step.on ? 'checked' : '') + '>'
-      + '<span><span class="name">' + step.label + '</span>'
+      + '<span><span class="name">' + (step.alias || step.label) + '</span>'
       + '<span class="note">' + step.note + '</span></span>';
     row.querySelector('input').addEventListener('change', e => {
       step.on = e.target.checked; renderRecipe();
@@ -619,9 +656,12 @@ function chosenSteps() {
     const item = {op: step.op};
     if (step.alias) item.label = step.alias;
     const params = Object.assign({}, step.params);
-    if (step.op === 'tidy' && state.fmPages > 0) {
-      params.protect_frontmatter = true;
-      params.frontmatter_pages = state.fmPages;
+    if (step.op === 'tidy') {
+      const pages = effectiveFmPages();
+      if (pages > 0) {
+        params.protect_frontmatter = true;
+        params.frontmatter_pages = pages;
+      }
     }
     if (Object.keys(params).length) item.params = params;
     out.push(item);
@@ -805,18 +845,76 @@ $('temp-clean').addEventListener('click', async () => {
 });
 
 /* ---------------------------------------------------------------- 前置区 */
+const FM_ROWS = [['cover', '封面'], ['title', '扉页'], ['signature', '签字页']];
 async function loadFrontmatter() {
-  if (!state.file) { $('frontmatter-text').textContent = '先选文件'; return; }
+  if (!state.file) { state.fmInfo = null; renderFrontmatter(); return; }
   try {
     const data = await api('/api/frontmatter?path=' + encodeURIComponent(state.file));
-    $('frontmatter-text').textContent = data.text;
-  } catch (error) { $('frontmatter-text').textContent = '识别失败：' + error.message; }
+    state.fmInfo = data.info;
+  } catch (error) {
+    state.fmInfo = null;
+    log('前置区识别失败：' + error.message, 'err');
+  }
+  renderFrontmatter();
 }
-$('fm-apply').addEventListener('click', () => {
-  const value = $('fm-pages').value.trim();
-  state.fmPages = value ? Math.max(1, parseInt(value, 10) || 0) : 0;
-  log(state.fmPages ? '前置区手动指定：到第 ' + state.fmPages + ' 页' : '前置区回到自动识别');
+function effectiveFmPages() {
+  return Math.max(state.fmPages.cover || 0, state.fmPages.title || 0,
+                  state.fmPages.signature || 0);
+}
+function renderFrontmatter() {
+  const table = $('fm-table');
+  table.innerHTML = '<tr><th>页面</th><th>识别结果</th><th>保护范围</th><th style="width:110px"></th></tr>';
+  if (!state.fmInfo) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="4" style="color:#94a3b8">先选文件（或识别失败）</td>';
+    table.appendChild(tr);
+    return;
+  }
+  const found = {cover: state.fmInfo.cover, title: state.fmInfo.title_page,
+                 signature: state.fmInfo.signature_page};
+  FM_ROWS.forEach(([key, name]) => {
+    const tr = document.createElement('tr');
+    const foundText = found[key] ? '有' : '无';
+    const override = state.fmPages[key] || 0;
+    const range = override ? '手动：到第 ' + override + ' 页' : '自动识别';
+    tr.innerHTML = '<td><b>' + name + '</b></td>'
+      + '<td>' + foundText + (found[key] && key === 'signature' && state.fmInfo.roles
+            ? '（' + state.fmInfo.roles.join('、') + '）' : '')
+      + '</td><td>' + range + '</td>';
+    const td = document.createElement('td');
+    const button = document.createElement('button');
+    button.textContent = '手动调整';
+    button.addEventListener('click', () => openFmDialog(key, name));
+    td.appendChild(button);
+    tr.appendChild(td);
+    table.appendChild(tr);
+  });
+}
+let fmEditing = null;
+function openFmDialog(key, name) {
+  fmEditing = key;
+  $('fm-dialog-title').textContent = '手动调整：' + name;
+  $('fm-dialog-hint').textContent = '「' + name + '到第几页」= 它占据报告的第 1…N 页里的第几页为止'
+    + '（例：扉页占到第 2 页就填 2）。留空保存 = 这一行回到自动识别。';
+  $('fm-page-input').value = state.fmPages[key] || '';
+  $('fm-dialog').classList.add('on');
+}
+$('fm-save').addEventListener('click', () => {
+  if (!fmEditing) return;
+  const value = $('fm-page-input').value.trim();
+  state.fmPages[fmEditing] = value ? Math.max(1, parseInt(value, 10) || 0) : 0;
+  log('前置区手动：' + fmEditing + (state.fmPages[fmEditing]
+      ? ' → 到第 ' + state.fmPages[fmEditing] + ' 页' : ' → 回自动'));
+  $('fm-dialog').classList.remove('on');
+  renderFrontmatter();
 });
+$('fm-clear').addEventListener('click', () => {
+  if (!fmEditing) return;
+  state.fmPages[fmEditing] = 0;
+  $('fm-dialog').classList.remove('on');
+  renderFrontmatter();
+});
+$('fm-cancel').addEventListener('click', () => $('fm-dialog').classList.remove('on'));
 
 /* ---------------------------------------------------------------- 表格款式 */
 async function loadPreviews() {
@@ -1051,31 +1149,38 @@ async function loadDocFormats() {
   const east = data.east_asia.concat(BASE_FONTS.filter(f => !data.east_asia.includes(f)));
   const latin = data.latin.concat(LATIN_FONTS.filter(f => !data.latin.includes(f)));
   const sizes = data.sizes;
-  const COLOR_NAMES = {'000000': '黑色', 'auto': '自动（黑）', 'FF0000': '红色',
-                       '0000FF': '蓝色', '00B050': '绿色'};
-  const colorLabel = v => v + (COLOR_NAMES[v] ? '（' + COLOR_NAMES[v] + '）' : '');
-  const fill = (id, values, blank, labeler) => {
+  // 用户 2026-09-27：要的红黄蓝绿黑白几种正色（红=255红、蓝=255蓝）
+  const PALETTE = [['FF0000', '红色（255红）'], ['FFFF00', '黄色（255黄）'],
+                   ['0000FF', '蓝色（255蓝）'], ['00FF00', '绿色（255绿）'],
+                   ['000000', '黑色'], ['FFFFFF', '白色']];
+  const colorLabel = v => {
+    const hit = PALETTE.find(p => p[0] === v.toUpperCase());
+    return v + (hit ? '（' + hit[1].replace(/（.*/,'') + '）' : '');
+  };
+  const fill = (id, entries, blank) => {
     const select = $(id);
     select.textContent = '';
     if (blank) {
       const option = document.createElement('option');
-      option.value = ''; option.textContent = '（不限 / 不变）';
+      option.value = ''; option.textContent = '（不替换）';
       select.appendChild(option);
     }
-    values.forEach(v => {
+    entries.forEach(item => {
       const option = document.createElement('option');
-      option.value = v; option.textContent = labeler ? labeler(v) : v;
+      const value = Array.isArray(item) ? item[0] : item;
+      option.value = value;
+      option.textContent = Array.isArray(item) ? item[1] : value;
       select.appendChild(option);
     });
   };
   fill('f-from-east', east, true);
   fill('f-from-latin', latin, true);
   fill('f-from-size', sizes, true);
-  fill('f-from-color', data.colors.concat([]), true, colorLabel);
-  fill('f-to-east', BASE_FONTS, false);
-  fill('f-to-latin', LATIN_FONTS, false);
+  fill('f-from-color', data.colors.map(colorLabel), true);
+  fill('f-to-east', BASE_FONTS, true);
+  fill('f-to-latin', LATIN_FONTS, true);
   fill('f-to-size', sizes.length ? sizes : ['16'], true);
-  fill('f-to-color', ['000000', 'auto'], true, colorLabel);
+  fill('f-to-color', PALETTE.map(p => [p[0], p[1]]), true);
   const aligns = ['both', 'center', 'left', 'right'];
   const alignName = {both: '两端对齐', center: '居中', left: '左对齐', right: '右对齐'};
   fill('p-from-align', aligns.map(a => a + '|' + alignName[a]), true);

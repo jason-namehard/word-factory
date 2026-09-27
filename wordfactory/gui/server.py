@@ -64,8 +64,8 @@ BUILTIN_PLANS = [
     {u"name": u"报告规范化（轻）", u"steps": [u"captions", u"tidy"],
      u"note": u"题注统一 + 一键整理：最常用、最不容易出错的一套"},
     {u"name": u"报告规范化（全）",
-     u"steps": [u"captions", u"sup", u"tableclean", u"textfix", u"mdclean", u"tidy"],
-     u"note": u"六个功能全上：上下标规则 → 表格清理 → 文本替换 → MD 清理 → 整理"},
+     u"steps": [u"captions", u"sup", u"tableclean", u"mdclean", u"tidy"],
+     u"note": u"五个功能全上：上下标规则 → 表格清理 → MD 清理 → 整理"},
     {u"name": u"只清表格", u"steps": [u"tableclean"],
      u"note": u"只清表格单元格里的空格/回车（三档里的默认档）"},
     {u"name": u"只调题注", u"steps": [u"captions"],
@@ -265,21 +265,27 @@ class Handler(BaseHTTPRequestHandler):
         if not steps:
             raise PipelineError(u"一个功能都没勾，存它干嘛")
         known = set(pipeline_mod.STEPS)
-        unknown = [step for step in steps if step not in known]
-        if unknown:
-            raise PipelineError(u"没有这些功能：%s（可用的：%s）"
-                                % (u", ".join(unknown), u", ".join(known)))
+        # 步骤允许两种写法：字符串（用默认参数）或 {"op": …, "params": …, "label": …}
+        # —— 表格模板/替换规则带参数，必须原样存进方案，载入才能还原（实测踩过：
+        #    以前只认字符串，带参数的步骤一存就报"没有这些功能"）。
+        normalized = []
+        for step in steps:
+            op = step.get("op") if isinstance(step, dict) else step
+            if op not in known:
+                raise PipelineError(u"没有这个功能：%s（可用的：%s）"
+                                    % (op, u"、".join(known)))
+            normalized.append(step if isinstance(step, dict) else {u"op": step})
         directory = self.plans_dir
         if not os.path.isdir(directory):
             os.makedirs(directory)
         path = os.path.join(directory, name + u".json")
         if not _inside(path, directory):        # 双保险：名字再怎么花样也跑不出去
             raise PipelineError(u"方案名不太好：%s" % name)
-        payload = {"name": name, "steps": list(steps),
+        payload = {"name": name, "steps": normalized,
                    "note": (data.get("note") or u"").strip()}
         with io.open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
-        log_note = u"已存执行方案：%s（%d 步）→ %s" % (name, len(steps), path)
+        log_note = u"已存执行方案：%s（%d 步）→ %s" % (name, len(normalized), path)
         self._json({"ok": True, "name": name, "path": path, "text": log_note})
 
     def _plan_delete(self):

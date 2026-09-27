@@ -44,7 +44,9 @@ STEPS = collections.OrderedDict([
     (u"tablestyle", (u"表格模板（套用款式；支持映射与通篇一致）",
                      {"style": u"通用款·外粗内细", "uniform": False, "tables": u"all",
                       "mapping": None, "wrap_header": None})),
-    (u"textfix", (u"文本替换 + 两端对齐改左对齐", {"replace": True, "align": True})),
+    # textfix（文本替换+对齐）2026-09-27 起从功能清单撤下：有了可自定义的
+    # 「替换规则」就不再需要它（用户原话："方案调用的功能就不需要'文本替换对齐'了"）。
+    # 命令行 `textfix` 命令仍在；老方案 JSON 里挂着的 textfix 跑的时候会明说。
     (u"replace", (u"替换规则（文本/字体/段落，三段合一）", {"rules": None, "scope": "all"})),
     (u"mdclean", (u"Markdown 标记清理", {})),
     (u"tidy", (u"一键整理（段尾空格/空白行）", {"blank_lines": True, "trailing_spaces": True})),
@@ -57,7 +59,6 @@ STEP_LABELS = {
     u"sup": u"上下标规则",
     u"tableclean": u"表格清理",
     u"tablestyle": u"表格模板",
-    u"textfix": u"文本替换对齐",
     u"replace": u"替换规则",
     u"mdclean": u"Markdown 清理",
     u"tidy": u"一键整理",

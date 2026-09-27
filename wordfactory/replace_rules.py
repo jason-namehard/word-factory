@@ -250,6 +250,7 @@ def _set_font(rpr, target, dry_run):
                     node.set(qn("w:val"), value)
                 changed = True
     if "color" in target:
+        from .ooxml import clear_color_overrides
         value = u"%s" % target["color"]
         node = rpr.find(qn("w:color"))
         if node is None:
@@ -257,9 +258,11 @@ def _set_font(rpr, target, dry_run):
                 changed = True
             else:
                 node = _ensure(rpr, "w:color", RPR_ORDER, 0, dry_run=False)
-        if (node.get(qn("w:val")) or u"").lower() != value.lower():
+        if node.get(qn("w:val")) != value:
             if not dry_run:
                 node.set(qn("w:val"), value)
+            changed = True
+        if not dry_run and clear_color_overrides(rpr):
             changed = True
     if "bold" in target:
         want_on = bool(target["bold"])
