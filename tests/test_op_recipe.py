@@ -281,3 +281,50 @@ class TestTheRealDocumentShape(RebuildCase):
             text = recipe_op.find_recipe_text(doc)
         self.assertNotIn(u"无关正文", text)
         self.assertTrue(text.startswith(u"=== 段落配方"))
+
+
+class TestVarContexts(RebuildCase):
+    """C 列「段前文字」（用户 2026-09-27）：Excel 里只有变量前半句经常看不出语境。"""
+
+    def _doc_with_vars(self):
+        path = os.path.join(self.dir, u"带语境.docx")
+        body = (fixtures.paragraph(fixtures.run(u"工程规模与库容特征值见表2.3-1。"))
+                + fixtures.paragraph(fixtures.run(u"水库总库容 "),
+                                     fixtures.run(u"1286", highlight="yellow"),
+                                     fixtures.run(u" 万m³。"))
+                + fixtures.paragraph(fixtures.run(u"设计洪水位 "),
+                                     fixtures.run(u"135.5", highlight="yellow"),
+                                     fixtures.run(u" m，校核洪水位 "),
+                                     fixtures.run(u"137.2", highlight="yellow"),
+                                     fixtures.run(u" m。"))
+                + fixtures.paragraph(fixtures.run(u"表2.3-1     特征水位表")))
+        fixtures.write_fixture(path, body=body)
+        return path
+
+    def test_each_var_gets_the_previous_paragraph_as_context(self):
+        from wordfactory.ops import recipe as recipe_op
+        path = self._doc_with_vars()
+        with Document(path) as doc:
+            contexts = recipe_op.var_contexts(doc, "highlight")
+        self.assertEqual(len(contexts), 3)
+        # 第 1 个变量的上一段是"工程规模…"；第 2、3 个变量在同一段，上一段都是"水库总库容"那句
+        self.assertEqual(contexts[0], u"工程规模与库容特征值见表2.3-1。")
+        self.assertEqual(contexts[1], u"水库总库容 1286 万m³。")
+        self.assertEqual(contexts[2], u"水库总库容 1286 万m³。")
+
+    def test_gen_writes_a_context_column(self):
+        from wordfactory.ops import recipe as recipe_op
+        from wordfactory.xlsx import read_column_b, read_sheet
+        path = self._doc_with_vars()
+        out_xlsx = os.path.join(self.dir, u"带语境外置数据.xlsx")
+        with Document(path) as doc:
+            report, _recipe, xlsx_path = recipe_op.generate(
+                doc, {"mode": "highlight", "out_xlsx": out_xlsx,
+                      "name": u"带语境", "append": False})
+        self.assertEqual(xlsx_path, os.path.abspath(out_xlsx))
+        for row in report["rows"]:
+            self.assertEqual(len(row), 3, u"gen 的报告行要带第三列（段前文字）")
+        cells = read_sheet(os.path.abspath(out_xlsx))
+        self.assertEqual(cells.get((1, 3)), u"段前文字")
+        values = read_column_b(os.path.abspath(out_xlsx), max_rows=5)
+        self.assertEqual(values[:3], [u"1286", u"135.5", u"137.2"])

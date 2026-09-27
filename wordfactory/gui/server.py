@@ -129,6 +129,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._plans()
             elif path == "/api/read":
                 self._read(_query(query).get("path", u""))
+            elif path == "/api/plugin-guide":
+                base = os.path.dirname(os.path.dirname(HERE))   # 项目根
+                guide = os.path.join(base, "docs", "PLUGIN-GUIDE.md")
+                with io.open(guide, "r", encoding="utf-8") as handle:
+                    self._send(200, handle.read(), "text/plain; charset=utf-8")
             elif path == "/api/download":
                 self._download(_query(query).get("name", u""))
             else:
@@ -323,9 +328,13 @@ class Handler(BaseHTTPRequestHandler):
                                        else u"占位符 %r" % data.get("char")),
                      u"配方：%s ｜ 变量 %d 个" % (recipe.name, report["variables"]),
                      u"数据表：%s ｜ 工作表 %s" % (excel_file, recipe.sheet_name)]
-            for index, (prefix, value) in enumerate(report["rows"], start=1):
-                lines.append(u"    %2d. A=%s ｜ B=%s"
-                             % (index, prefix[:20] or u"（空）", value[:30]))
+            for index, row in enumerate(report["rows"], start=1):
+                prefix, value = row[0], row[1]
+                context = row[2] if len(row) > 2 else u""
+                lines.append(u"    %2d. A=%s ｜ B=%s ｜ 段前=%s"
+                             % (index, prefix[:16] or u"（空）", value[:24],
+                                (context[:16] + u"…") if len(context) > 16
+                                else (context or u"（无）")))
             if data.get("dry_run"):
                 lines.insert(0, u"--dry-run：一个字节都没写")
             else:

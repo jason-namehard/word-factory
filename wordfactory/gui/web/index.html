@@ -148,6 +148,7 @@
       </div>
       <button id="open-rules">打开规则文件…</button>
       <button id="manage-plans" class="primary">管理执行方案…</button>
+      <button id="add-op" class="ghost">＋ 新增功能…</button>
     </div>
   </aside>
 
@@ -794,6 +795,18 @@ $('ext-gen-chars').addEventListener('click', () => {
   extRun('gen', {mode: 'chars', char: char});
 });
 $('ext-rebuild').addEventListener('click', () => extRun('rebuild', {}));
+
+/* ---------------------------------------------------------------- 新增功能 */
+$('add-op').addEventListener('click', async () => {
+  $('report').textContent = '正在读插件指南…';
+  try {
+    const response = await fetch('/api/plugin-guide');
+    $('report').textContent = await response.text();
+    log('插件指南已显示在右侧「改动报告」区（往下滚）');
+  } catch (error) {
+    log('读不到指南：' + error.message, 'err');
+  }
+});
 
 /* ---------------------------------------------------------------- 启动 */
 loadSteps();

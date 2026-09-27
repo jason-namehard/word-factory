@@ -128,6 +128,11 @@ def build_parser():
     checker.add_argument("path", help=u"要体检的 .docx/.docm")
     checker.add_argument("--fonts", default=DEFAULT_FONTS_PATH, help=u"字体规则文件")
 
+    front = sub.add_parser(
+        "frontmatter",
+        help=u"前置区识别（只读）：封面/扉页/签字页拆解——它们的空白行不许被清理功能删除")
+    front.add_argument("path", help=u"要看的 .docx")
+
     recipe = sub.add_parser(
         "extdata", aliases=["recipe"],
         help=u"宏「文档数据外置更新」（原段落配方）：生成外置数据表（gen）／按数据表更新文档（rebuild）")
@@ -664,8 +669,13 @@ def cmd_recipe(args):
                                    else u"特定字符 %r" % args.char),
                  u"配方：%s ｜ 变量 %d 个" % (recipe.name, report["variables"]),
                  u"数据表：%s ｜ 工作表 %s" % (excel_file, recipe.sheet_name)]
-        for index, (prefix, value) in enumerate(report["rows"], start=1):
-            lines.append(u"    %2d. A=%s ｜ B=%s" % (index, prefix[:20] or u"（空）", value[:30]))
+        for index, row in enumerate(report["rows"], start=1):
+            prefix, value = row[0], row[1]
+            context = row[2] if len(row) > 2 else u""
+            lines.append(u"    %2d. A=%s ｜ B=%s ｜ 段前=%s"
+                         % (index, prefix[:16] or u"（空）", value[:24],
+                            (context[:16] + u"…") if len(context) > 16
+                            else (context or u"（无）")))
         if args.dry_run:
             lines.insert(0, u"--dry-run：一个字节都没写")
         else:
@@ -676,6 +686,16 @@ def cmd_recipe(args):
         return (dict(report, out=written, xlsx=xlsx_path), u"\n".join(lines))
 
     raise RecipeError(u"未知的 recipe 动作：%r" % args.action)
+
+
+def cmd_frontmatter(args):
+    """前置区识别（只读）：封面/扉页/签字页拆解结果。"""
+    from . import frontmatter
+    from .document import Document
+
+    with Document(args.path) as doc:
+        info = frontmatter.detect(doc)
+    return info, frontmatter.format_report(info)
 
 
 def cmd_tableclean(args):
@@ -1155,8 +1175,10 @@ def main(argv=None):
             payload, human = cmd_captions(args)
         elif args.command == "audit":
             payload, human = cmd_audit(args)
-        elif args.command == "recipe":
+        elif args.command in ("extdata", "recipe"):
             payload, human = cmd_recipe(args)
+        elif args.command == "frontmatter":
+            payload, human = cmd_frontmatter(args)
         elif args.command == "tableclean":
             payload, human = cmd_tableclean(args)
         elif args.command == "tablestyle":

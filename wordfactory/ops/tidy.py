@@ -44,6 +44,9 @@ DEFAULT_TIDY = {
     "merge_lines": False,          # 合并换行：**删掉全部空段落**（Copy++ 的「合并换行」）
     "remove_spaces": False,        # 去除空格：**删掉全部半角/不间断空格**（Copy++ 的「去除空格」）
     "scope": "body",               # body = 正文段落；all = 连表格里的段落一起
+    # **前置区保护**（用户 2026-09-27）：封面/扉页/签字页里的空白行是排版，不许删。
+    # 识别口径见 frontmatter.py；识别不出前置区时这条自然不生效（等于没保护）。
+    "protect_frontmatter": True,
 }
 
 
@@ -52,7 +55,15 @@ def tidy(document, options=None, dry_run=False):
     opts = dict(DEFAULT_TIDY)
     opts.update(options or {})
     report = collections.Counter()
+    protected = set()
+    if opts.get("protect_frontmatter", True):
+        from .. import frontmatter
+        protected = frontmatter.protected_elements(document)
+        if protected:
+            report["前置区保护（跳过）"] = len(protected)
     for element, paragraph in _scope_paragraphs(document, opts.get("scope")):
+        if id(element) in protected:
+            continue
         text = paragraph.text
         if not text:
             continue
@@ -91,9 +102,9 @@ def tidy(document, options=None, dry_run=False):
     # **两种口径互斥**：`merge_lines`（照 Copy++ 删光空行）与 `blank_lines`（保守：连续空段压一个）
     # 是对同一批段落的两种做法；同时开会重复计数、结果也说不清（踩过：43 + 28 两边都在数）。
     if opts.get("merge_lines"):
-        _remove_blank_paragraphs(document, report, dry_run)
+        _remove_blank_paragraphs(document, report, dry_run, protected)
     elif opts.get("blank_lines"):
-        _collapse_blank_paragraphs(document, report, dry_run)
+        _collapse_blank_paragraphs(document, report, dry_run, protected)
     total = sum(count for key, count in report.items() if u"跳过" not in key)
     if not dry_run and total:
         document.mark_dirty()
@@ -117,28 +128,33 @@ def _scope_paragraphs(document, scope):
     return out
 
 
-def _remove_blank_paragraphs(document, report, dry_run):
+def _remove_blank_paragraphs(document, report, dry_run, protected=frozenset()):
     """**删掉全部空段落**（Copy++ 的「合并换行」：把被空行隔开的行并成连续行）。
 
     与 :func:`_collapse_blank_paragraphs`（保守：连续空段只压成一个）**不同** —— 那个是默认口径，
     这个是"照 Copy++ 的行为"（用户 2026-09-22 给了前后对照样本，见 `tests/test_tidy.py`）。
+    ``protected`` 里的段落（前置区：封面/扉页/签字页）一个都不碰。
     """
     body = document.body()
     doomed = [element for element in body
-              if element.tag == qn("w:p") and not Paragraph(element).text.strip()]
+              if element.tag == qn("w:p") and id(element) not in protected
+              and not Paragraph(element).text.strip()]
     for element in doomed:
         report["删除空行"] += 1
         if not dry_run:
             body.remove(element)
 
 
-def _collapse_blank_paragraphs(document, report, dry_run):
+def _collapse_blank_paragraphs(document, report, dry_run, protected=frozenset()):
     """连续空白段压成一个；文档开头/结尾的空白段删掉。
 
     先算出"要删哪些"（纯逻辑），再决定动不动手 —— 这样 `--dry-run` 天然不会改树。
+    ``protected`` 里的段落（前置区：封面/扉页/签字页）不参与 —— 封面的空白行是排版，
+    删了版面就垮（用户 2026-09-27 明确）。
     """
     body = document.body()
-    paragraphs = [element for element in body if element.tag == qn("w:p")]
+    paragraphs = [element for element in body
+                  if element.tag == qn("w:p") and id(element) not in protected]
     if not paragraphs:
         return
     blank = [not Paragraph(element).text.strip() for element in paragraphs]

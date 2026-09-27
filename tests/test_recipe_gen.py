@@ -72,7 +72,7 @@ class TestHighlightMode(GenCase):
         self.build(body)
         report, recipe, xlsx, _ = self.gen()
         self.assertEqual(report["variables"], 2)
-        self.assertEqual([value for _, value in report["rows"]], [u"3.5", u"12.8"])
+        self.assertEqual([value for _, value, _ctx in report["rows"]], [u"3.5", u"12.8"])
         # 第 2 个变量的前缀跨了段（"万m" + 段落标记 + "2、设计工程量"）→ 折成 TEXT + RAW 两行
         self.assertEqual([kind for kind, _ in recipe.lines],
                          ["TEXT", "VAR", "TEXT", "RAW", "VAR", "TEXT"])
@@ -82,13 +82,14 @@ class TestHighlightMode(GenCase):
         body = fixtures.paragraph(run(u"本期"), run(u"3.5", "yellow"), run(u"万m"))
         self.build(body)
         report, _, _, _ = self.gen()
-        self.assertEqual(report["rows"], [(u"本期", u"3.5")])
+        self.assertEqual([row[:2] for row in report["rows"]], [(u"本期", u"3.5")])
+        self.assertEqual(len(report["rows"][0]), 3, u"行要带第三列（段前文字）")
 
     def test_the_trim_switch_reproduces_the_macro_quirk(self):
         body = fixtures.paragraph(run(u"本期"), run(u"3.5", "yellow"), run(u"万m"))
         self.build(body)
         report, _, _, _ = self.gen(trim_last_char=True)
-        self.assertEqual(report["rows"], [(u"本期", u"3.")])
+        self.assertEqual([row[:2] for row in report["rows"]], [(u"本期", u"3.")])
         # 被"修正"掉的那个字符按参考宏的写法归到后面的文本（`rng.Start = correctedEnd`）
         self.assertIn(u"5万m", [content for kind, content in
                                recipe_op.scan_highlights(Document(self.docx), True)
@@ -153,7 +154,7 @@ class TestHighlightMode(GenCase):
         self.build(body)
         report, _, _, _ = self.gen()
         self.assertEqual(report["variables"], 1)
-        self.assertNotIn(u"旧内容", u"".join(text for _, text in report["rows"]))
+        self.assertNotIn(u"旧内容", u"".join(row[1] for row in report["rows"]))
 
 
 class TestSpecialCharMode(GenCase):
@@ -165,8 +166,8 @@ class TestSpecialCharMode(GenCase):
         self.build(body)
         report, _, _, _ = self.gen(mode="chars", char=u"xx")
         self.assertEqual(report["variables"], 2)
-        self.assertEqual([value for _, value in report["rows"]], [u"xx", u"xx"])
-        self.assertEqual([prefix for prefix, _ in report["rows"]],
+        self.assertEqual([row[1] for row in report["rows"]], [u"xx", u"xx"])
+        self.assertEqual([row[0] for row in report["rows"]],
                          [u"1、本期", u"2、设计工程量"])
 
     def test_paragraph_boundaries_get_text_markers(self):
@@ -277,7 +278,7 @@ class TestNoSpuriousBlankParagraphs(GenCase):
                 "mode": "highlight", "char": None, "name": u"t",
                 "excel_file": u"数据表.xlsx", "sheet_name": u"Sheet1",
                 "out_xlsx": os.path.join(self.dir, u"d.xlsx"), "append": True})
-            values = [v for _, v in report["rows"]]
+            values = [row[1] for row in report["rows"]]
             out = doc.save(os.path.join(self.dir, u"o.docx"))
         recipe = recipe_op.read_recipe(out)
         with Document(out) as doc:
@@ -301,7 +302,7 @@ class TestNoSpuriousBlankParagraphs(GenCase):
                 "excel_file": u"数据表.xlsx", "sheet_name": u"Sheet1",
                 "out_xlsx": os.path.join(self.dir, u"d.xlsx"), "append": False})
             doc2 = doc
-            values = [v for _, v in report["rows"]]
+            values = [row[1] for row in report["rows"]]
             out = doc.save(os.path.join(self.dir, u"o.docx"))
         with Document(out) as doc:
             plain = recipe_op.rebuild(doc, recipe, values, dry_run=True)

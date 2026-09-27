@@ -222,10 +222,14 @@ def _column_width(text, minimum=8.0, maximum=60.0):
     return max(minimum, min(maximum, width))
 
 
-def write_workbook(path, sheet_name, rows, header=(u"项目", u"数值")):
-    """写一个"配方用"的 xlsx：``rows`` 是 ``[(A 列文本, B 列文本), …]``（不含表头）。
+_COLUMNS = "ABCDEFGH"
 
-    ``header=None`` 时不写表头。返回写出的路径。
+
+def write_workbook(path, sheet_name, rows, header=(u"项目", u"数值")):
+    """写一个"配方用"的 xlsx：``rows`` 是 ``[(A 列文本, B 列文本, …), …]``（不含表头）。
+
+    每行**两列或三列**都行（三列 = 带「段前文字」，2026-09-27 用户加的）；``header`` 的
+    列数要与行一致，``header=None`` 时不写表头。返回写出的路径。
     """
     sheet_name = sheet_name or u"Sheet1"
     strings = []
@@ -239,31 +243,35 @@ def write_workbook(path, sheet_name, rows, header=(u"项目", u"数值")):
             strings.append(text)
         return index[text]
 
-    head_row = None
-    body = []
-    if header:
-        head_row = (sid(header[0]), sid(header[1]))
-    for left, right in rows:
-        body.append((sid(left), sid(right)))
+    width = max([len(header) if header else 0] + [len(row) for row in rows])
+    width = max(width, 2)
+    if header and len(header) < width:
+        header = tuple(header) + tuple(u"") * (width - len(header))
+    head_row = [sid(text) for text in header] if header else None
+    body = [[sid(text) for text in row] + [sid(u"")] * (width - len(row))
+            for row in rows]
 
     def cell(ref, value_index):
         return u'<c r="%s" t="s"><v>%d</v></c>' % (ref, value_index)
 
     parts = []
     if head_row:
-        parts.append(u'<row r="1">%s%s</row>' % (cell("A1", head_row[0]), cell("B1", head_row[1])))
-    for offset, (lidx, ridx) in enumerate(body):
+        parts.append(u'<row r="1">%s</row>' % u"".join(
+            cell("%s1" % _COLUMNS[i], value) for i, value in enumerate(head_row)))
+    for offset, row_indexes in enumerate(body):
         row = offset + (2 if head_row else 1)
-        parts.append(u'<row r="%d">%s%s</row>'
-                     % (row, cell("A%d" % row, lidx), cell("B%d" % row, ridx)))
+        parts.append(u'<row r="%d">%s</row>' % (row, u"".join(
+            cell("%s%d" % (_COLUMNS[i], row), value)
+            for i, value in enumerate(row_indexes))))
     # 列宽是按内容**估**的（Excel 的 AutoFit 由 Excel 自己按字体算，XML 里没有等价写法）。
-    # 两列各取本列最长内容来估，够看即可；这条差异会写进报告。
-    left_texts = [u"项目"] + [u"%s" % left for left, _ in rows]
-    right_texts = [u"数值"] + [u"%s" % right for _, right in rows]
-    widths = [u'<col min="1" max="1" width="%.2f" customWidth="1"/>'
-              % _column_width(max(left_texts, key=lambda t: _column_width(t))),
-              u'<col min="2" max="2" width="%.2f" customWidth="1"/>'
-              % _column_width(max(right_texts, key=lambda t: _column_width(t)))]
+    # 各列取本列最长内容来估，够看即可；这条差异会写进报告。
+    widths = []
+    for i in range(width):
+        texts = [u"%s" % (header[i] if header else u"")] + \
+                [u"%s" % row[i] for row in rows]
+        widths.append(u'<col min="%d" max="%d" width="%.2f" customWidth="1"/>'
+                      % (i + 1, i + 1,
+                         _column_width(max(texts, key=lambda t: _column_width(t)))))
     sheet = (u'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
              u'<worksheet xmlns="%s"><cols>%s</cols><sheetData>%s</sheetData></worksheet>'
              % (NS_MAIN, u"".join(widths), u"".join(parts)))

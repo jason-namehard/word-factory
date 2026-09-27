@@ -11,6 +11,7 @@
 import os
 import shutil
 import tempfile
+import zipfile
 import unittest
 
 from wordfactory.document import Document
@@ -251,3 +252,82 @@ class TestCopyPlusPlusSample(TidyCase):
         report, out = self.run_op(fixtures.paragraph(fixtures.run(u"甲乙\u3000丙 丁")),
                                   remove_spaces=True)
         self.assertEqual(self.texts(out), [u"甲乙\u3000丙丁"], u"全角空格默认留着（可能是缩进）")
+
+
+class TestFrontmatterProtection(unittest.TestCase):
+    """前置区保护（用户 2026-09-27）：封面/扉页/签字页里的空白行**不许删**。
+
+    识别口径：从文档开头走到「目录/前言」为止都是前置区；签字页靠 编制/校核/审核… 角色词认。
+    """
+
+    def _doc_with_frontmatter(self, path):
+        cover = (fixtures.paragraph(fixtures.run(u"某水库工程防洪安全复核报告", sz="72"))
+                 + u"<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>"
+                 + fixtures.paragraph(fixtures.run(u"编制：张三"))
+                 + fixtures.paragraph(fixtures.run(u"校核：李四"))
+                 + fixtures.paragraph(fixtures.run(u"审核：王五"))
+                 + u"<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>"
+                 + fixtures.paragraph(fixtures.run(u"前 言"))
+                 + fixtures.paragraph(fixtures.run(u"受 XX 委托，我院开展了复核工作。"))
+                 + fixtures.paragraph(fixtures.run(u""))
+                 + fixtures.paragraph(fixtures.run(u"  "))
+                 + fixtures.paragraph(fixtures.run(u"正文第二段。"))
+                 + fixtures.paragraph(fixtures.run(u"")))
+        fixtures.write_fixture(path, body=cover)
+        return path
+
+    def test_detect_finds_cover_signature_and_marker(self):
+        from wordfactory import frontmatter
+        work = tempfile.mkdtemp(prefix="wf_fm_")
+        try:
+            path = self._doc_with_frontmatter(os.path.join(work, u"报告.docx"))
+            with Document(path) as doc:
+                info = frontmatter.detect(doc)
+            self.assertTrue(info["present"])
+            self.assertEqual(info["marker"], u"前言")
+            self.assertEqual(info["pages"], 3)
+            self.assertTrue(info["cover"])
+            self.assertTrue(info["title_page"])
+            self.assertTrue(info["signature_page"])
+            self.assertIn(u"编制", info["roles"])
+            human = frontmatter.format_report(info)
+            self.assertIn(u"封面：有", human)
+            self.assertIn(u"签字页：有", human)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def test_tidy_does_not_touch_frontmatter_blanks(self):
+        work = tempfile.mkdtemp(prefix="wf_fm_")
+        try:
+            path = self._doc_with_frontmatter(os.path.join(work, u"报告.docx"))
+            out = os.path.join(work, u"清理后.docx")
+            with Document(path) as doc:
+                report = tidy_op.tidy(doc)
+                doc.save(out)
+            # 前置区里的空段一个没动（merge_lines 没开 → 不会有"删除空行"这个键）；正文空段被压掉
+            self.assertIsNone(report["changes"].get(u"删除空行"))
+            self.assertGreaterEqual(report["changes"].get(u"空白段压缩", 0), 1)
+            self.assertGreater(report["changes"].get(u"前置区保护（跳过）", 0), 0)
+            with zipfile.ZipFile(out) as archive:
+                text = archive.read("word/document.xml").decode("utf-8")
+            self.assertEqual(text.count(u"<w:p><w:r><w:br"), 2,
+                             u"封面/签字页的分页符段落必须原样保留")
+            self.assertIn(u"编制：张三", text)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def test_no_marker_means_no_protection(self):
+        from wordfactory import frontmatter
+        work = tempfile.mkdtemp(prefix="wf_fm_")
+        try:
+            path = os.path.join(work, u"没目录.docx")
+            body = (fixtures.paragraph(fixtures.run(u"第一段。"))
+                    + fixtures.paragraph(fixtures.run(u""))
+                    + fixtures.paragraph(fixtures.run(u"第二段。")))
+            fixtures.write_fixture(path, body=body)
+            with Document(path) as doc:
+                info = frontmatter.detect(doc)
+            self.assertFalse(info["present"])
+            self.assertIn(u"没遍历到", info["note"])
+        finally:
+            shutil.rmtree(work, ignore_errors=True)

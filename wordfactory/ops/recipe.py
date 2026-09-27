@@ -328,6 +328,51 @@ def rows_with_prefixes(lines):
     return rows
 
 
+#: C 列「段前文字」的截断长度（上一段的完整文字太长会把表撑爆，够认语境即可）
+CONTEXT_LIMIT = 60
+
+
+def var_contexts(document, mode, char=None, limit=CONTEXT_LIMIT):
+    """按 VAR 的出现顺序，给每个变量配一段「段前文字」（往前最近的一个**非空段**）。
+
+    用户 2026-09-27 的意见：A 列只有变量前面那半句，变量在段首时 A 列干脆是空的，
+    在 Excel 里根本看不出这是哪部分的数据 —— 把**上一段**的文字也放进表里，翻表就知道语境。
+    读端（rebuild / 参考宏）只认 B 列，多出来的列不影响回写。
+    """
+    paragraphs = _scope_paragraphs(document, skip_recipes=True)
+    contexts = []
+    for index, paragraph in enumerate(paragraphs):
+        if mode == "chars":
+            count = paragraph.text.count(char) if char else 0
+        else:
+            count = _highlight_spans(paragraph)
+        if not count:
+            continue
+        context = u""
+        for back in range(index - 1, -1, -1):
+            candidate = paragraphs[back].text.strip()
+            if candidate:
+                context = candidate[:limit]
+                break
+        contexts.extend([context] * count)
+    return contexts
+
+
+def _highlight_spans(paragraph):
+    """这一段里有几处**连续高亮区**（连续的高亮 run 算一个变量，与 `_segments` 口径一致）。"""
+    spans = 0
+    previous = False
+    for run in paragraph.runs:
+        text = u"".join((node.text or "") for node in run.findall(qn("w:t")))
+        if not text:
+            continue
+        current = _is_highlighted(run.find(qn("w:rPr")))
+        if current and not previous:
+            spans += 1
+        previous = current
+    return spans
+
+
 def generate(document, options, dry_run=False):
     """生成配方（模式 1 高亮 / 模式 2 特定字符）：写 xlsx + 把配方文本追加到文档末尾。
 
@@ -347,14 +392,21 @@ def generate(document, options, dry_run=False):
                     options.get("sheet_name") or u"Sheet1",
                     len(variables), options.get("name") or u"默认配方", lines)
     rows = rows_with_prefixes(lines)
+    # C 列「段前文字」：变量与上一段一一配上；对不上（极少数边界）就补空串，不出错
+    contexts = var_contexts(document, mode, options.get("char"))
+    if len(contexts) != len(rows):
+        contexts = (list(contexts) + [u""] * len(rows))[:len(rows)]
+    triplets = [(prefix, value, context)
+                for (prefix, value), context in zip(rows, contexts)]
     report = {"op": "recipe-generate", "mode": mode, "recipe": recipe.name,
-              "variables": len(variables), "rows": rows,
+              "variables": len(variables), "rows": triplets,
               "excel": recipe.excel_file, "sheet": recipe.sheet_name,
               "paragraphs": 0, "dry_run": bool(dry_run), "recipe_text": recipe.to_text()}
     if dry_run:
         return report, recipe, None
     from ..xlsx import write_workbook
-    xlsx_path = write_workbook(options["out_xlsx"], recipe.sheet_name, rows)
+    xlsx_path = write_workbook(options["out_xlsx"], recipe.sheet_name, triplets,
+                               header=(u"项目", u"数值", u"段前文字"))
     if options.get("append", True):
         body = document.body()
         anchor = body.find(qn("w:sectPr"))

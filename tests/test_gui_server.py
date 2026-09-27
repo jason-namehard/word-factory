@@ -387,3 +387,15 @@ class TestPortBusyCheck(unittest.TestCase):
             self.assertIn(u"--port", message, u"要告诉用户换端口")
         finally:
             probe.close()
+
+
+class TestPluginGuide(GuiCase):
+    """「新增功能…」按钮背后的指南接口（用户 2026-09-27 第 4 条：成长性）。"""
+
+    def test_the_guide_is_served_and_tells_the_contract(self):
+        body, status = self.get("/api/plugin-guide")
+        self.assertEqual(status, 200)
+        text = body.decode("utf-8")
+        self.assertIn(u"wordfactory/ops/", text, u"要说清文件放哪")
+        self.assertIn(u"apply(document, params, dry_run", text, u"要说清函数契约")
+        self.assertIn(u"STEPS", text, u"要说清在哪登记")
