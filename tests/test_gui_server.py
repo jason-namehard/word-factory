@@ -354,3 +354,36 @@ class TestPdfEndpoint(GuiCase):
             self.assertTrue(u"渲染器" in message or u"PDF" in message, message)
         else:
             self.assertTrue(True)
+
+
+class TestPortBusyCheck(unittest.TestCase):
+    """双击启动器连点两下，不许悄悄起来两个服务（Windows 允许重复绑定同一端口）。"""
+
+    def test_a_listening_port_is_reported_as_busy(self):
+        import socket
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        probe.listen(1)
+        port = probe.getsockname()[1]
+        try:
+            self.assertTrue(gui_server._port_busy("127.0.0.1", port))
+            self.assertFalse(gui_server._port_busy("127.0.0.1", 0) or
+                             gui_server._port_busy("127.0.0.1", 1),
+                             u"没人听的端口不该报占用")
+        finally:
+            probe.close()
+
+    def test_serve_refuses_to_start_twice_and_says_what_to_do(self):
+        import socket
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        probe.listen(1)
+        port = probe.getsockname()[1]
+        try:
+            with self.assertRaises(gui_server.PackageError) as caught:
+                gui_server.serve(port=port, open_browser=False)
+            message = u"%s" % caught.exception
+            self.assertIn(u"已经起了一个", message)
+            self.assertIn(u"--port", message, u"要告诉用户换端口")
+        finally:
+            probe.close()

@@ -491,6 +491,22 @@ def _rules_path(name):
     return os.path.join(base, "rules", name)
 
 
+def _port_busy(host, port):
+    """端口上是不是已经有东西在听了（我们自己的另一个实例最可能）。
+
+    为什么必须查：Windows 的 ``SO_REUSEADDR`` 允许**两个** socket 绑同一个端口，
+    于是双击启动器连点两下会起来两个服务，请求在两个进程之间乱跳 ——
+    表现是"时好时坏"，极难排查。所以绑之前先连一下，有人就明说。
+    """
+    import socket
+    probe = socket.socket()
+    probe.settimeout(0.6)
+    try:
+        return probe.connect_ex((host or "127.0.0.1", port)) == 0
+    finally:
+        probe.close()
+
+
 def serve(host="127.0.0.1", port=8765, open_browser=True, root=None, plans=None):
     """起服务；``open_browser`` 时顺手打开浏览器。
 
@@ -499,10 +515,22 @@ def serve(host="127.0.0.1", port=8765, open_browser=True, root=None, plans=None)
     """
     if not os.path.exists(PAGE):
         raise PackageError(u"找不到页面文件：%s" % PAGE)
+    if _port_busy(host, port):
+        raise PackageError(
+            u"端口 %d 已经有人在听了 —— 多半是 word 工厂已经起了一个。\n"
+            u"  先试试打开 http://%s:%d/ ，能用就直接用；\n"
+            u"  打不开就关掉之前那个黑色命令行窗口，或者换个端口：\n"
+            u"  python -m wordfactory.cli gui --port 8766" % (port, host, port))
     handler = type("BoundHandler", (Handler,),
                    {"root": os.path.abspath(root) if root else None,
                     "plans_dir": os.path.abspath(plans) if plans else PLANS_DIR})
-    server = ThreadingHTTPServer((host, port), handler)
+    try:
+        server = ThreadingHTTPServer((host, port), handler)
+    except OSError as exc:
+        # 万一预检没拦住（端口在两步之间被抢），也别甩 traceback
+        raise PackageError(
+            u"端口 %d 绑不上（%s）。换个端口试试：python -m wordfactory.cli gui --port 8766"
+            % (port, exc))
     url = "http://%s:%d/" % (host, port)
     print(u"word 工厂 GUI 已启动：%s" % url)
     print(u"（只监听本机 %s；关掉这个窗口或点页面上的「退出」即停）" % host)
