@@ -216,3 +216,66 @@ class PlanCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPreviewDistinctness(PlanCase):
+    """六款预览必须**画得出来区别**（用户 2026-09-27：根本看不出区别）。
+
+    判据：把样图里点名款式的标题文字去掉后，六张 SVG 两两不同 ——
+    列宽分布（keep/equal/content）、长文本列对齐（居中/左）、三线表（无竖线）都得体现在图上。
+    """
+
+    def test_six_previews_are_mutually_distinct(self):
+        from wordfactory.tablestyle import DEFAULT_STYLES, StyleSet, preview_svg
+        styles = StyleSet(DEFAULT_STYLES)
+        bodies = []
+        for name, style in styles.styles.items():
+            svg = preview_svg(style)
+            self.assertTrue(svg.startswith(u"<svg"))
+            # 去掉标题（含款式名）再比——剩下的是"画了什么"
+            body = svg.split(u"</text>", 1)[1]
+            bodies.append((name, body))
+        for i, (name_a, body_a) in enumerate(bodies):
+            for name_b, body_b in bodies[i + 1:]:
+                self.assertNotEqual(body_a, body_b,
+                                    u"预览画不出区别：%s 和 %s" % (name_a, name_b))
+
+    def test_column_width_strategies_draw_different_columns(self):
+        from wordfactory.tablestyle import TableStyle, preview_svg
+        keep = TableStyle(u"keep", {"column_widths": "keep",
+                                    "borders": {"top": {"val": "single", "sz": 12}}})
+        equal = TableStyle(u"equal", {"column_widths": "equal",
+                                      "borders": {"top": {"val": "single", "sz": 12}}})
+        def xs(svg):
+            import re
+            return re.findall(r'<line x1="([\d.]+)"', svg)
+        self.assertNotEqual(xs(preview_svg(keep)), xs(preview_svg(equal)))
+
+
+class TestFontColorBoldRule(PlanCase):
+    """文字格式替换：颜色与字形（用户 2026-09-27 点名要颜色栏目）。"""
+
+    def test_color_replacement(self):
+        body = fixtures.paragraph(fixtures.run(u"红字。", color="FF0000"))
+        path = self._doc(body=body)
+        rules = {"name": u"颜色", "text": [], "para": [],
+                 "font": [{"from": {"color": "FF0000"}, "to": {"color": "000000"}}]}
+        with Document(path) as doc:
+            report = replace_rules_mod.apply(doc, rules)
+            out = os.path.join(self.dir, u"颜色.docx")
+            doc.save(out)
+        self.assertGreaterEqual(report["font"], 1)
+        with zipfile.ZipFile(out) as archive:
+            text = archive.read("word/document.xml").decode("utf-8")
+        self.assertNotIn(u"FF0000", text)
+        self.assertIn(u'w:val="000000"', text)
+
+    def test_second_pass_is_zero(self):
+        body = fixtures.paragraph(fixtures.run(u"红字。", color="FF0000"))
+        path = self._doc(body=body)
+        rules = {"name": u"颜色", "text": [], "para": [],
+                 "font": [{"from": {"color": "FF0000"}, "to": {"color": "000000"}}]}
+        with Document(path) as doc:
+            replace_rules_mod.apply(doc, rules)
+            second = replace_rules_mod.apply(doc, rules)
+        self.assertEqual(second["font"], 0)

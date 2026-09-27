@@ -1201,20 +1201,33 @@ def _table_xml(rows, style):
 def preview_svg(style):
     """把一个款式画成 SVG 样图（「表格款式」页的预览框用；用户 2026-09-27 要的"看到几种预览状态"）。
 
-    画的是**同一份参数**：框线粗细按 ``w:sz``（1/8 磅）折算成像素、三线表不画竖线、
-    表头加粗居中、长文本列左对齐 —— 看到的样子就是套用后的样子（示意，非逐像素渲染）。
+    画的是**同一份参数**，而且必须把**彼此的区别画出来**（用户 2026-09-27：
+    "这几个格式根本看不出区别"）：
+
+    * 列宽按 ``column_widths`` 画——keep=原样不匀 / equal=四列等宽 / content=按内容自适应；
+    * 长文本列（备注）按 ``long_text_align`` 画——居中款与"长文本左对齐"款一眼可辨；
+    * 框线粗细按 ``w:sz``（1/8 磅）折算，三线表不画竖线、表头下细线。
     """
-    scale = 0.18                                   # 1/8 磅 → 像素（示意比例）
+    scale = 1.0 / 6.0                              # 1/8 磅 → 像素：1 磅 = 96/72 px，12(=1.5磅) → 2px
     width, height = 380, 150
     left, top = 30, 38
     table_w, row_h = 320, 24
     columns = 4
-    col_w = table_w / columns
 
-    def line(x1, y1, x2, y2, sz, default_val="single"):
+    # 列宽：三种策略给三种**不同的**分布（这就是几款肉眼可见的区别之一）
+    if style.column_widths == "equal":
+        fractions = [0.25, 0.25, 0.25, 0.25]
+    elif style.column_widths == "content":
+        fractions = [0.12, 0.30, 0.18, 0.40]       # 按内容自适应：备注列最宽
+    else:                                          # keep：原样不匀（典型报告里的样子）
+        fractions = [0.18, 0.30, 0.24, 0.28]
+    xs = [left]
+    for fraction in fractions:
+        xs.append(xs[-1] + table_w * fraction)
+
+    def line(x1, y1, x2, y2, sz):
         spec = style.borders.get(sz) or {}
-        value = spec.get("val", default_val)
-        if value in ("none", "nil"):
+        if spec.get("val") in ("none", "nil"):
             return u""
         px = max(0.6, (spec.get("sz") or 4) * scale)
         return (u'<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" '
@@ -1228,7 +1241,6 @@ def preview_svg(style):
 
     header_bottom = (style.borders.get("header_bottom") or {}).get("sz")
     rows_y = [top, top + row_h, top + row_h * 2, top + row_h * 3]
-    # 外框 + 内线（三线表：left/right/insideV 是 none → line() 返回空）
     parts.append(line(left, rows_y[0], left + table_w, rows_y[0], "top"))
     parts.append(line(left, rows_y[3], left + table_w, rows_y[3], "bottom"))
     parts.append(line(left, rows_y[0], left, rows_y[3], "left"))
@@ -1242,8 +1254,7 @@ def preview_svg(style):
         parts.append(line(left, rows_y[1], left + table_w, rows_y[1], "insideH"))
         parts.append(line(left, rows_y[2], left + table_w, rows_y[2], "insideH"))
     for i in range(1, columns):
-        x = left + col_w * i
-        parts.append(line(x, rows_y[0], x, rows_y[3], "insideV"))
+        parts.append(line(xs[i], rows_y[0], xs[i], rows_y[3], "insideV"))
 
     def label(x, y, text, bold=False, anchor="middle", size=11):
         weight = u' font-weight="bold"' if bold else u''
@@ -1251,14 +1262,11 @@ def preview_svg(style):
                 u'font-family="sans-serif" text-anchor="%s"%s>%s</text>'
                 % (x, y, size, anchor, weight, _escape(text)))
 
-    header_labels = [u"序号", u"项目", u"数值", u"备注"]
-    for i, text in enumerate(header_labels):
+    for i, text in enumerate([u"序号", u"项目", u"数值", u"备注"]):
         bold = bool(style.header.get("bold", True))
-        parts.append(label(left + col_w * i + col_w / 2, rows_y[0] + 16, text,
-                           bold=bold,
-                           anchor={"center": "middle", "left": "start",
-                                   "right": "end"}.get(style.header.get("align") or "center",
-                                                       "middle")))
+        parts.append(label((xs[i] + xs[i + 1]) / 2, rows_y[0] + 16, text, bold=bold,
+                           anchor={"center": "middle", "left": "start", "right": "end"}
+                           .get(style.header.get("align") or "center", "middle")))
     sample_rows = [[u"1", u"正常水位", u"135.50", u"汛期限制水位"],
                    [u"2", u"设计洪水位", u"137.20", u"说明文字较长的一格"]]
     body_align = style.body.get("align") or "center"
@@ -1269,7 +1277,7 @@ def preview_svg(style):
             if i == len(row) - 1 and style.body.get("long_text_align"):
                 align = style.body.get("long_text_align")     # 长文本列：左对齐
             anchor = {"center": "middle", "left": "start", "right": "end"}.get(align, "middle")
-            x = left + col_w * i + (8 if anchor == "start" else col_w / 2)
+            x = xs[i] + (8 if anchor == "start" else (xs[i + 1] - xs[i]) / 2)
             parts.append(label(x, y, text, anchor=anchor))
     parts.append(u"</svg>")
     return u"".join(parts)

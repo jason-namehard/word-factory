@@ -362,7 +362,7 @@ class Handler(BaseHTTPRequestHandler):
             raise PipelineError(u"文件不存在：%s" % path)
         from ..ooxml import qn
         from ..document import Document
-        east_asia, latin, sizes, aligns = set(), set(), set(), set()
+        east_asia, latin, sizes, aligns, colors = set(), set(), set(), set(), set()
         with Document(path) as doc:
             for run in doc.part().iter(qn("w:r")):
                 pr = run.find(qn("w:rPr"))
@@ -378,6 +378,9 @@ class Handler(BaseHTTPRequestHandler):
                     node = pr.find(qn(tag))
                     if node is not None and node.get(qn("w:val")):
                         sizes.add(node.get(qn("w:val")))
+                color = pr.find(qn("w:color"))
+                if color is not None and color.get(qn("w:val")):
+                    colors.add((color.get(qn("w:val")) or u"").upper())
             for pr in doc.part().iter(qn("w:pPr")):
                 jc = pr.find(qn("w:jc"))
                 if jc is not None and jc.get(qn("w:val")):
@@ -385,7 +388,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"ok": True,
                     "east_asia": sorted(east_asia), "latin": sorted(latin),
                     "sizes": sorted(sizes, key=lambda v: float(v) if v.replace(".", u"").isdigit() else 0),
-                    "aligns": sorted(aligns)})
+                    "aligns": sorted(aligns), "colors": sorted(colors)})
 
     def _pdf(self):
         """导出 PDF：编排本机装着的渲染器（Word/WPS/LibreOffice）。"""

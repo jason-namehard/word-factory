@@ -162,18 +162,34 @@ def _run_text(run):
 
 
 def _font_matches(rpr, want):
-    """run 的直接字符属性是否命中 ``from`` 条件（列出的键都要相等；没列的不管）。"""
+    """run 的直接字符属性是否命中 ``from`` 条件（列出的键都要相等；没列的不管）。
+
+    支持的键（对齐 Word 字体对话框的栏目，用户 2026-09-27 点名要中文字体/西文字体/颜色）：
+    ``eastAsia``/``ascii``（中文字体/西文字体，走 ``w:rFonts``）、``size``（字号，
+    ``w:sz`` 半磅）、``color``（字体颜色，``w:color``）、``bold``（字形加粗，``w:b``）。
+    """
     if not want:
         return False
     rfonts = rpr.find(qn("w:rFonts")) if rpr is not None else None
     for key, value in want.items():
-        if key == "size":
+        if key in ("eastAsia", "ascii"):
+            if rfonts is None or (rfonts.get(qn("w:%s" % key)) or u"") != u"%s" % value:
+                return False
+        elif key == "size":
             node = rpr.find(qn("w:sz")) if rpr is not None else None
             if node is None or (node.get(qn("w:val")) or u"") != u"%s" % value:
                 return False
-        else:
-            if rfonts is None or (rfonts.get(qn("w:%s" % key)) or u"") != u"%s" % value:
+        elif key == "color":
+            node = rpr.find(qn("w:color")) if rpr is not None else None
+            if node is None or (node.get(qn("w:val")) or u"").lower() != (u"%s" % value).lower():
                 return False
+        elif key == "bold":
+            node = rpr.find(qn("w:b")) if rpr is not None else None
+            on = node is not None and (node.get(qn("w:val")) or u"1") not in (u"0", u"false")
+            if on != bool(value):
+                return False
+        else:
+            return False                    # 不认识的键宁可不命中，也不误替换
     return True
 
 
@@ -201,10 +217,11 @@ def _apply_font(document, entries, dry_run):
 
 
 def _set_font(rpr, target, dry_run):
-    """把 to 里的字体/字号写到 rPr（四属性只写点名的那些）；没变化返回 False（幂等）。"""
+    """把 to 里的字体/字号/颜色/字形写到 rPr（只写点名的项）；没变化返回 False（幂等）。"""
     changed = False
     if rpr is None:
         return False
+    from .tablestyle import _ensure, RPR_ORDER
     font_target = {key: value for key, value in target.items() if key in FONT_ATTRS}
     if font_target:
         rfonts = rpr.find(qn("w:rFonts"))
@@ -212,7 +229,6 @@ def _set_font(rpr, target, dry_run):
             if dry_run:
                 changed = True
             else:
-                from .tablestyle import _ensure, RPR_ORDER
                 rfonts = _ensure(rpr, "w:rFonts", RPR_ORDER, 0, dry_run=False)
         for key, value in font_target.items():
             attr = qn("w:%s" % key)
@@ -228,12 +244,34 @@ def _set_font(rpr, target, dry_run):
                 if dry_run:
                     changed = True
                     continue
-                from .tablestyle import _ensure, RPR_ORDER
                 node = _ensure(rpr, tag, RPR_ORDER, 0, dry_run=False)
             if node.get(qn("w:val")) != value:
                 if not dry_run:
                     node.set(qn("w:val"), value)
                 changed = True
+    if "color" in target:
+        value = u"%s" % target["color"]
+        node = rpr.find(qn("w:color"))
+        if node is None:
+            if dry_run:
+                changed = True
+            else:
+                node = _ensure(rpr, "w:color", RPR_ORDER, 0, dry_run=False)
+        if (node.get(qn("w:val")) or u"").lower() != value.lower():
+            if not dry_run:
+                node.set(qn("w:val"), value)
+            changed = True
+    if "bold" in target:
+        want_on = bool(target["bold"])
+        node = rpr.find(qn("w:b"))
+        is_on = node is not None and (node.get(qn("w:val")) or u"1") not in (u"0", u"false")
+        if is_on != want_on:
+            if not dry_run:
+                if node is None and want_on:
+                    _ensure(rpr, "w:b", RPR_ORDER, 0, dry_run=False)
+                elif node is not None and not want_on:
+                    node.set(qn("w:val"), u"0")    # 关字形不是删元素：Word 的口径就是 val=0
+            changed = True
     return changed
 
 

@@ -125,6 +125,14 @@
   .subpanel { display: none; border: 1px solid #e5eaf2; border-radius: 0 8px 8px 8px;
               padding: 12px; background: #fbfcfe; }
   .subpanel.on { display: block; }
+  /* 来源 / 换成 两块，一眼分清哪些是报告的、哪些是要替换成的 */
+  .fmtbox { border: 1px solid #e2e8f2; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .fmtbox .fmt-title { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+  .fmtbox .fmt-title .fld { color: #94a3b8; font-weight: 400; margin: 0 8px 0 14px; }
+  .fmtbox.from { background: #f6f8fc; }
+  .fmtbox.from .fmt-title { color: #475569; }
+  .fmtbox.to { background: #eef4ff; border-color: #b9cdf5; }
+  .fmtbox.to .fmt-title { color: #1d4fd7; }
   .ruleline { display: flex; gap: 6px; align-items: center; padding: 5px 6px;
               border-bottom: 1px dashed #e5eaf2; font-size: 12px; }
   .plan { display: flex; align-items: center; gap: 10px; padding: 9px 10px;
@@ -361,33 +369,56 @@
     <div id="t-list"></div>
   </div>
   <div class="subpanel" id="sub-font">
-    <div class="hint">把某种**文字格式**换成另一种（读的是这份报告里实际用过的格式）。
-       目标字体保底：宋体 / 仿宋_GB2312 / 楷体 / 黑体 / Times New Roman。</div>
-    <div class="rowline" style="margin-bottom:6px">
-      <b>来源：</b>
-      <select id="f-from-east" style="max-width:150px"></select>
-      <select id="f-from-latin" style="max-width:150px"></select>
-      <select id="f-from-size" style="max-width:110px"></select>
+    <div class="hint">照 Word 字体对话框的栏目：把某种**文字格式**换成另一种。来源下拉框读的是
+       这份报告里实际用过的格式；目标字体保底：宋体 / 仿宋_GB2312 / 楷体 / 黑体 / Times New Roman。</div>
+    <div class="fmtbox from">
+      <div class="fmt-title">来源 —— 报告里现在的格式
+        <span class="fld">中文字体</span><span class="fld">西文字体</span><span class="fld">字号</span><span class="fld">字体颜色</span>
+      </div>
+      <div class="rowline">
+        <select id="f-from-east" style="max-width:150px" title="中文字体"></select>
+        <select id="f-from-latin" style="max-width:150px" title="西文字体"></select>
+        <select id="f-from-size" style="max-width:110px" title="字号"></select>
+        <select id="f-from-color" style="max-width:130px" title="字体颜色"></select>
+      </div>
     </div>
-    <div class="rowline" style="margin-bottom:8px">
-      <b>换成：</b>
-      <select id="f-to-east" style="max-width:150px"></select>
-      <select id="f-to-latin" style="max-width:150px"></select>
-      <select id="f-to-size" style="max-width:110px"></select>
-      <button id="f-add">添加一条</button>
+    <div class="fmtbox to">
+      <div class="fmt-title">换成 —— 替换成的格式
+        <span class="fld">中文字体</span><span class="fld">西文字体</span><span class="fld">字号</span><span class="fld">字体颜色</span>
+      </div>
+      <div class="rowline">
+        <select id="f-to-east" style="max-width:150px" title="中文字体（保底）"></select>
+        <select id="f-to-latin" style="max-width:150px" title="西文字体"></select>
+        <select id="f-to-size" style="max-width:110px" title="字号"></select>
+        <select id="f-to-color" style="max-width:130px" title="字体颜色"></select>
+      </div>
+      <div class="rowline" style="margin-top:8px">
+        <button id="f-add" class="primary">添加一条</button>
+        <span class="hint" style="margin:0">每栏留空 = 这一项不管 / 不变</span>
+      </div>
     </div>
     <div id="f-list"></div>
   </div>
   <div class="subpanel" id="sub-para">
-    <div class="hint">把某种**段落格式**换成另一种（对齐 / 行距 / 首行缩进）。</div>
-    <div class="rowline" style="margin-bottom:6px">
-      <b>来源：</b>对齐 <select id="p-from-align" style="max-width:130px"></select>
+    <div class="hint">把某种**段落对齐方式**换成另一种（来源下拉框读的是这份报告里实际出现过的对齐）。</div>
+    <div class="fmtbox from">
+      <div class="fmt-title">来源 —— 报告里现在的段落格式
+        <span class="fld">对齐方式</span>
+      </div>
+      <div class="rowline">
+        <select id="p-from-align" style="max-width:180px" title="对齐方式"></select>
+      </div>
     </div>
-    <div class="rowline" style="margin-bottom:8px">
-      <b>换成：</b>对齐 <select id="p-to-align" style="max-width:130px"></select>
-      <label>行距(磅×20) <input type="text" id="p-to-line" style="width:80px" placeholder="如 360"></label>
-      <label>首行缩进(字符) <input type="text" id="p-to-flc" style="width:80px" placeholder="如 200"></label>
-      <button id="p-add">添加一条</button>
+    <div class="fmtbox to">
+      <div class="fmt-title">换成 —— 替换成的段落格式
+        <span class="fld">对齐方式</span>
+      </div>
+      <div class="rowline">
+        <select id="p-to-align" style="max-width:180px" title="对齐方式"></select>
+      </div>
+      <div class="rowline" style="margin-top:8px">
+        <button id="p-add" class="primary">添加一条</button>
+      </div>
     </div>
     <div id="p-list"></div>
   </div>
@@ -1020,26 +1051,31 @@ async function loadDocFormats() {
   const east = data.east_asia.concat(BASE_FONTS.filter(f => !data.east_asia.includes(f)));
   const latin = data.latin.concat(LATIN_FONTS.filter(f => !data.latin.includes(f)));
   const sizes = data.sizes;
-  const fill = (id, values, blank) => {
+  const COLOR_NAMES = {'000000': '黑色', 'auto': '自动（黑）', 'FF0000': '红色',
+                       '0000FF': '蓝色', '00B050': '绿色'};
+  const colorLabel = v => v + (COLOR_NAMES[v] ? '（' + COLOR_NAMES[v] + '）' : '');
+  const fill = (id, values, blank, labeler) => {
     const select = $(id);
     select.textContent = '';
     if (blank) {
       const option = document.createElement('option');
-      option.value = ''; option.textContent = '（不限）';
+      option.value = ''; option.textContent = '（不限 / 不变）';
       select.appendChild(option);
     }
     values.forEach(v => {
       const option = document.createElement('option');
-      option.value = v; option.textContent = v;
+      option.value = v; option.textContent = labeler ? labeler(v) : v;
       select.appendChild(option);
     });
   };
   fill('f-from-east', east, true);
   fill('f-from-latin', latin, true);
   fill('f-from-size', sizes, true);
+  fill('f-from-color', data.colors.concat([]), true, colorLabel);
   fill('f-to-east', BASE_FONTS, false);
   fill('f-to-latin', LATIN_FONTS, false);
   fill('f-to-size', sizes.length ? sizes : ['16'], true);
+  fill('f-to-color', ['000000', 'auto'], true, colorLabel);
   const aligns = ['both', 'center', 'left', 'right'];
   const alignName = {both: '两端对齐', center: '居中', left: '左对齐', right: '右对齐'};
   fill('p-from-align', aligns.map(a => a + '|' + alignName[a]), true);
@@ -1057,25 +1093,30 @@ $('f-add').addEventListener('click', () => {
   if ($('f-from-east').value) from.eastAsia = $('f-from-east').value;
   if ($('f-from-latin').value) from.ascii = $('f-from-latin').value;
   if ($('f-from-size').value) from.size = $('f-from-size').value;
+  if ($('f-from-color').value) from.color = $('f-from-color').value;
   if (!Object.keys(from).length) { log('来源条件至少填一项', 'err'); return; }
   if ($('f-to-east').value) to.eastAsia = $('f-to-east').value;
   if ($('f-to-latin').value) to.ascii = $('f-to-latin').value;
   if ($('f-to-size').value) to.size = $('f-to-size').value;
+  if ($('f-to-color').value) to.color = $('f-to-color').value;
   if (!Object.keys(to).length) { log('目标格式至少填一项', 'err'); return; }
   state.rule.font.push({from: from, to: to});
   renderRuleLists();
 });
 $('p-add').addEventListener('click', () => {
   const fromAlign = $('p-from-align').value.split('|')[0];
-  if (!fromAlign) { log('来源对齐方式要选一个', 'err'); return; }
-  const to = {align: $('p-to-align').value.split('|')[0]};
-  if ($('p-to-line').value.trim()) to.line = $('p-to-line').value.trim();
-  if ($('p-to-flc').value.trim()) to.first_line_chars = $('p-to-flc').value.trim();
-  state.rule.para.push({from: {align: fromAlign}, to: to});
+  if (!fromAlign) { log('来源的对齐方式要选一个', 'err'); return; }
+  const toAlign = $('p-to-align').value.split('|')[0];
+  if (!toAlign) { log('换成什么的对齐方式要选一个', 'err'); return; }
+  state.rule.para.push({from: {align: fromAlign}, to: {align: toAlign}});
   renderRuleLists();
 });
 function renderRuleLists() {
-  const render = (id, rows, format, delIndex) => {
+  const FIELD_NAMES = {eastAsia: '中文字体', ascii: '西文字体', size: '字号',
+                       color: '颜色', align: '对齐'};
+  const fmtDesc = obj => Object.entries(obj)
+    .map(([k, v]) => FIELD_NAMES[k] + '=' + v).join('，');
+  const render = (id, rows, format) => {
     const holder = $(id);
     holder.textContent = '';
     if (!rows.length) { holder.textContent = '（还没有条目）'; return; }
@@ -1092,8 +1133,8 @@ function renderRuleLists() {
     });
   };
   render('t-list', state.rule.text, r => '「' + r.find + '」→「' + (r.replace || '') + '」');
-  render('f-list', state.rule.font, r => JSON.stringify(r.from) + ' → ' + JSON.stringify(r.to));
-  render('p-list', state.rule.para, r => JSON.stringify(r.from) + ' → ' + JSON.stringify(r.to));
+  render('f-list', state.rule.font, r => fmtDesc(r.from) + '  →  ' + fmtDesc(r.to));
+  render('p-list', state.rule.para, r => '对齐 ' + r.from.align + '  →  对齐 ' + r.to.align);
   const total = state.rule.text.length + state.rule.font.length + state.rule.para.length;
   $('rule-name-label').textContent = '（' + total + ' 条，未保存）';
 }
