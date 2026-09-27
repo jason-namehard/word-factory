@@ -399,3 +399,98 @@ class TestPluginGuide(GuiCase):
         self.assertIn(u"wordfactory/ops/", text, u"要说清文件放哪")
         self.assertIn(u"apply(document, params, dry_run", text, u"要说清函数契约")
         self.assertIn(u"STEPS", text, u"要说清在哪登记")
+
+
+class TestPlanRoundEndpoints(GuiCase):
+    """2026-09-27 界面改版背后的接口：临时文件夹 / SVG 预览 / 替换规则 / 前置区 / 就地更新。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestPlanRoundEndpoints, cls).setUpClass()
+        cls.rules = os.path.join(cls.dir, u"rules")
+        cls.loose = gui_server.ThreadingHTTPServer(
+            ("127.0.0.1", 0), type("RulesHandler", (gui_server.Handler,),
+                                   {"root": None, "plans_dir": os.path.join(cls.dir, u"plans"),
+                                    "rules_base_dir": cls.rules}))
+        cls.loose_port = cls.loose.server_address[1]
+        threading.Thread(target=cls.loose.serve_forever, daemon=True).start()
+        cls.loose_base = "http://127.0.0.1:%d" % cls.loose_port
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.loose.shutdown()
+        cls.loose.server_close()
+        super(TestPlanRoundEndpoints, cls).tearDownClass()
+
+    def test_temp_dir_lists_and_cleans(self):
+        payload, _ = self.post("/api/temp/clean", {})
+        self.assertTrue(payload["ok"])
+        body, _ = self.get("/api/temp-dir")
+        data = json.loads(body.decode("utf-8"))
+        self.assertTrue(data["dir"].endswith(u"临时文件"))
+        self.assertEqual(data["files"], [])
+
+    def test_template_previews_carry_svg(self):
+        body, _ = self.get("/api/template-previews")
+        styles = json.loads(body.decode("utf-8"))["styles"]
+        self.assertTrue(styles)
+        for style in styles:
+            self.assertTrue(style["svg"].startswith(u"<svg"), style["name"])
+
+    def test_steps_carry_chinese_labels(self):
+        body, _ = self.get("/api/steps")
+        data = json.loads(body.decode("utf-8"))
+        self.assertEqual(data["labels"]["captions"], u"题注统一")
+        self.assertIn("tablestyle", data["labels"])
+        self.assertIn("replace", data["labels"])
+
+    def test_replace_rules_crud(self):
+        rules = {"name": u"界面规则", "text": [{"find": u"其它", "replace": u"其他"}],
+                 "font": [], "para": []}
+        payload, status = self.loose_post_rules("/api/replace-rules/save",
+                                                {"name": u"界面规则", "rules": rules})
+        self.assertEqual(status, 200)
+        body, _ = self.loose_get("/api/replace-rules")
+        names = [r["name"] for r in json.loads(body.decode("utf-8"))["rules"]]
+        self.assertIn(u"界面规则", names)
+        payload, _ = self.loose_post_rules("/api/replace-rules/delete", {"name": u"界面规则"})
+        self.assertTrue(payload["ok"])
+
+    def loose_post_rules(self, path, payload):
+        request = urllib.request.Request(
+            self.loose_base + path, data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(request) as response:
+            return json.loads(response.read().decode("utf-8")), response.status
+
+    def loose_get(self, path):
+        with urllib.request.urlopen(self.loose_base + path) as response:
+            return response.read(), response.status
+
+    def test_frontmatter_endpoint(self):
+        body, status = self.get("/api/frontmatter?path="
+                                + urllib.parse.quote(self.path))
+        self.assertEqual(status, 200)
+        info = json.loads(body.decode("utf-8"))["info"]
+        self.assertFalse(info["present"], u"夹具没有封面，应识别为无前置区")
+
+    def test_doc_formats_endpoint(self):
+        path = os.path.join(self.dir, u"带格式.docx")
+        body = fixtures.paragraph(
+            fixtures.run(u"文字", rfonts={"eastAsia": u"仿宋_GB2312"}, szcs="24"))
+        fixtures.write_fixture(path, body=body)
+        response = self.get("/api/doc-formats?path=" + urllib.parse.quote(path))
+        data = json.loads(response[0].decode("utf-8"))
+        self.assertIn(u"仿宋_GB2312", data["east_asia"])
+
+    def test_extdata_update_in_place(self):
+        path = os.path.join(self.dir, u"带高亮.docx")
+        body = (fixtures.paragraph(fixtures.run(u"库容 "), fixtures.run(u"1286", highlight="yellow"),
+                                   fixtures.run(u" 万m³。")))
+        fixtures.write_fixture(path, body=body)
+        gen, _ = self.post("/api/extdata", {"action": "gen", "path": path, "append": False})
+        xlsx = gen["report"]["xlsx"]
+        payload, _ = self.post("/api/extdata", {"action": "update", "path": path,
+                                                "xlsx": xlsx, "scope": "body"})
+        self.assertEqual(payload["report"]["replaced"], 1)
+        self.assertTrue(os.path.exists(payload["report"]["out"]))

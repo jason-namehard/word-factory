@@ -58,7 +58,8 @@ def tidy(document, options=None, dry_run=False):
     protected = set()
     if opts.get("protect_frontmatter", True):
         from .. import frontmatter
-        protected = frontmatter.protected_elements(document)
+        pages = int(opts.get("frontmatter_pages") or 0)
+        protected = frontmatter.protected_elements(document, pages=pages or None)
         if protected:
             report["前置区保护（跳过）"] = len(protected)
     for element, paragraph in _scope_paragraphs(document, opts.get("scope")):

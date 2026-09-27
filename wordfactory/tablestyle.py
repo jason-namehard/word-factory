@@ -105,6 +105,7 @@ DEFAULT_STYLES = {
             "header": {"bold": True, "align": "center", "repeat": True},
             "body": {"align": "center", "long_text_align": "left"},
             "column_widths": "keep",
+            "width_percent": 100,
         },
         u"通用款·全居中": {
             "note": u"偷懒款：**不分长短，所有单元格都居中** —— 不会犯错，谈不上最好看但不至于丑（用户原话）",
@@ -121,6 +122,7 @@ DEFAULT_STYLES = {
             "header": {"bold": True, "align": "center", "repeat": True},
             "body": {"align": "center"},
             "column_widths": "keep",
+            "width_percent": 100,
         },
         u"通用款·均布列宽": {
             "note": u"默认款 + **各列等宽**（均布单元格）—— 列宽歪得很厉害、想要整齐的时候用",
@@ -137,6 +139,7 @@ DEFAULT_STYLES = {
             "header": {"bold": True, "align": "center", "repeat": True},
             "body": {"align": "center", "long_text_align": "left"},
             "column_widths": "equal",
+            "width_percent": 100,
         },
         u"通用款·自适应列宽": {
             "note": u"默认款 + **按内容自适应列宽**：每列至少放得下表头，其余按内容分；**允许总宽超出页边距**（宁可宽一点，也不把每列挤扁 —— 这是要做得比 WPS 好的地方）",
@@ -171,6 +174,7 @@ DEFAULT_STYLES = {
             "header": {"bold": True, "align": "center", "repeat": True},
             "body": {"align": "center", "long_text_align": "left"},
             "column_widths": "keep",
+            "width_percent": 100,
         },
         u"三线表·学术款·均布列宽": {
             "note": u"三线表 + 各列等宽",
@@ -188,6 +192,7 @@ DEFAULT_STYLES = {
             "header": {"bold": True, "align": "center", "repeat": True},
             "body": {"align": "center", "long_text_align": "left"},
             "column_widths": "equal",
+            "width_percent": 100,
         },
     },
 }
@@ -437,6 +442,96 @@ def apply(document, style, selector="all", dry_run=False):
             "selected": len(picked), "changed_tables": len(touched),
             "tables_changed": touched, "changes": dict(changes), "total": total,
             "dry_run": bool(dry_run), "style_raw": style.raw}
+
+
+def _DEFAULT_STYLES_PATH():
+    import os
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "rules", "tablestyle.json")
+
+
+def apply_plan(document, spec, dry_run=False, styles_path=None):
+    """按"表格模板"执行方案步跑 —— 支持**映射**与**通篇一致**（用户 2026-09-27 定的两条路）。
+
+    ``spec``（来自执行方案的 params）：
+
+    * ``style``：兜底模板名（没被映射命中的表都用它）；
+    * ``uniform``：true = **通篇一致**，所有表都用兜底模板、忽略映射（用户：勾选后
+      "不区分第一个表格用啥，都是用我选定统一模板"）；
+    * ``tables``：套用范围（``all`` / ``1,4-6`` / 表头关键词），默认 all；
+    * ``mapping``：逐表指定 ``[{"index": 2, "style": "三线表·学术款"}, …]`` 或
+      ``[{"match": "水位", "style": …}, …]``（按表头关键词 —— A、B 两份报告表不一样，
+      但只要表头能对上，同一类表就自动套同一款）；
+    * ``wrap_header``：要折行的表头文字/列号列表。
+
+    映射按"先命中先用"；都没命中就用兜底。返回报告（每张表用了哪款）。
+    """
+    styles = StyleSet.load(styles_path or _DEFAULT_STYLES_PATH())
+    fallback_name = spec.get("style") or u"通用款·外粗内细"
+    fallback = styles.styles.get(fallback_name)
+    if fallback is None:
+        raise TableStyleError(u"没有这个表格模板：%r（有的：%s）"
+                              % (fallback_name, u"、".join(styles.styles)))
+    uniform = bool(spec.get("uniform"))
+    mapping = spec.get("mapping") or []
+    tables = tables_of(document)
+    try:
+        page_width = document.geometry().column_width
+    except Exception:
+        page_width = None
+    selector = u"all" if (uniform or not spec.get("tables")) else spec["tables"]
+    picked = parse_indexes(selector, len(tables), tables)
+    wrap = [u"%s" % item for item in (spec.get("wrap_header") or [])]
+    changes = collections.Counter()
+    touched = []
+    used_styles = {}
+    for index, table in enumerate(tables, start=1):
+        if index not in picked:
+            continue
+        chosen = fallback
+        chosen_name = fallback_name
+        if not uniform:
+            for entry in mapping:
+                by_index = entry.get("index")
+                by_match = entry.get("match")
+                hit = False
+                if by_index is not None:
+                    try:
+                        hit = int(by_index) == index
+                    except (TypeError, ValueError):
+                        hit = False
+                elif by_match:
+                    header = u"".join(_text_of_cell(cell)
+                                      for cell in _header_cells(table))
+                    hit = by_match in header
+                if not hit:
+                    continue
+                candidate = styles.styles.get(entry.get("style"))
+                if candidate is None:
+                    raise TableStyleError(
+                        u"映射里写的模板 %r 不存在（有的：%s）"
+                        % (entry.get("style"), u"、".join(styles.styles)))
+                chosen = candidate
+                chosen_name = candidate.name
+                break
+        style = chosen
+        if wrap:
+            merged = dict(style.raw)
+            merged["header_wrap"] = list(style.header_wrap) + wrap
+            style = TableStyle(style.name, merged)
+        count = _apply_to_table(table, style, dry_run, page_width)
+        used_styles[index] = chosen_name
+        if count:
+            touched.append(index)
+            changes.update(count)
+    total = sum(changes.values())
+    if not dry_run and total:
+        document.mark_dirty()
+    return {"op": "tablestyle", "mode": "plan", "style": fallback_name,
+            "uniform": uniform, "tables": len(tables), "selected": len(picked),
+            "changed_tables": len(touched), "tables_changed": touched,
+            "style_per_table": used_styles, "changes": dict(changes),
+            "total": total, "dry_run": bool(dry_run)}
 
 
 def _apply_to_table(table, style, dry_run, page_width=None):
@@ -1101,6 +1196,83 @@ def _table_xml(rows, style):
     # 序列化后去掉根上多余的 xmlns（外层 document 已经声明过；留着虽然合法但很丑）
     return ET.tostring(table, encoding="unicode").replace(
         u' xmlns:w="%s"' % NAMESPACES["w"], u"", 1)
+
+
+def preview_svg(style):
+    """把一个款式画成 SVG 样图（「表格款式」页的预览框用；用户 2026-09-27 要的"看到几种预览状态"）。
+
+    画的是**同一份参数**：框线粗细按 ``w:sz``（1/8 磅）折算成像素、三线表不画竖线、
+    表头加粗居中、长文本列左对齐 —— 看到的样子就是套用后的样子（示意，非逐像素渲染）。
+    """
+    scale = 0.18                                   # 1/8 磅 → 像素（示意比例）
+    width, height = 380, 150
+    left, top = 30, 38
+    table_w, row_h = 320, 24
+    columns = 4
+    col_w = table_w / columns
+
+    def line(x1, y1, x2, y2, sz, default_val="single"):
+        spec = style.borders.get(sz) or {}
+        value = spec.get("val", default_val)
+        if value in ("none", "nil"):
+            return u""
+        px = max(0.6, (spec.get("sz") or 4) * scale)
+        return (u'<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" '
+                u'stroke="#1f2933" stroke-width="%.2f"/>' % (x1, y1, x2, y2, px))
+
+    parts = [u'<svg viewBox="0 0 %d %d" width="%d" height="%d" '
+             u'xmlns="http://www.w3.org/2000/svg">' % (width, height, width, height),
+             u'<text x="%d" y="18" font-size="12" fill="#475569" '
+             u'font-family="sans-serif">%s</text>'
+             % (left, _escape(u"表4.2-1  %s" % style.name))]
+
+    header_bottom = (style.borders.get("header_bottom") or {}).get("sz")
+    rows_y = [top, top + row_h, top + row_h * 2, top + row_h * 3]
+    # 外框 + 内线（三线表：left/right/insideV 是 none → line() 返回空）
+    parts.append(line(left, rows_y[0], left + table_w, rows_y[0], "top"))
+    parts.append(line(left, rows_y[3], left + table_w, rows_y[3], "bottom"))
+    parts.append(line(left, rows_y[0], left, rows_y[3], "left"))
+    parts.append(line(left + table_w, rows_y[0], left + table_w, rows_y[3], "right"))
+    if header_bottom:
+        parts.append(u'<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#1f2933" '
+                     u'stroke-width="%.2f"/>'
+                     % (left, rows_y[1], left + table_w, rows_y[1],
+                        max(0.6, header_bottom * scale)))
+    else:
+        parts.append(line(left, rows_y[1], left + table_w, rows_y[1], "insideH"))
+        parts.append(line(left, rows_y[2], left + table_w, rows_y[2], "insideH"))
+    for i in range(1, columns):
+        x = left + col_w * i
+        parts.append(line(x, rows_y[0], x, rows_y[3], "insideV"))
+
+    def label(x, y, text, bold=False, anchor="middle", size=11):
+        weight = u' font-weight="bold"' if bold else u''
+        return (u'<text x="%.1f" y="%.1f" font-size="%d" fill="#1f2933" '
+                u'font-family="sans-serif" text-anchor="%s"%s>%s</text>'
+                % (x, y, size, anchor, weight, _escape(text)))
+
+    header_labels = [u"序号", u"项目", u"数值", u"备注"]
+    for i, text in enumerate(header_labels):
+        bold = bool(style.header.get("bold", True))
+        parts.append(label(left + col_w * i + col_w / 2, rows_y[0] + 16, text,
+                           bold=bold,
+                           anchor={"center": "middle", "left": "start",
+                                   "right": "end"}.get(style.header.get("align") or "center",
+                                                       "middle")))
+    sample_rows = [[u"1", u"正常水位", u"135.50", u"汛期限制水位"],
+                   [u"2", u"设计洪水位", u"137.20", u"说明文字较长的一格"]]
+    body_align = style.body.get("align") or "center"
+    for r, row in enumerate(sample_rows[:2]):
+        y = rows_y[1 + r] + 16
+        for i, text in enumerate(row):
+            align = body_align
+            if i == len(row) - 1 and style.body.get("long_text_align"):
+                align = style.body.get("long_text_align")     # 长文本列：左对齐
+            anchor = {"center": "middle", "left": "start", "right": "end"}.get(align, "middle")
+            x = left + col_w * i + (8 if anchor == "start" else col_w / 2)
+            parts.append(label(x, y, text, anchor=anchor))
+    parts.append(u"</svg>")
+    return u"".join(parts)
 
 
 def _escape(text):

@@ -102,12 +102,47 @@ def detect(document):
             "note": u"「%s」之前共 %d 段、约 %d 页，已整体划为前置区" % (marker, len(front), pages)}
 
 
-def protected_elements(document):
+def _page_groups(document):
+    """把正文块按分页痕迹分组成"物理页"：``[(页号, [块, …]), …]``，页号从 1 起。
+
+    分页痕迹 = 显式分页符（``w:br type=page``）/ 段前分页 / ``w:lastRenderedPageBreak``
+    （Word 上次排版留下的记号）。是**估算**：文档没重新排版过时基本准，
+    差一页的情形靠手动修正兜底（用户 2026-09-27 的"手动调整"窗口就是干这个的）。
+    """
+    groups = []
+    current = 1
+    bucket = []
+    for element in document.body():
+        bucket.append(element)
+        breaks = 0
+        if element.tag == qn("w:p"):
+            breaks = _page_breaks(element)
+        if breaks:
+            groups.append((current, bucket))
+            bucket = []
+            current += breaks
+    if bucket:
+        groups.append((current, bucket))
+    return groups
+
+
+def protected_elements(document, pages=None):
     """前置区里的**段落元素集合**（按 id），清理类算子用它跳过。
 
-    **没遍历到目录/前言 = 没有可靠边界 = 返回空集**（一个都不保护）——
-    绝不能把"没找到标志"当成"整篇都是前置区"，那样清理功能就全废了。
+    * ``pages=None``：自动识别 —— 从头走到「目录/目次/前言」，前面全是前置区；
+      **没遍历到标志 = 没有可靠边界 = 返回空集**（一个都不保护，绝不把整篇当前置区）。
+    * ``pages=N``（用户手动指定"前置区到第 N 页"）：直接按物理页分组取前 N 页，
+      **不看标志** —— 这就是手动修正窗口的引擎侧。
     """
+    if pages:
+        protected = set()
+        for number, blocks in _page_groups(document):
+            if number > int(pages):
+                break
+            for element in blocks:
+                if element.tag == qn("w:p"):
+                    protected.add(id(element))
+        return protected
     body = document.body()
     blocks = list(body)[:MAX_BLOCKS]
     seen = []

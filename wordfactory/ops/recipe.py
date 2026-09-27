@@ -373,6 +373,100 @@ def _highlight_spans(paragraph):
     return spans
 
 
+# ------------------------------------------------------------------ 就地更新
+def _iter_paragraph_elements(document, in_tables, skip_recipes=True):
+    """按 ``in_tables`` 挑段落元素：False=正文段落（不在任何表格里），True=表格单元格里的。
+
+    ElementTree 没有父指针 —— 从 body 往下走，边走边记"是否经过了 w:tbl"。
+    """
+    inside_recipe = False
+
+    def walk(node, current_in_table, out):
+        nonlocal inside_recipe
+        for child in node:
+            if child.tag == qn("w:tbl"):
+                walk(child, True, out)
+                continue
+            if child.tag == qn("w:p"):
+                if skip_recipes:
+                    text = Paragraph(child).text
+                    if u"=== 段落配方" in text:
+                        inside_recipe = True
+                        continue
+                    if u"=== 配方结束" in text:
+                        inside_recipe = False
+                        continue
+                    if inside_recipe:
+                        continue
+                if current_in_table == in_tables:
+                    out.append(child)
+                # 段落里不会再套表格（绘图里的 txbx 有，暂不管 —— 需要时再扩）
+            else:
+                walk(child, current_in_table, out)
+
+    out = []
+    walk(document.body(), False, out)
+    return out
+
+
+def update_values(document, values, scope="body", dry_run=False):
+    """**就地更新**：把高亮片段按出现顺序换成数据表里的新值（不追加、不另起段）。
+
+    用户 2026-09-27 的「文档数据更新 / 表格数据更新」两个按钮就是它：
+    ``scope="body"`` 更新正文里的，``scope="tables"`` 更新**表格单元格里的** ——
+    表格作为外置数据存储后，Excel 里链接改完，这里一次把文档里的数字全部换掉。
+
+    与 :func:`rebuild`（文末追加、与参考宏互通）是**两条路**：就地更新不改段落结构，
+    只换字。替换保留原 run 的格式（第一个 run 写新值，其余 run 清空文本）。
+    """
+    hits = 0
+    missing = 0
+    index = 0
+    for element in _iter_paragraph_elements(document, in_tables=(scope == "tables")):
+        runs = [run for run in element.findall(qn("w:r"))]
+        position = 0
+        while position < len(runs):
+            run = runs[position]
+            if not _is_highlighted(run.find(qn("w:rPr"))) or not _run_text_of(run):
+                position += 1
+                continue
+            span = [runs[position]]
+            probe = position + 1
+            while (probe < len(runs)
+                   and _is_highlighted(runs[probe].find(qn("w:rPr")))):
+                span.append(runs[probe])
+                probe += 1
+            if index < len(values):
+                if not dry_run:
+                    _set_span_text(span, values[index])
+                hits += 1
+            else:
+                missing += 1
+            index += 1
+            position = probe
+    if not dry_run and hits:
+        document.mark_dirty()
+    return {"op": "update-values", "scope": scope, "replaced": hits,
+            "missing": missing, "values": len(values), "dry_run": bool(dry_run)}
+
+
+def _run_text_of(run):
+    return u"".join((node.text or "") for node in run.findall(qn("w:t")))
+
+
+def _set_span_text(runs, value):
+    """把一段连续 run 的文字换成 ``value``：第一个 run 承担新文字，其余清空（格式都保留）。"""
+    first = True
+    for run in runs:
+        for node in run.findall(qn("w:t")):
+            if first:
+                node.text = value
+                node.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+                first = False
+            else:
+                node.text = u""
+
+
 def generate(document, options, dry_run=False):
     """生成配方（模式 1 高亮 / 模式 2 特定字符）：写 xlsx + 把配方文本追加到文档末尾。
 

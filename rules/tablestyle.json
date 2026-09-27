@@ -54,7 +54,8 @@
         "align": "center",
         "long_text_align": "left"
       },
-      "column_widths": "keep"
+      "column_widths": "keep",
+      "width_percent": 100
     },
     "通用款·全居中": {
       "note": "偷懒款：**不分长短，所有单元格都居中** —— 不会犯错，谈不上最好看但不至于丑（用户原话）",
@@ -107,7 +108,8 @@
       "body": {
         "align": "center"
       },
-      "column_widths": "keep"
+      "column_widths": "keep",
+      "width_percent": 100
     },
     "通用款·均布列宽": {
       "note": "默认款 + **各列等宽**（均布单元格）—— 列宽歪得很厉害、想要整齐的时候用",
@@ -161,7 +163,8 @@
         "align": "center",
         "long_text_align": "left"
       },
-      "column_widths": "equal"
+      "column_widths": "equal",
+      "width_percent": 100
     },
     "通用款·自适应列宽": {
       "note": "默认款 + **按内容自适应列宽**：每列至少放得下表头，其余按内容分；**允许总宽超出页边距**（宁可宽一点，也不把每列挤扁 —— 这是要做得比 WPS 好的地方）",
@@ -275,7 +278,8 @@
         "align": "center",
         "long_text_align": "left"
       },
-      "column_widths": "keep"
+      "column_widths": "keep",
+      "width_percent": 100
     },
     "三线表·学术款·均布列宽": {
       "note": "三线表 + 各列等宽",
@@ -334,7 +338,8 @@
         "align": "center",
         "long_text_align": "left"
       },
-      "column_widths": "equal"
+      "column_widths": "equal",
+      "width_percent": 100
     }
   }
 }

@@ -14,6 +14,7 @@
   button:hover { background: #f4f7fb; }
   button.primary { background: #2f6fed; border-color: #2f6fed; color: #fff; }
   button.primary:hover { background: #2a62d4; }
+  button.danger { color: #b42318; border-color: #e3b9b4; }
   button.ghost { border-style: dashed; color: #64748b; }
   button[disabled] { opacity: .5; cursor: default; }
 
@@ -21,28 +22,16 @@
   #toolbar { background: #fff; border-bottom: 1px solid #d7dee8; padding: 8px 14px;
              display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   #toolbar .title { font-weight: 600; margin-right: 6px; }
-  #toolbar .file { color: #475569; background: #f6f8fc; border: 1px solid #e2e8f2;
-                   border-radius: 6px; padding: 5px 10px; max-width: 340px;
-                   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #files { display: flex; gap: 6px; flex-wrap: wrap; max-width: 46vw; }
+  .filechip { display: inline-flex; align-items: center; gap: 6px; color: #475569;
+              background: #f6f8fc; border: 1px solid #e2e8f2; border-radius: 6px;
+              padding: 4px 8px; font-size: 12px; cursor: pointer; }
+  .filechip.on { border-color: #2f6fed; background: #eef4ff; color: #1d4fd7; }
+  .filechip .x { color: #94a3b8; cursor: pointer; }
+  .filechip .x:hover { color: #b42318; }
   #toolbar .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
   main { flex: 1; display: flex; min-height: 0; }
-
-  /* ---------- 左侧：可跑的功能 ---------- */
-  #side { width: 268px; background: #fff; border-right: 1px solid #d7dee8;
-          display: flex; flex-direction: column; }
-  #side h3 { font-size: 12px; color: #64748b; margin: 12px 12px 6px; font-weight: 600; }
-  #steps { flex: 1; overflow: auto; padding: 0 10px 10px; }
-  .step { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px;
-          border: 1px solid #e2e8f2; border-radius: 8px; margin-bottom: 6px;
-          background: #fbfcfe; cursor: grab; }
-  .step.dragging { opacity: .45; }
-  .step.over { border-color: #2f6fed; }
-  .step .grip { color: #b6c2d2; font-size: 12px; line-height: 1.4; }
-  .step .name { font-weight: 600; }
-  .step .note { font-size: 11px; color: #8a97a8; }
-  .step input { margin-top: 3px; }
-  #side .bottom { border-top: 1px solid #eef1f6; padding: 10px 12px; display: grid; gap: 6px; }
 
   /* ---------- 中间：主工作区 ---------- */
   #work { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -58,20 +47,40 @@
           padding: 14px; margin-bottom: 12px; }
   .card h4 { margin: 0 0 10px; font-size: 13px; }
   .card .hint { font-size: 12px; color: #8a97a8; margin-bottom: 10px; }
-  .tpl { display: inline-block; margin: 0 8px 8px 0; padding: 10px 14px;
-         border: 1px solid #d7dee8; border-radius: 8px; background: #fbfcfe;
-         cursor: pointer; text-align: center; }
-  .tpl:hover { border-color: #b9cdf5; }
-  .tpl.on { border-color: #2f6fed; background: #eef4ff; font-weight: 600; }
-  .tpl small { display: block; color: #8a97a8; font-size: 11px; }
+  .rowline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .rowline input[type=text], .rowline select { padding: 6px 10px; border: 1px solid #c7d0dd;
+                                               border-radius: 6px; }
+  .rowline input[type=text] { min-width: 200px; }
   table.grid { width: 100%; border-collapse: collapse; font-size: 12px; }
-  table.grid th, table.grid td { border: 1px solid #e5eaf2; padding: 6px 8px;
-                                 text-align: left; }
+  table.grid th, table.grid td { border: 1px solid #e5eaf2; padding: 6px 8px; text-align: left; }
   table.grid th { background: #f6f8fc; font-weight: 600; }
   table.grid td.center { text-align: center; }
   .pill { display: inline-block; padding: 1px 8px; border-radius: 999px;
           background: #eef4ff; color: #1d4fd7; font-size: 11px; }
   .pill.grey { background: #f1f5f9; color: #64748b; }
+
+  /* ---------- 左侧：功能清单（执行方案页内） ---------- */
+  #steps { border: 1px solid #e5eaf2; border-radius: 8px; padding: 8px; background: #fbfcfe; }
+  .step { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px;
+          border: 1px solid #e2e8f2; border-radius: 8px; margin-bottom: 6px;
+          background: #fff; cursor: grab; }
+  .step.dragging { opacity: .45; }
+  .step.over { border-color: #2f6fed; }
+  .step .grip { color: #b6c2d2; font-size: 12px; line-height: 1.4; }
+  .step .name { font-weight: 600; }
+  .step .note { font-size: 11px; color: #8a97a8; }
+  .step input { margin-top: 3px; }
+
+  /* ---------- 表格款式预览 ---------- */
+  #previews { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+              gap: 10px; }
+  .tplcard { border: 1px solid #d7dee8; border-radius: 8px; padding: 10px; cursor: pointer;
+             background: #fbfcfe; }
+  .tplcard:hover { border-color: #b9cdf5; }
+  .tplcard.on { border-color: #2f6fed; background: #eef4ff; }
+  .tplcard b { font-size: 13px; }
+  .tplcard small { display: block; color: #8a97a8; font-size: 11px; margin: 4px 0; }
+  .tplcard svg { background: #fff; border-radius: 6px; width: 100%; height: auto; }
 
   /* ---------- 右侧：预览 / 报告 ---------- */
   #right { width: 340px; background: #fff; border-left: 1px solid #d7dee8;
@@ -84,7 +93,7 @@
             font: 12px/1.7 Consolas, "Microsoft YaHei", monospace; white-space: pre-wrap; }
 
   /* ---------- 底部：日志 + 状态条 ---------- */
-  #log { height: 132px; overflow: auto; background: #fff; border-top: 1px solid #d7dee8;
+  #log { height: 118px; overflow: auto; background: #fff; border-top: 1px solid #d7dee8;
          padding: 8px 14px; font: 12px/1.7 Consolas, monospace; color: #475569; }
   #status { background: #fff; border-top: 1px solid #eef1f6; padding: 6px 14px;
             font-size: 12px; color: #64748b; display: flex; gap: 16px; }
@@ -92,7 +101,7 @@
   /* ---------- 选文件对话框 ---------- */
   #picker { position: fixed; inset: 0; background: rgba(15,23,42,.35);
             display: none; align-items: center; justify-content: center; }
-  #picker.on { display: flex; }
+  #picker.on, .modal.on { display: flex; }
   #picker .box { width: 680px; max-height: 74vh; overflow: auto; background: #fff;
                  border-radius: 10px; padding: 14px; }
   #picker .row { display: flex; align-items: center; gap: 8px; padding: 5px 8px;
@@ -104,140 +113,201 @@
   #picker .row .size { margin-left: auto; color: #94a3b8; font-size: 11px; }
   #picker .tip { font-size: 11px; color: #94a3b8; margin-top: 8px; }
 
-  /* ---------- 执行方案管理 ---------- */
+  /* ---------- 通用弹窗 ---------- */
+  .modal { position: fixed; inset: 0; background: rgba(15,23,42,.35);
+           display: none; align-items: center; justify-content: center; }
+  .modal .box { width: 760px; max-height: 80vh; overflow: auto; background: #fff;
+                border-radius: 10px; padding: 16px; }
+  .modal h4 { margin: 0 0 10px; }
+  .subtabs { display: flex; gap: 4px; margin-bottom: 10px; }
+  .subtabs button { border-radius: 6px 6px 0 0; border-bottom: none; }
+  .subtabs button.on { font-weight: 600; background: #eef4ff; border-color: #b9cdf5; }
+  .subpanel { display: none; border: 1px solid #e5eaf2; border-radius: 0 8px 8px 8px;
+              padding: 12px; background: #fbfcfe; }
+  .subpanel.on { display: block; }
+  .ruleline { display: flex; gap: 6px; align-items: center; padding: 5px 6px;
+              border-bottom: 1px dashed #e5eaf2; font-size: 12px; }
   .plan { display: flex; align-items: center; gap: 10px; padding: 9px 10px;
           border: 1px solid #e2e8f2; border-radius: 8px; margin-bottom: 6px;
           background: #fbfcfe; }
   .plan .who { flex: 1; min-width: 0; }
   .plan .who b { display: block; }
   .plan .who small { color: #8a97a8; font-size: 11px; }
-  .plan .ops { display: flex; gap: 6px; }
   .plan.builtin { background: #f6f8fc; }
   .chiprow { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
   .chip { background: #eef4ff; color: #1d4fd7; border-radius: 999px;
           padding: 1px 8px; font-size: 11px; }
-  .rowline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .rowline input[type=text] { padding: 6px 10px; border: 1px solid #c7d0dd;
-                              border-radius: 6px; min-width: 220px; }
 </style>
 </head>
 <body>
 
 <div id="toolbar">
   <span class="title">word 工厂</span>
-  <button id="pick">选择文件…</button>
-  <span class="file" id="file">（还没选文件）</span>
+  <button id="import-files">导入报告（可多选）…</button>
+  <div id="files"></div>
   <span class="right">
-    <button id="dryrun">运行 dry-run</button>
-    <button id="verify" class="primary">出验证版</button>
+    <button id="preview-btn" class="primary">出预览版</button>
     <button id="formal" class="primary">出正式版</button>
-    <button id="audit">体检 AUDIT</button>
     <button id="pdf" class="ghost">导出 PDF</button>
     <button id="quit" class="ghost">退出</button>
   </span>
 </div>
 
 <main>
-  <aside id="side">
-    <h3>可跑的功能（勾选 + 拖动排序）</h3>
-    <div id="steps"></div>
-    <div class="bottom">
-      <div class="rowline">
-        <button id="select-all">全选</button>
-        <button id="select-none">全部取消</button>
-      </div>
-      <button id="open-rules">打开规则文件…</button>
-      <button id="manage-plans" class="primary">管理执行方案…</button>
-      <button id="add-op" class="ghost">＋ 新增功能…</button>
-    </div>
-  </aside>
-
   <section id="work">
     <div id="tabs">
-      <button data-tab="style" class="on">表格款式</button>
-      <button data-tab="plans">执行方案</button>
+      <button data-tab="plan" class="on">执行方案</button>
+      <button data-tab="style">表格款式</button>
       <button data-tab="extdata">文档数据外置</button>
-      <button data-tab="rules">规则文件</button>
+      <button data-tab="replacer">替换规则</button>
       <button data-tab="about">这是什么</button>
     </div>
     <div id="panels">
-      <div class="panel on" id="panel-style">
-        <div class="card">
-          <h4>表格模板（点一个，套到勾选的表上）</h4>
-          <div class="hint">模板存在 rules/tablestyle.json 里，可以直接编辑；这里点选。</div>
-          <div id="templates"></div>
-        </div>
-        <div class="card">
-          <h4>表格清单（按表头列出；勾选哪几张要套模板）</h4>
-          <div class="hint" id="tables-hint">先选一个 .docx</div>
-          <div id="tables"></div>
-        </div>
-      </div>
 
-      <div class="panel" id="panel-plans">
+      <!-- ==================== 页面一：执行方案 ==================== -->
+      <div class="panel on" id="panel-plan">
         <div class="card">
-          <h4>执行方案 = 勾了哪些功能、什么顺序</h4>
-          <div class="hint">左边勾好、排好序，这里起个名字存下来；下次选一个就还原。
-             「出厂的」是内置样例，改完另存为就是你自己的。</div>
-          <div class="rowline" style="margin-bottom:10px">
-            <input type="text" id="plan-name" placeholder="给这套顺序起个名字（如：报告规范化）">
+          <h4>执行方案（选一套，点「运行此方案」先跑临时版看效果）</h4>
+          <div class="rowline">
+            <select id="plan-select" style="min-width:280px"></select>
+            <button id="plan-load" class="primary">载入</button>
+            <button id="plan-delete" class="danger">删除</button>
+            <button id="plan-run" class="primary">运行此方案（临时版）</button>
+            <button id="plan-dry">先看会改多少</button>
+          </div>
+          <div class="hint" id="plan-note" style="margin-top:8px">—</div>
+          <div class="rowline" style="margin-top:6px">
+            <button id="temp-clean">清理临时文件</button>
+            <span class="hint" id="temp-note" style="margin:0"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h4>前置区（封面 / 扉页 / 签字页）—— 这几页的空白行不许清理</h4>
+          <div class="hint">自动识别：从文档开头走到「目录 / 前言」为止。识别不对就手动指定"前置区到第几页"
+             （第几页 = 整份报告的物理页序，不看页脚页码），留空 = 自动。</div>
+          <div class="rowline">
+            <span id="frontmatter-text" style="font-size:12px;color:#475569">先选文件</span>
+            <input type="text" id="fm-pages" placeholder="前置区到第几页（留空=自动）"
+                   style="min-width:160px">
+            <button id="fm-apply">应用</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h4>这套方案调用的功能（勾选 + 拖动排序）</h4>
+          <div class="rowline" style="margin-bottom:8px">
+            <button id="select-all">全选</button>
+            <button id="select-none">全部取消</button>
+            <button id="add-op" class="ghost">＋ 新增功能…</button>
+          </div>
+          <div id="steps"></div>
+        </div>
+
+        <div class="card">
+          <h4>把当前勾选存成执行方案</h4>
+          <div class="rowline">
+            <input type="text" id="plan-name" placeholder="方案名（如：报告规范化）">
+            <input type="text" id="plan-note" placeholder="备注：这套方案跑什么、什么时候用（可选）"
+                   style="min-width:320px">
             <button id="plan-save" class="primary">保存</button>
             <button id="plan-export">导出到文件…</button>
             <button id="plan-import">从文件导入…</button>
           </div>
-          <div class="hint" id="plans-hint">正在读执行方案清单…</div>
-          <div id="plans"></div>
-        </div>
-        <div class="card">
-          <h4>当前顺序（= 左边列表的顺序）</h4>
-          <pre id="recipe-json" style="background:#f6f8fc;padding:10px;border-radius:8px;
-               font-size:12px;overflow:auto;margin:0"></pre>
         </div>
       </div>
 
+      <!-- ==================== 页面二：表格款式 ==================== -->
+      <div class="panel" id="panel-style">
+        <div class="card">
+          <h4>表格模板（点选一张样图，看右边预览）</h4>
+          <div class="hint">样图按模板参数现画：框线粗细、三线表、表头加粗居中、长文本列左对齐。</div>
+          <div class="rowline" style="margin-bottom:8px">
+            <label><input type="checkbox" id="uniform"> 通篇一致（所有表都用选定的模板，不逐表区分）</label>
+            <span style="margin-left:auto;font-size:12px;color:#64748b">当前文件：
+              <select id="style-file" style="max-width:280px"></select></span>
+          </div>
+          <div id="previews"></div>
+        </div>
+        <div class="card">
+          <h4>表格清单（勾选参与；每张表可以单独指定用哪个模板）</h4>
+          <div class="hint" id="tables-hint">先在顶栏导入报告</div>
+          <div id="tables"></div>
+        </div>
+        <div class="card">
+          <h4>应用</h4>
+          <div class="rowline">
+            <input type="text" id="tpl-name" placeholder="给这套表格应用起个名字（如：成果表三线款）">
+            <button id="apply-templates" class="primary">应用表格模板（加进执行方案）</button>
+          </div>
+          <div class="hint" style="margin-top:8px">应用 = 把「表格模板（名字）」作为一个功能加进执行方案
+             —— 里面记着每张表用哪款 + 通篇一致勾选；之后跑方案时才真正改文档。
+             换一份报告时，按表头关键词的映射会自动对上同类表。</div>
+        </div>
+      </div>
+
+      <!-- ==================== 页面三：文档数据外置 ==================== -->
       <div class="panel" id="panel-extdata">
         <div class="card">
-          <h4>文档数据外置更新 —— 把文档里要改的数字搬到 Excel 里</h4>
-          <div class="hint">
-            原名「段落配方」。用法：<b>① 生成外置数据</b>（在文档里把会变的数值标成高亮 →
-            工具识别它们、写一份「XX外置数据.xlsx」、把配方记到文档末尾）→
-            你在 Excel 里改数值 → <b>② 按数据表更新</b>（工具按新数值重建段落，另存为新文档）。
-            数据表就是普通 xlsx，Excel / WPS / 我们的命令行都能读。
+          <h4>数据外置，一句话：把文档里会变的数字搬到 Excel，改完再写回文档</h4>
+          <div class="hint">这里**独立导入报告**（跟顶栏的批量清单不相通），可以一份也可以多份。</div>
+          <div class="rowline">
+            <button id="ext-import">导入报告（可多选）…</button>
+            <div id="ext-files" style="display:flex;gap:6px;flex-wrap:wrap"></div>
           </div>
-          <div class="rowline" style="margin-bottom:10px">
-            <input type="text" id="ext-name" placeholder="配方名（默认用文档名）" style="min-width:200px">
-            <label><input type="checkbox" id="ext-append" checked> 把配方追加到文档末尾</label>
-            <label><input type="checkbox" id="ext-dry"> 先演练（不写文件）</label>
-          </div>
+        </div>
+        <div class="card">
+          <h4>① 生成外置数据（先在文档里把会变的数值标成高亮）</h4>
+          <div class="hint">识别出变量后写一份「XX外置数据.xlsx」（A 项目 / B 数值 / C 段前文字），
+             配方追加到生成文档的末尾。你拿到 Excel 里改数值（也可以让计算表跨文件链接它）。</div>
           <div class="rowline">
             <button id="ext-gen" class="primary">① 生成外置数据（识别高亮）</button>
             <button id="ext-gen-chars">① 用占位符识别…</button>
-            <button id="ext-rebuild">② 按数据表更新</button>
-          </div>
-          <div class="hint" style="margin-top:8px" id="ext-hint">
-            占位符模式：文档里写 <code>xx</code> 的地方都算变量（先在上面勾选占位符识别）。
+            <label><input type="checkbox" id="ext-dry"> 先演练（不写文件）</label>
           </div>
         </div>
-      </div>
-
-      <div class="panel" id="panel-rules">
         <div class="card">
-          <h4>规则文件（外置 JSON，改完即生效）</h4>
-          <div class="hint">字体 / 上下标 / 表格模板都是数据不是代码 —— 改规则不用改程序。</div>
-          <div id="rule-files"></div>
+          <h4>② 更新（Excel 里改完数值后回来点）</h4>
+          <div class="hint">
+            <b>文档数据更新</b>：正文里的高亮数值**就地**换成数据表新值（不动段落结构）。<br>
+            <b>表格数据更新</b>：表格单元格里的高亮数值就地换 —— 表格作为外置数据存储后，
+            你在 Excel 里把自变量链接进计算表，改完这里一次同步进文档。
+          </div>
+          <div class="rowline">
+            <input type="text" id="ext-xlsx" placeholder="数据表 .xlsx 的完整路径" style="min-width:340px">
+            <button id="ext-update-doc" class="primary">文档数据更新</button>
+            <button id="ext-update-table" class="primary">表格数据更新</button>
+          </div>
         </div>
       </div>
 
+      <!-- ==================== 页面四：替换规则 ==================== -->
+      <div class="panel" id="panel-replacer">
+        <div class="card">
+          <h4>替换规则（文本 / 文字格式 / 段落格式，可存多套，选一套挂进执行方案）</h4>
+          <div class="hint">执行方案里**同时只挂一套**替换规则 —— 下面「加入执行方案」会自动替换掉旧的那套。</div>
+          <div class="rowline" style="margin-bottom:10px">
+            <button id="rule-create" class="primary">创建替换规则</button>
+            <span style="margin-left:auto;font-size:12px;color:#64748b">挂进执行方案：
+              <select id="rule-select" style="max-width:240px"></select></span>
+            <button id="rule-attach">加入执行方案</button>
+          </div>
+          <div id="rules"></div>
+        </div>
+      </div>
+
+      <!-- ==================== 页面五：这是什么 ==================== -->
       <div class="panel" id="panel-about">
         <div class="card">
           <h4>这是什么</h4>
-          <p>不依赖 Word/WPS/VBA 的 Word 文档批量规范化工具：直接读写 `.docx` 的 OOXML
+          <p>不依赖 Word/WPS/VBA 的 Word 文档批量规范化工具：直接读写 .docx 的 OOXML
              （zip + XML，只用 Python 标准库）。</p>
-          <p>用法：<b>选文件 → 左边勾要跑的功能并排序 → 先 dry-run 看会改多少 → 出验证版核对 →
-             出正式版交付</b>。正式版跑完会自动体检（AUDIT=PASS）。</p>
-          <p>文件不会被覆盖：结果另存为「某报告（验证版）.docx / （正式版）.docx」。</p>
-          <p>勾选 + 顺序可以存成<b>执行方案</b>（右边那个标签页），下次一键还原；
-             命令行 `run --plan 方案.json` 跑的是同一份东西。</p>
+          <p><b>推荐流程</b>：顶栏导入报告（可多份）→「执行方案」页选/调方案（勾功能、排序、
+             指定前置区）→ 点「运行此方案」出临时版（标蓝，进临时文件夹）→ 满意后点顶栏
+             「出预览版」核对或直接「出正式版」（自动变黑 + 字体合规 + 体检）。</p>
+          <p>文件不会被覆盖：结果另存为「某报告（预览版）.docx /（正式版）.docx」。</p>
+          <p><b>体检 AUDIT</b> = 重新打开写出的文件、独立复算"通体黑 + 字体合格"，末行 AUDIT=PASS/FAIL
+             —— 正式版跑完自动做，不信工具自己的汇报。</p>
         </div>
       </div>
     </div>
@@ -258,9 +328,10 @@
   <span id="st-last">上次：—</span>
 </div>
 
-<div id="picker"><div class="box">
+<!-- 选文件 -->
+<div id="picker" class="modal"><div class="box">
   <div class="rowline" style="margin-bottom:8px">
-    <h4 style="margin:0;flex:1">选择文件</h4>
+    <h4 style="margin:0;flex:1" id="picker-title">选择文件</h4>
     <button id="picker-close">关闭（Esc）</button>
   </div>
   <div class="drives" id="picker-drives"></div>
@@ -269,29 +340,86 @@
   <div class="tip">点文件夹进入；点 .docx 选中。上面的盘符可以跳到其它盘。</div>
 </div></div>
 
+<!-- 替换规则编辑 -->
+<div id="rule-dialog" class="modal"><div class="box">
+  <div class="rowline" style="margin-bottom:8px">
+    <h4 style="margin:0;flex:1">替换规则：<span id="rule-name-label">（新建）</span></h4>
+    <button id="rule-close">关闭</button>
+  </div>
+  <div class="subtabs">
+    <button data-sub="text" class="on">文本替换</button>
+    <button data-sub="font">文字格式替换</button>
+    <button data-sub="para">段落格式替换</button>
+  </div>
+  <div class="subpanel on" id="sub-text">
+    <div class="hint">把 A 换成 B（跨 run 替换，格式跟第一个 run 走）。可以加很多条，批量管理。</div>
+    <div class="rowline" style="margin-bottom:8px">
+      <input type="text" id="t-find" placeholder="查找（A）" style="min-width:180px">
+      <input type="text" id="t-repl" placeholder="替换为（B）" style="min-width:180px">
+      <button id="t-add">添加一条</button>
+    </div>
+    <div id="t-list"></div>
+  </div>
+  <div class="subpanel" id="sub-font">
+    <div class="hint">把某种**文字格式**换成另一种（读的是这份报告里实际用过的格式）。
+       目标字体保底：宋体 / 仿宋_GB2312 / 楷体 / 黑体 / Times New Roman。</div>
+    <div class="rowline" style="margin-bottom:6px">
+      <b>来源：</b>
+      <select id="f-from-east" style="max-width:150px"></select>
+      <select id="f-from-latin" style="max-width:150px"></select>
+      <select id="f-from-size" style="max-width:110px"></select>
+    </div>
+    <div class="rowline" style="margin-bottom:8px">
+      <b>换成：</b>
+      <select id="f-to-east" style="max-width:150px"></select>
+      <select id="f-to-latin" style="max-width:150px"></select>
+      <select id="f-to-size" style="max-width:110px"></select>
+      <button id="f-add">添加一条</button>
+    </div>
+    <div id="f-list"></div>
+  </div>
+  <div class="subpanel" id="sub-para">
+    <div class="hint">把某种**段落格式**换成另一种（对齐 / 行距 / 首行缩进）。</div>
+    <div class="rowline" style="margin-bottom:6px">
+      <b>来源：</b>对齐 <select id="p-from-align" style="max-width:130px"></select>
+    </div>
+    <div class="rowline" style="margin-bottom:8px">
+      <b>换成：</b>对齐 <select id="p-to-align" style="max-width:130px"></select>
+      <label>行距(磅×20) <input type="text" id="p-to-line" style="width:80px" placeholder="如 360"></label>
+      <label>首行缩进(字符) <input type="text" id="p-to-flc" style="width:80px" placeholder="如 200"></label>
+      <button id="p-add">添加一条</button>
+    </div>
+    <div id="p-list"></div>
+  </div>
+  <div class="rowline" style="margin-top:12px">
+    <input type="text" id="rule-name" placeholder="规则名（如：报告替换）">
+    <button id="rule-save" class="primary">保存这套规则</button>
+  </div>
+</div></div>
+
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
-const state = {file: null, steps: [], tables: [], picked: new Set(), template: null,
-               lastOut: null, planName: '', plans: []};
+const state = {files: [], file: null, steps: [], plans: [], planName: '',
+               tables: [], picked: new Set(), tableStyle: {}, uniform: false,
+               template: null, tempDir: '', tempFiles: [], fmPages: 0,
+               extFiles: [], rule: {text: [], font: [], para: []}, docFormats: null,
+               lastOut: null};
 
-/* ---------------------------------------------------------------- 日志 */
+/* ---------------------------------------------------------------- 基础 */
 function log(text, cls) {
   const row = document.createElement('div');
   if (cls) row.className = cls;
-  const time = new Date().toTimeString().slice(0, 8);
-  row.textContent = '[' + time + '] ' + text;
+  row.textContent = '[' + new Date().toTimeString().slice(0, 8) + '] ' + text;
   $('log').appendChild(row);
   $('log').scrollTop = $('log').scrollHeight;
 }
-
 async function api(url, options) {
   const response = await fetch(url, options);
   const data = await response.json();
   if (!data.ok) throw new Error(data.error || ('HTTP ' + response.status));
   return data;
 }
-
 function downloadsHtml(downloads, hint) {
   const list = (downloads || []).filter(Boolean);
   if (!list.length) return '';
@@ -300,87 +428,72 @@ function downloadsHtml(downloads, hint) {
     + '<button>下载 ' + name + '</button></a>').join('<br>')
     + (hint ? '<br><br><span style="color:#8a97a8">' + hint + '</span>' : '');
 }
+const BASE_FONTS = ['宋体', '仿宋_GB2312', '楷体', '黑体'];
+const LATIN_FONTS = ['Times New Roman'];
 
-/* ---------------------------------------------------------------- 左边：步骤 */
-async function loadSteps() {
-  const data = await api('/api/steps');
-  state.steps = data.steps.map(step => ({op: step.op, note: step.note,
-                                         params: step.params, on: step.op === 'captions'}));
-  renderSteps();
-}
-
-function renderSteps() {
-  const holder = $('steps');
+/* ---------------------------------------------------------------- 文件批量导入 */
+function renderFiles() {
+  const holder = $('files');
   holder.textContent = '';
-  state.steps.forEach((step, index) => {
-    const row = document.createElement('label');
-    row.className = 'step';
-    row.draggable = true;
-    row.dataset.index = index;
-    row.innerHTML = '<span class="grip">⣿</span>'
-      + '<input type="checkbox" ' + (step.on ? 'checked' : '') + '>'
-      + '<span><span class="name">' + step.op + '</span>'
-      + '<span class="note">' + step.note + '</span></span>';
-    row.querySelector('input').addEventListener('change', e => {
-      step.on = e.target.checked;
-      renderRecipe();
+  state.files.forEach((path, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'filechip' + (path === state.file ? ' on' : '');
+    chip.textContent = path.split('\\').pop();
+    chip.title = path;
+    chip.addEventListener('click', () => { choose(path); });
+    const x = document.createElement('span');
+    x.className = 'x'; x.textContent = '×';
+    x.title = '从这个清单里移除（不改文件本身）';
+    x.addEventListener('click', e => {
+      e.stopPropagation();
+      state.files.splice(i, 1);
+      if (state.file === path) state.file = state.files[0] || null;
+      renderFiles(); if (state.file) choose(state.file);
     });
-    row.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', index); row.classList.add('dragging'); });
-    row.addEventListener('dragend', () => row.classList.remove('dragging'));
-    row.addEventListener('dragover', e => { e.preventDefault(); row.classList.add('over'); });
-    row.addEventListener('dragleave', () => row.classList.remove('over'));
-    row.addEventListener('drop', e => {
-      e.preventDefault();
-      row.classList.remove('over');
-      const from = +e.dataTransfer.getData('text/plain');
-      const to = index;
-      if (from === to) return;
-      const moved = state.steps.splice(from, 1)[0];
-      state.steps.splice(to, 0, moved);
-      log('执行方案顺序调整：' + moved.op + ' 移到第 ' + (to + 1) + ' 步');
-      renderSteps();
-      renderRecipe();
-    });
-    holder.appendChild(row);
+    chip.appendChild(x);
+    holder.appendChild(chip);
   });
-  renderRecipe();
+  $('st-file').textContent = state.files.length
+    ? ('文件：' + state.files.length + ' 份' + (state.file ? '（当前：' + state.file.split('\\').pop() + '）' : ''))
+    : '未选文件';
+}
+$('import-files').addEventListener('click', () => pickDocx(path => {
+  if (!state.files.includes(path)) state.files.push(path);
+  renderFiles(); choose(path);
+}));
+$('ext-import').addEventListener('click', () => pickDocx(path => {
+  if (!state.extFiles.includes(path)) state.extFiles.push(path);
+  renderExtFiles();
+}));
+function renderExtFiles() {
+  const holder = $('ext-files');
+  holder.textContent = '';
+  state.extFiles.forEach((path, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'filechip on';
+    chip.textContent = path.split('\\').pop();
+    chip.title = path;
+    const x = document.createElement('span');
+    x.className = 'x'; x.textContent = '×';
+    x.addEventListener('click', e => { e.stopPropagation(); state.extFiles.splice(i, 1); renderExtFiles(); });
+    chip.appendChild(x);
+    holder.appendChild(chip);
+  });
 }
 
-function recipe() {
-  return state.steps.filter(step => step.on);
-}
-
-function setAllSteps(on) {
-  state.steps.forEach(step => { step.on = on; });
-  renderSteps();
-  log(on ? '已全选' : '已全部取消');
-}
-
-function renderRecipe() {
-  const chosen = recipe();
-  $('st-recipe').textContent = '执行方案：' + (chosen.length ? chosen.map(s => s.op).join(' → ') : '空');
-  $('recipe-json').textContent = JSON.stringify(
-    {name: state.planName || '（还没起名）', file: state.file, mode: 'verify',
-     steps: chosen.map(s => s.op)}, null, 2);
-}
-
-/* ---------------------------------------------------------------- 选文件 */
-$('pick').addEventListener('click', () => browse(''));
+/* ---------------------------------------------------------------- 选文件对话框 */
+let pickerCallback = null;
+function pickDocx(callback) { pickerCallback = callback; browse(''); }
 $('picker-close').addEventListener('click', () => $('picker').classList.remove('on'));
-// 点背板关闭、按 Esc 关闭（用户明确要求）
 $('picker').addEventListener('click', e => { if (e.target === $('picker')) $('picker').classList.remove('on'); });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && $('picker').classList.contains('on')) {
-    $('picker').classList.remove('on');
-  }
+  if (e.key === 'Escape') document.querySelectorAll('.modal.on').forEach(m => m.classList.remove('on'));
 });
-
 async function browse(dir) {
   const data = await api('/api/browse?dir=' + encodeURIComponent(dir));
   $('picker').classList.add('on');
   const holder = $('picker-list');
   holder.textContent = '';
-  // 盘符栏：跳到别的盘
   const drives = $('picker-drives');
   drives.textContent = '';
   (data.drives || []).forEach(drive => {
@@ -389,10 +502,7 @@ async function browse(dir) {
     button.addEventListener('click', () => browse(drive));
     drives.appendChild(button);
   });
-  if (!data.dir) {
-    $('picker-path').textContent = '本机盘符（点一个进去）';
-    return;
-  }
+  if (!data.dir) { $('picker-path').textContent = '本机盘符（点一个进去）'; return; }
   $('picker-path').textContent = data.dir;
   if (data.parent) {
     const row = document.createElement('div');
@@ -413,7 +523,10 @@ async function browse(dir) {
     }
     row.addEventListener('click', () => {
       if (entry.dir) browse(data.dir + '\\' + entry.name);
-      else if (/\.docx?$/i.test(entry.name)) choose(data.dir + '\\' + entry.name);
+      else if (/\.docx?$/i.test(entry.name)) {
+        $('picker').classList.remove('on');
+        if (pickerCallback) pickerCallback(data.dir + '\\' + entry.name);
+      }
     });
     holder.appendChild(row);
   });
@@ -422,307 +535,153 @@ async function browse(dir) {
 async function choose(path) {
   state.file = path;
   state.lastOut = null;
-  $('file').textContent = path.split('\\').pop() + '  (' + path + ')';
-  $('st-file').textContent = '文件：' + path.split('\\').pop();
+  renderFiles();
   $('preview').textContent = '跑一次就会生成文件，这里出现下载链接；下载后用 Word 打开看效果。';
   $('report').textContent = '（还没跑）';
-  $('picker').classList.remove('on');
-  log('已选文件：' + path);
+  log('当前文件：' + path);
   await loadTables();
+  await loadFrontmatter();
+  await fillStyleFileSelect();
 }
 
-/* ---------------------------------------------------------------- 表格清单 */
-async function loadTables() {
-  if (!state.file) return;
-  $('tables').textContent = '';
-  $('tables-hint').textContent = '正在读表格清单…';
-  try {
-    const data = await api('/api/tables?path=' + encodeURIComponent(state.file));
-    state.tables = data.tables;
-    state.picked = new Set(data.tables.map(t => t.index));
-    $('tables-hint').textContent = '共 ' + data.tables.length + ' 张表（默认全选；取消勾选的表不套模板）';
-    renderTables();
-  } catch (error) {
-    $('tables-hint').textContent = '读不出来：' + error.message;
-  }
+/* ---------------------------------------------------------------- 功能清单 */
+async function loadSteps() {
+  const data = await api('/api/steps');
+  state.steps = data.steps.map(step => ({op: step.op, label: (data.labels || {})[step.op] || step.op,
+                                         note: step.note, params: step.params,
+                                         on: step.op === 'captions'}));
+  renderSteps();
 }
-
-function renderTables() {
-  const holder = $('tables');
+function renderSteps() {
+  const holder = $('steps');
   holder.textContent = '';
-  if (!state.tables.length) {
-    holder.textContent = '（这份文档里没有表格）';
-    return;
-  }
-  const table = document.createElement('table');
-  table.className = 'grid';
-  table.innerHTML = '<tr><th></th><th>#</th><th>表头</th><th>行×列</th><th>列宽</th></tr>';
-  state.tables.forEach(item => {
-    const tr = document.createElement('tr');
-    const td0 = document.createElement('td');
-    td0.className = 'center';
-    const box = document.createElement('input');
-    box.type = 'checkbox';
-    box.checked = state.picked.has(item.index);
-    box.addEventListener('change', () => {
-      if (box.checked) state.picked.add(item.index); else state.picked.delete(item.index);
+  state.steps.forEach((step, index) => {
+    const row = document.createElement('label');
+    row.className = 'step';
+    row.draggable = true;
+    row.innerHTML = '<span class="grip">⣿</span>'
+      + '<input type="checkbox" ' + (step.on ? 'checked' : '') + '>'
+      + '<span><span class="name">' + step.label + '</span>'
+      + '<span class="note">' + step.note + '</span></span>';
+    row.querySelector('input').addEventListener('change', e => {
+      step.on = e.target.checked; renderRecipe();
     });
-    td0.appendChild(box);
-    const td1 = document.createElement('td');
-    td1.className = 'center';
-    td1.textContent = item.index;
-    const td2 = document.createElement('td');
-    td2.textContent = item.header_text || '（表头是空的）';
-    const td3 = document.createElement('td');
-    td3.className = 'center';
-    td3.textContent = item.rows + '×' + (item.columns || '?');
-    const td4 = document.createElement('td');
-    td4.innerHTML = item.equal_widths ? '<span class="pill">等宽</span>'
-                                      : '<span class="pill grey">不匀</span>';
-    tr.append(td0, td1, td2, td3, td4);
-    table.appendChild(tr);
+    row.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', index); row.classList.add('dragging'); });
+    row.addEventListener('dragend', () => row.classList.remove('dragging'));
+    row.addEventListener('dragover', e => { e.preventDefault(); row.classList.add('over'); });
+    row.addEventListener('dragleave', () => row.classList.remove('over'));
+    row.addEventListener('drop', e => {
+      e.preventDefault(); row.classList.remove('over');
+      const from = +e.dataTransfer.getData('text/plain');
+      if (from === index) return;
+      const moved = state.steps.splice(from, 1)[0];
+      state.steps.splice(index, 0, moved);
+      renderSteps();
+    });
+    holder.appendChild(row);
   });
-  holder.appendChild(table);
+  renderRecipe();
 }
-
-/* ---------------------------------------------------------------- 模板 */
-async function loadTemplates() {
-  const data = await api('/api/templates');
-  const holder = $('templates');
-  holder.textContent = '';
-  data.styles.forEach(style => {
-    const box = document.createElement('div');
-    box.className = 'tpl' + (style.name === state.template ? ' on' : '');
-    box.innerHTML = style.name + '<small>' + (style.note || '').slice(0, 22) + '…</small>';
-    box.addEventListener('click', () => {
-      state.template = style.name;
-      log('选中表格模板：' + style.name);
-      loadTemplates();
-    });
-    holder.appendChild(box);
-  });
-  if (!state.template && data.styles.length) {
-    state.template = data.styles[0].name;
-    loadTemplates();
-  }
-}
-
-/* ---------------------------------------------------------------- 跑 */
-async function run(mode, dry) {
-  if (!state.file) { log('先选一个文件', 'err'); return; }
-  const chosen = recipe();
-  if (!chosen.length && !dry) { log('执行方案是空的 —— 左边至少勾一个', 'err'); return; }
-  const steps = chosen.map(step => step.op);
-  const buttons = ['dryrun', 'verify', 'formal'].map($);
-  buttons.forEach(b => b.disabled = true);
-  $('report').textContent = '正在跑…';
-  log('开始：' + (dry ? 'dry-run' : mode) + ' ｜ 执行方案 ' + steps.join(' → '));
-  try {
-    const data = await api('/api/run', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path: state.file, steps: steps, mode: mode, dry_run: dry}),
-    });
-    $('report').textContent = data.text;
-    $('st-last').textContent = '上次：' + (dry ? 'dry-run' : mode);
-    log('完成：' + (data.report.out || '（没写文件）'));
-    if (data.download) {
-      state.lastOut = data.download;
-      $('preview').innerHTML = '已生成：<b>' + data.download + '</b><br><br>'
-        + downloadsHtml([data.download], '下载后用 Word 打开看效果');
-    } else {
-      $('preview').textContent = '没有需要改的地方（也没写文件）';
+function chosenSteps() {
+  const out = [];
+  for (const step of state.steps.filter(s => s.on)) {
+    const item = {op: step.op};
+    if (step.alias) item.label = step.alias;
+    const params = Object.assign({}, step.params);
+    if (step.op === 'tidy' && state.fmPages > 0) {
+      params.protect_frontmatter = true;
+      params.frontmatter_pages = state.fmPages;
     }
-    if (data.report.audit) {
-      log('体检：' + (data.report.audit.verdict === 'PASS' ? 'AUDIT=PASS' : 'AUDIT=FAIL'));
-    }
-  } catch (error) {
-    $('report').textContent = '出错：' + error.message;
-    log('出错：' + error.message, 'err');
-  } finally {
-    buttons.forEach(b => b.disabled = false);
+    if (Object.keys(params).length) item.params = params;
+    out.push(item);
   }
+  return out;
 }
-
-$('dryrun').addEventListener('click', () => run('verify', true));
-$('verify').addEventListener('click', () => run('verify', false));
-$('formal').addEventListener('click', () => run('formal', false));
+function renderRecipe() {
+  const chosen = state.steps.filter(s => s.on);
+  $('st-recipe').textContent = '执行方案：'
+    + (chosen.length ? chosen.map(s => s.alias || s.label).join(' → ') : '空');
+}
+function setAllSteps(on) {
+  state.steps.forEach(s => { s.on = on; });
+  renderSteps();
+}
 $('select-all').addEventListener('click', () => setAllSteps(true));
 $('select-none').addEventListener('click', () => setAllSteps(false));
-$('audit').addEventListener('click', async () => {
-  if (!state.file) { log('先选一个文件', 'err'); return; }
-  $('report').textContent = '正在体检…';
-  try {
-    const data = await api('/api/audit', {method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path: state.file})});
-    $('report').textContent = data.text;
-    log('体检：' + (data.verdict === 'PASS' ? 'AUDIT=PASS' : 'AUDIT=FAIL'));
-  } catch (error) {
-    $('report').textContent = '出错：' + error.message;
-  }
-});
-$('pdf').addEventListener('click', async () => {
-  if (!state.file) { log('先选一个文件', 'err'); return; }
-  $('report').textContent = '正在导出 PDF（会叫起 Word/WPS/LibreOffice，几十秒）…';
-  log('开始导出 PDF：' + state.file);
-  try {
-    const data = await api('/api/pdf', {method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path: state.file})});
-    $('report').textContent = data.text;
-    log('PDF 完成：' + data.report.out);
-    if (data.download) {
-      state.lastOut = data.download;
-      $('preview').innerHTML = '已生成：<b>' + data.download + '</b><br><br>'
-        + downloadsHtml([data.download], 'PDF 可以直接用浏览器/阅读器打开');
-    }
-  } catch (error) {
-    $('report').textContent = '出错：' + error.message;
-    log('导出 PDF 出错：' + error.message, 'err');
-  }
-});
-$('quit').addEventListener('click', async () => {
-  await api('/api/shutdown', {method: 'POST'});
-  document.body.innerHTML = '<h2 style="padding:40px">已退出，可以关掉这个窗口。</h2>';
-});
-
-/* ---------------------------------------------------------------- 标签页 / 规则 */
-document.querySelectorAll('#tabs button').forEach(button => {
-  button.addEventListener('click', () => {
-    document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('on'));
-    button.classList.add('on');
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
-    $('panel-' + button.dataset.tab).classList.add('on');
-    if (button.dataset.tab === 'plans') loadPlans();   // 打开就看到有什么
-  });
-});
-
-async function loadRuleFiles() {
-  const names = [['fonts.json', '字体规则（哪些字体算不合格）'],
-                 ['subscripts.json', '上下标规则'],
-                 ['replacements.json', '文本替换与对齐'],
-                 ['tablestyle.json', '表格模板']];
-  const holder = $('rule-files');
-  holder.textContent = '';
-  for (const [name, note] of names) {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:6px 0';
-    row.innerHTML = '<b>' + name + '</b><span style="color:#8a97a8">' + note + '</span>';
-    const button = document.createElement('button');
-    button.textContent = '看内容';
-    button.addEventListener('click', async () => {
-      const text = await fetch('/api/read?path=' + encodeURIComponent(
-        'rules/' + name)).then(r => r.text());
-      $('report').textContent = '==== ' + name + ' ====\n' + text;
-    });
-    row.appendChild(button);
-    holder.appendChild(row);
-  }
-}
 
 /* ---------------------------------------------------------------- 执行方案 */
-$('manage-plans').addEventListener('click', () => {
-  document.querySelector('#tabs button[data-tab="plans"]').click();
-  loadPlans();
-});
-
 async function loadPlans() {
   const data = await api('/api/plans');
   state.plans = data.plans;
-  const holder = $('plans');
-  holder.textContent = '';
-  $('plans-hint').textContent = '共 ' + data.plans.length + ' 套（存在 ' + data.dir + '；'
-    + '整个目录拷走就能带到别的机器）';
+  const select = $('plan-select');
+  select.textContent = '';
   data.plans.forEach(plan => {
-    const row = document.createElement('div');
-    row.className = 'plan' + (plan.builtin ? ' builtin' : '');
-    const who = document.createElement('div');
-    who.className = 'who';
-    who.innerHTML = '<b>' + plan.name + (plan.builtin ? ' <span class="pill grey">出厂</span>' : '')
-      + '</b><small>' + (plan.note || '') + '</small>';
-    const chips = document.createElement('div');
-    chips.className = 'chiprow';
-    (plan.steps || []).forEach(step => {
-      const chip = document.createElement('span');
-      chip.className = 'chip';
-      chip.textContent = step;
-      chips.appendChild(chip);
-    });
-    who.appendChild(chips);
-    const ops = document.createElement('div');
-    ops.className = 'ops';
-    const load = document.createElement('button');
-    load.textContent = '载入';
-    load.addEventListener('click', () => applyPlan(plan));
-    ops.appendChild(load);
-    if (!plan.builtin) {
-      const del = document.createElement('button');
-      del.textContent = '删除';
-      del.addEventListener('click', async () => {
-        if (!confirm('删掉执行方案「' + plan.name + '」？')) return;
-        try {
-          await api('/api/plans/delete', {method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({name: plan.name})});
-          log('已删除执行方案：' + plan.name);
-          loadPlans();
-        } catch (error) { log('删除失败：' + error.message, 'err'); }
-      });
-      ops.appendChild(del);
-    }
-    row.append(who, ops);
-    holder.appendChild(row);
+    const option = document.createElement('option');
+    option.value = plan.name;
+    option.textContent = plan.name + (plan.note ? ' — ' + plan.note : '');
+    select.appendChild(option);
   });
 }
-
+$('plan-load').addEventListener('click', () => {
+  const plan = state.plans.find(p => p.name === $('plan-select').value);
+  if (!plan) return;
+  applyPlan(plan);
+});
 function applyPlan(plan) {
-  const wanted = new Set(plan.steps || []);
-  state.steps.forEach(step => { step.on = wanted.has(step.op); });
+  const wanted = plan.steps || [];
+  state.steps.forEach(step => {
+    const hit = wanted.find(item => (item.op || item) === step.op);
+    step.on = !!hit;
+    if (hit && hit.params) step.params = Object.assign({}, step.params, hit.params);
+    if (hit && hit.label) step.alias = hit.label; else delete step.alias;
+  });
   state.planName = plan.name;
   $('plan-name').value = plan.name;
+  $('plan-note').value = plan.note || '';
   renderSteps();
-  log('已载入执行方案：' + plan.name + '（' + (plan.steps || []).join(' → ') + '）');
+  log('已载入执行方案：' + plan.name);
 }
-
+$('plan-delete').addEventListener('click', async () => {
+  const name = $('plan-select').value;
+  const plan = state.plans.find(p => p.name === name);
+  if (plan && plan.builtin) { log('出厂方案删不掉，改完另存为一个即可', 'err'); return; }
+  if (!confirm('删掉执行方案「' + name + '」？')) return;
+  try {
+    await api('/api/plans/delete', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({name: name})});
+    log('已删除执行方案：' + name); loadPlans();
+  } catch (error) { log('删除失败：' + error.message, 'err'); }
+});
 $('plan-save').addEventListener('click', async () => {
   const name = $('plan-name').value.trim();
-  const steps = recipe().map(s => s.op);
-  if (!name) { log('先给这套顺序起个名字', 'err'); return; }
+  const steps = chosenSteps();
+  if (!name) { log('先给方案起个名字', 'err'); return; }
   if (!steps.length) { log('一个功能都没勾，没什么可存的', 'err'); return; }
   try {
     const data = await api('/api/plans/save', {method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name: name, steps: steps})});
-    state.planName = name;
-    log(data.text);
-    loadPlans();
-  } catch (error) {
-    log('保存失败：' + error.message, 'err');
-  }
+      body: JSON.stringify({name: name, steps: steps, note: $('plan-note').value.trim()})});
+    state.planName = name; log(data.text); loadPlans();
+  } catch (error) { log('保存失败：' + error.message, 'err'); }
 });
-
 $('plan-export').addEventListener('click', () => {
-  const steps = recipe().map(s => s.op);
+  const steps = chosenSteps();
   if (!steps.length) { log('先勾几个功能再导出', 'err'); return; }
   const blob = new Blob([JSON.stringify(
-    {name: $('plan-name').value.trim() || '执行方案', steps: steps}, null, 2)],
+    {name: $('plan-name').value.trim() || '执行方案',
+     note: $('plan-note').value.trim(), steps: steps}, null, 2)],
     {type: 'application/json'});
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
   link.download = ($('plan-name').value.trim() || '执行方案') + '.json';
   link.click();
   URL.revokeObjectURL(link.href);
-  log('执行方案已导出：' + steps.join(' → '));
 });
-
 $('plan-import').addEventListener('click', () => {
   const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.json';
+  input.type = 'file'; input.accept = '.json';
   input.addEventListener('change', () => {
-    const file = input.files[0];
-    if (!file) return;
+    const file = input.files[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async () => {
       try {
@@ -732,9 +691,8 @@ $('plan-import').addEventListener('click', () => {
         const name = (data.name || file.name.replace(/\.json$/i, '')).slice(0, 40);
         await api('/api/plans/save', {method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({name: name, steps: steps})});
-        log('已导入执行方案：' + name);
-        loadPlans();
+          body: JSON.stringify({name: name, steps: steps, note: data.note || ''})});
+        log('已导入执行方案：' + name); loadPlans();
       } catch (error) { log('导入失败：' + error.message, 'err'); }
     };
     reader.readAsText(file);
@@ -742,76 +700,466 @@ $('plan-import').addEventListener('click', () => {
   input.click();
 });
 
-/* ---------------------------------------------------------------- 文档数据外置 */
-function extPayload(action, extra) {
-  const body = {action: action, path: state.file,
-                dry_run: $('ext-dry').checked,
-                name: $('ext-name').value.trim() || null,
-                append: $('ext-append').checked};
-  Object.assign(body, extra || {});
-  return body;
+/* ---------------------------------------------------------------- 运行（临时/预览/正式） */
+function targetFiles() { return state.files.length ? state.files : (state.file ? [state.file] : []); }
+async function runOne(path, mode, outPath) {
+  const data = await api('/api/run', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path: path, steps: chosenSteps(), mode: mode, out: outPath || null})});
+  return data;
 }
-
-async function extRun(action, extra) {
-  if (!state.file) { log('先选一个文件', 'err'); return; }
-  $('report').textContent = '正在处理…';
-  const label = action === 'gen' ? '生成外置数据' : '按数据表更新';
-  log('开始：' + label);
+async function runMany(mode, outDir) {
+  const files = targetFiles();
+  if (!files.length) { log('先在顶栏导入报告', 'err'); return; }
+  if (!chosenSteps().length) { log('执行方案是空的 —— 至少勾一个功能', 'err'); return; }
+  const buttons = ['preview-btn', 'formal', 'plan-run', 'plan-dry'].map($);
+  buttons.forEach(b => b.disabled = true);
+  $('report').textContent = '正在跑…';
+  const downloads = [];
   try {
-    const data = await api('/api/extdata', {method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(extPayload(action, extra))});
-    $('report').textContent = data.text;
-    log(label + '完成');
-    if ((data.downloads || []).length) {
-      $('preview').innerHTML = '已生成：<br><br>'
-        + downloadsHtml(data.downloads, 'xlsx 用 Excel/WPS 打开改数值；改完再点「按数据表更新」');
-    } else if (data.download) {
-      $('preview').innerHTML = '已生成：<b>' + data.download + '</b><br><br>'
-        + downloadsHtml([data.download]);
+    for (const path of files) {
+      const outPath = outDir
+        ? outDir + '\\' + path.split('\\').pop().replace(/\.docx$/i, '') + '（临时）.docx'
+        : null;
+      log('跑：' + path.split('\\').pop());
+      const data = await runOne(path, mode, outPath);
+      $('report').textContent = data.text;
+      if (data.download) downloads.push(data.download);
+      if (data.report.audit) log('体检：' + (data.report.audit.verdict === 'PASS' ? 'AUDIT=PASS' : 'AUDIT=FAIL'));
+    }
+    $('st-last').textContent = '上次：' + (outDir ? '临时版' : mode);
+    if (downloads.length) {
+      $('preview').innerHTML = '已生成 ' + downloads.length + ' 份：<br><br>'
+        + downloadsHtml(downloads, outDir ? ('临时版在 ' + outDir) : '下载后用 Word 打开看效果');
     } else {
-      $('preview').textContent = '演练完成，没写文件';
+      $('preview').textContent = '没有需要改的地方（也没写文件）';
     }
-    if (action === 'gen' && data.report && data.report.out) {
-      // 配方追加在**生成出来的文档**末尾 → 下一步"按数据表更新"要跑它，不是原件
-      state.file = data.report.out;
-      $('file').textContent = data.report.out.split('\\').pop() + '  (' + data.report.out + ')';
-      $('st-file').textContent = '文件：' + data.report.out.split('\\').pop();
-      $('ext-hint').innerHTML = '配方已追加到 <b>' + data.report.out.split('\\').pop()
-        + '</b> 末尾。现在去 Excel 里改数值，改完点「② 按数据表更新」。';
-      log('当前文件已切到：' + data.report.out + '（配方在它末尾）');
-      await loadTables();
-    }
+    if (outDir) await loadTemp();
   } catch (error) {
     $('report').textContent = '出错：' + error.message;
-    log(label + '出错：' + error.message, 'err');
-  }
+    log('出错：' + error.message, 'err');
+  } finally { buttons.forEach(b => b.disabled = false); }
 }
+$('plan-run').addEventListener('click', async () => {
+  if (!state.tempDir) await loadTemp();
+  log('运行此方案 → 临时版（标蓝）进 ' + state.tempDir);
+  await runMany('verify', state.tempDir);
+});
+$('plan-dry').addEventListener('click', async () => {
+  const files = targetFiles();
+  if (!files.length) { log('先导入报告', 'err'); return; }
+  try {
+    const data = await api('/api/run', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: files[0], steps: chosenSteps(), mode: 'verify', dry_run: true})});
+    $('report').textContent = data.text;
+    log('dry-run（第一份）：' + (data.report.out || '没有要改的'));
+  } catch (error) { log('出错：' + error.message, 'err'); }
+});
+$('preview-btn').addEventListener('click', () => runMany('verify', null));
+$('formal').addEventListener('click', () => runMany('formal', null));
 
-$('ext-gen').addEventListener('click', () => extRun('gen', {mode: 'highlight'}));
+/* ---------------------------------------------------------------- 临时文件夹 */
+async function loadTemp() {
+  const data = await api('/api/temp-dir');
+  state.tempDir = data.dir;
+  state.tempFiles = data.files;
+  $('temp-note').textContent = '临时文件夹：' + data.dir + '（' + data.files.length + ' 个文件）';
+}
+$('temp-clean').addEventListener('click', async () => {
+  try {
+    const data = await api('/api/temp/clean', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+    log(data.text); await loadTemp();
+  } catch (error) { log('清理失败：' + error.message, 'err'); }
+});
+
+/* ---------------------------------------------------------------- 前置区 */
+async function loadFrontmatter() {
+  if (!state.file) { $('frontmatter-text').textContent = '先选文件'; return; }
+  try {
+    const data = await api('/api/frontmatter?path=' + encodeURIComponent(state.file));
+    $('frontmatter-text').textContent = data.text;
+  } catch (error) { $('frontmatter-text').textContent = '识别失败：' + error.message; }
+}
+$('fm-apply').addEventListener('click', () => {
+  const value = $('fm-pages').value.trim();
+  state.fmPages = value ? Math.max(1, parseInt(value, 10) || 0) : 0;
+  log(state.fmPages ? '前置区手动指定：到第 ' + state.fmPages + ' 页' : '前置区回到自动识别');
+});
+
+/* ---------------------------------------------------------------- 表格款式 */
+async function loadPreviews() {
+  const data = await api('/api/template-previews');
+  state.allTemplateNames = data.styles.map(s => s.name);
+  const holder = $('previews');
+  holder.textContent = '';
+  data.styles.forEach(style => {
+    const card = document.createElement('div');
+    card.className = 'tplcard' + (style.name === state.template ? ' on' : '');
+    card.innerHTML = '<b>' + style.name + '</b><small>' + (style.note || '') + '</small>' + style.svg;
+    card.addEventListener('click', () => {
+      state.template = style.name;
+      document.querySelectorAll('.tplcard').forEach(c => c.classList.remove('on'));
+      card.classList.add('on');
+      log('选中表格模板：' + style.name);
+    });
+    holder.appendChild(card);
+  });
+  if (!state.template && data.styles.length) state.template = data.styles[0].name;
+}
+async function fillStyleFileSelect() {
+  const select = $('style-file');
+  select.textContent = '';
+  (state.files.length ? state.files : (state.file ? [state.file] : [])).forEach(path => {
+    const option = document.createElement('option');
+    option.value = path; option.textContent = path.split('\\').pop();
+    select.appendChild(option);
+  });
+  if (state.file) select.value = state.file;
+}
+$('style-file').addEventListener('change', () => { state.file = $('style-file').value; loadTables(); });
+async function loadTables() {
+  if (!state.file) { $('tables-hint').textContent = '先在顶栏导入报告'; return; }
+  if (state.tablesFile !== state.file) {
+    state.tablesFile = state.file;
+    state.picked = new Set();
+    state.tableStyle = {};
+  }
+  $('tables').textContent = '';
+  $('tables-hint').textContent = '正在读表格清单…';
+  try {
+    const data = await api('/api/tables?path=' + encodeURIComponent(state.file));
+    state.tables = data.tables;
+    if (!state.picked.size) state.picked = new Set(data.tables.map(t => t.index));
+    $('tables-hint').textContent = '共 ' + data.tables.length + ' 张表（换一份文件，逐表指定会重置）';
+    renderTables();
+  } catch (error) { $('tables-hint').textContent = '读不出来：' + error.message; }
+}
+function renderTables() {
+  const holder = $('tables');
+  holder.textContent = '';
+  if (!state.tables.length) { holder.textContent = '（这份文档里没有表格）'; return; }
+  const table = document.createElement('table');
+  table.className = 'grid';
+  table.innerHTML = '<tr><th>参与</th><th>#</th><th>表头</th><th>行×列</th><th>应用模板</th></tr>';
+  state.tables.forEach(item => {
+    const tr = document.createElement('tr');
+    const td0 = document.createElement('td'); td0.className = 'center';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = state.picked.has(item.index);
+    box.addEventListener('change', () => {
+      if (box.checked) state.picked.add(item.index); else state.picked.delete(item.index);
+    });
+    td0.appendChild(box);
+    const td1 = document.createElement('td'); td1.className = 'center'; td1.textContent = item.index;
+    const td2 = document.createElement('td'); td2.textContent = item.header_text || '（表头是空的）';
+    const td3 = document.createElement('td'); td3.className = 'center';
+    td3.textContent = item.rows + '×' + (item.columns || '?');
+    const td4 = document.createElement('td');
+    const select = document.createElement('select');
+    const auto = document.createElement('option');
+    auto.value = ''; auto.textContent = '（跟选定模板/映射走）';
+    select.appendChild(auto);
+    (state.allTemplateNames || []).forEach(name => {
+      const option = document.createElement('option');
+      option.value = name; option.textContent = name;
+      select.appendChild(option);
+    });
+    select.value = state.tableStyle[item.index] || '';
+    select.addEventListener('change', () => {
+      if (select.value) state.tableStyle[item.index] = select.value;
+      else delete state.tableStyle[item.index];
+    });
+    td4.appendChild(select);
+    tr.append(td0, td1, td2, td3, td4);
+    table.appendChild(tr);
+  });
+  holder.appendChild(table);
+}
+$('uniform').addEventListener('change', () => { state.uniform = $('uniform').checked; });
+$('apply-templates').addEventListener('click', () => {
+  const name = $('tpl-name').value.trim();
+  if (!name) { log('先给这套表格应用起个名字', 'err'); return; }
+  if (!state.template) { log('先在上面点选一个模板', 'err'); return; }
+  const mapping = [];
+  for (const [index, style] of Object.entries(state.tableStyle)) {
+    if (state.picked.has(+index)) mapping.push({index: +index, style: style});
+  }
+  const step = state.steps.find(s => s.op === 'tablestyle');
+  if (step) {
+    step.on = true;
+    step.alias = '表格模板（' + name + '）';
+    step.params = {style: state.template, uniform: state.uniform,
+                   tables: 'all', mapping: mapping};
+  }
+  renderSteps();
+  log('已把「表格模板（' + name + '）」加进执行方案 —— 跑方案时生效'
+      + (mapping.length ? '（' + mapping.length + ' 张表单独指定了模板）' : ''));
+});
+
+/* ---------------------------------------------------------------- 文档数据外置 */
+$('ext-gen').addEventListener('click', () => extRun({action: 'gen', mode: 'highlight'}));
 $('ext-gen-chars').addEventListener('click', () => {
   const char = prompt('占位符是什么？（文档里写这个词的地方都算变量，例如 xx）', 'xx');
   if (!char) return;
-  extRun('gen', {mode: 'chars', char: char});
+  extRun({action: 'gen', mode: 'chars', char: char});
 });
-$('ext-rebuild').addEventListener('click', () => extRun('rebuild', {}));
+$('ext-update-doc').addEventListener('click', () => extRun({action: 'update', scope: 'body'}));
+$('ext-update-table').addEventListener('click', () => extRun({action: 'update', scope: 'tables'}));
+async function extRun(extra) {
+  const files = state.extFiles.length ? state.extFiles : [];
+  if (!files.length) { log('先在这个页里导入报告', 'err'); return; }
+  const dry = $('ext-dry').checked;
+  $('report').textContent = '正在处理…';
+  const downloads = [];
+  try {
+    for (const path of files) {
+      const payload = Object.assign({}, extra,
+        {path: path, dry_run: dry, xlsx: $('ext-xlsx').value.trim() || null});
+      const data = await api('/api/extdata', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)});
+      $('report').textContent = data.text;
+      (data.downloads || []).forEach(d => downloads.push(d));
+      if (data.download) downloads.push(data.download);
+    }
+    if (downloads.length) {
+      $('preview').innerHTML = '已生成：<br><br>'
+        + downloadsHtml(downloads, 'xlsx 用 Excel/WPS 打开改数值；改完点「更新」');
+    } else {
+      $('preview').textContent = dry ? '演练完成，没写文件' : '完成（没有产出文件）';
+    }
+  } catch (error) {
+    $('report').textContent = '出错：' + error.message;
+    log('出错：' + error.message, 'err');
+  }
+}
 
-/* ---------------------------------------------------------------- 新增功能 */
+/* ---------------------------------------------------------------- 替换规则 */
+async function loadRules() {
+  const data = await api('/api/replace-rules');
+  const holder = $('rules');
+  holder.textContent = '';
+  const select = $('rule-select');
+  select.textContent = '';
+  data.rules.forEach(rule => {
+    const row = document.createElement('div');
+    row.className = 'plan';
+    row.innerHTML = '<div class="who"><b>' + rule.name + '</b><small>文本 ' + rule.text
+      + ' 条 ｜ 文字格式 ' + rule.font + ' 条 ｜ 段落格式 ' + rule.para + ' 条</small></div>';
+    const attach = document.createElement('button');
+    attach.textContent = '加入执行方案';
+    attach.addEventListener('click', () => attachRule(rule.name));
+    const edit = document.createElement('button');
+    edit.textContent = '修改';
+    edit.addEventListener('click', async () => {
+      const response = await fetch('/api/read?path=' + encodeURIComponent(rule.path));
+      state.rule = JSON.parse(await response.text());
+      $('rule-name').value = rule.name;
+      openRuleDialog();
+    });
+    const del = document.createElement('button');
+    del.className = 'danger'; del.textContent = '删除';
+    del.addEventListener('click', async () => {
+      if (!confirm('删掉替换规则「' + rule.name + '」？')) return;
+      try {
+        await api('/api/replace-rules/delete', {method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name: rule.name})});
+        log('已删除替换规则：' + rule.name); loadRules();
+      } catch (error) { log('删除失败：' + error.message, 'err'); }
+    });
+    const ops = document.createElement('div');
+    ops.style.cssText = 'display:flex;gap:6px';
+    ops.append(attach, edit, del);
+    row.appendChild(ops);
+    holder.appendChild(row);
+    const option = document.createElement('option');
+    option.value = rule.name; option.textContent = rule.name;
+    select.appendChild(option);
+  });
+}
+function attachRule(name) {
+  let step = state.steps.find(s => s.op === 'replace');
+  if (!step) { log('替换规则功能不在清单里', 'err'); return; }
+  // 同时只挂一套：先关掉其它已挂的 replace（引擎里本来就只有一个 replace 步骤槽位）
+  state.steps.forEach(s => { if (s.op === 'replace') s.on = false; });
+  step.on = true;
+  step.alias = '替换规则（' + name + '）';
+  step.params = Object.assign({}, step.params, {rules: name, scope: 'all'});
+  renderSteps();
+  log('已把替换规则「' + name + '」挂进执行方案（同一时刻只有这一套）');
+}
+$('rule-attach').addEventListener('click', () => attachRule($('rule-select').value));
+
+async function openRuleDialog() {
+  $('rule-dialog').classList.add('on');
+  await loadDocFormats();
+  renderRuleLists();
+}
+$('rule-create').addEventListener('click', async () => {
+  state.rule = {text: [], font: [], para: []};
+  $('rule-name').value = '';
+  $('rule-name-label').textContent = '（新建）';
+  await openRuleDialog();
+});
+$('rule-close').addEventListener('click', () => $('rule-dialog').classList.remove('on'));
+document.querySelectorAll('.subtabs button').forEach(button => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('.subtabs button').forEach(b => b.classList.remove('on'));
+    button.classList.add('on');
+    document.querySelectorAll('.subpanel').forEach(p => p.classList.remove('on'));
+    $('sub-' + button.dataset.sub).classList.add('on');
+  });
+});
+async function loadDocFormats() {
+  if (!state.file) { log('先在顶栏导入报告（读取报告里的格式做下拉框）', 'err'); return; }
+  const data = await api('/api/doc-formats?path=' + encodeURIComponent(state.file));
+  state.docFormats = data;
+  const east = data.east_asia.concat(BASE_FONTS.filter(f => !data.east_asia.includes(f)));
+  const latin = data.latin.concat(LATIN_FONTS.filter(f => !data.latin.includes(f)));
+  const sizes = data.sizes;
+  const fill = (id, values, blank) => {
+    const select = $(id);
+    select.textContent = '';
+    if (blank) {
+      const option = document.createElement('option');
+      option.value = ''; option.textContent = '（不限）';
+      select.appendChild(option);
+    }
+    values.forEach(v => {
+      const option = document.createElement('option');
+      option.value = v; option.textContent = v;
+      select.appendChild(option);
+    });
+  };
+  fill('f-from-east', east, true);
+  fill('f-from-latin', latin, true);
+  fill('f-from-size', sizes, true);
+  fill('f-to-east', BASE_FONTS, false);
+  fill('f-to-latin', LATIN_FONTS, false);
+  fill('f-to-size', sizes.length ? sizes : ['16'], true);
+  const aligns = ['both', 'center', 'left', 'right'];
+  const alignName = {both: '两端对齐', center: '居中', left: '左对齐', right: '右对齐'};
+  fill('p-from-align', aligns.map(a => a + '|' + alignName[a]), true);
+  fill('p-to-align', aligns.map(a => a + '|' + alignName[a]), false);
+}
+$('t-add').addEventListener('click', () => {
+  const find = $('t-find').value;
+  if (!find) { log('查找内容不能为空', 'err'); return; }
+  state.rule.text.push({find: find, replace: $('t-repl').value});
+  $('t-find').value = ''; $('t-repl').value = '';
+  renderRuleLists();
+});
+$('f-add').addEventListener('click', () => {
+  const from = {}, to = {};
+  if ($('f-from-east').value) from.eastAsia = $('f-from-east').value;
+  if ($('f-from-latin').value) from.ascii = $('f-from-latin').value;
+  if ($('f-from-size').value) from.size = $('f-from-size').value;
+  if (!Object.keys(from).length) { log('来源条件至少填一项', 'err'); return; }
+  if ($('f-to-east').value) to.eastAsia = $('f-to-east').value;
+  if ($('f-to-latin').value) to.ascii = $('f-to-latin').value;
+  if ($('f-to-size').value) to.size = $('f-to-size').value;
+  if (!Object.keys(to).length) { log('目标格式至少填一项', 'err'); return; }
+  state.rule.font.push({from: from, to: to});
+  renderRuleLists();
+});
+$('p-add').addEventListener('click', () => {
+  const fromAlign = $('p-from-align').value.split('|')[0];
+  if (!fromAlign) { log('来源对齐方式要选一个', 'err'); return; }
+  const to = {align: $('p-to-align').value.split('|')[0]};
+  if ($('p-to-line').value.trim()) to.line = $('p-to-line').value.trim();
+  if ($('p-to-flc').value.trim()) to.first_line_chars = $('p-to-flc').value.trim();
+  state.rule.para.push({from: {align: fromAlign}, to: to});
+  renderRuleLists();
+});
+function renderRuleLists() {
+  const render = (id, rows, format, delIndex) => {
+    const holder = $(id);
+    holder.textContent = '';
+    if (!rows.length) { holder.textContent = '（还没有条目）'; return; }
+    rows.forEach((row, i) => {
+      const line = document.createElement('div');
+      line.className = 'ruleline';
+      const text = document.createElement('span');
+      text.textContent = format(row);
+      const del = document.createElement('button');
+      del.textContent = '删除'; del.className = 'danger';
+      del.addEventListener('click', () => { rows.splice(i, 1); renderRuleLists(); });
+      line.append(text, del);
+      holder.appendChild(line);
+    });
+  };
+  render('t-list', state.rule.text, r => '「' + r.find + '」→「' + (r.replace || '') + '」');
+  render('f-list', state.rule.font, r => JSON.stringify(r.from) + ' → ' + JSON.stringify(r.to));
+  render('p-list', state.rule.para, r => JSON.stringify(r.from) + ' → ' + JSON.stringify(r.to));
+  const total = state.rule.text.length + state.rule.font.length + state.rule.para.length;
+  $('rule-name-label').textContent = '（' + total + ' 条，未保存）';
+}
+$('rule-save').addEventListener('click', async () => {
+  const name = $('rule-name').value.trim();
+  if (!name) { log('先给规则起个名字', 'err'); return; }
+  try {
+    const data = await api('/api/replace-rules/save', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name, rules: state.rule})});
+    log(data.text);
+    $('rule-dialog').classList.remove('on');
+    loadRules();
+  } catch (error) { log('保存失败：' + error.message, 'err'); }
+});
+
+/* ---------------------------------------------------------------- 新增功能 / PDF / 退出 */
 $('add-op').addEventListener('click', async () => {
   $('report').textContent = '正在读插件指南…';
   try {
     const response = await fetch('/api/plugin-guide');
     $('report').textContent = await response.text();
-    log('插件指南已显示在右侧「改动报告」区（往下滚）');
-  } catch (error) {
-    log('读不到指南：' + error.message, 'err');
+    log('插件指南已显示在右侧（往下滚）：新功能 = ops/ 下一个模块 + STEPS 登记一行');
+  } catch (error) { log('读不到指南：' + error.message, 'err'); }
+});
+$('pdf').addEventListener('click', async () => {
+  const files = targetFiles();
+  if (!files.length) { log('先在顶栏导入报告', 'err'); return; }
+  const downloads = [];
+  for (const path of files) {
+    log('导出 PDF：' + path.split('\\').pop());
+    try {
+      const data = await api('/api/pdf', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: path})});
+      $('report').textContent = data.text;
+      if (data.download) downloads.push(data.download);
+    } catch (error) { log('导出 PDF 出错：' + error.message, 'err'); }
   }
+  if (downloads.length) {
+    $('preview').innerHTML = 'PDF 已生成：<br><br>' + downloadsHtml(downloads);
+  }
+});
+$('quit').addEventListener('click', async () => {
+  await api('/api/shutdown', {method: 'POST'});
+  document.body.innerHTML = '<h2 style="padding:40px">已退出，可以关掉这个窗口。</h2>';
+});
+
+/* ---------------------------------------------------------------- 标签页 */
+document.querySelectorAll('#tabs button').forEach(button => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('on'));
+    button.classList.add('on');
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
+    $('panel-' + button.dataset.tab).classList.add('on');
+    if (button.dataset.tab === 'plan') { loadPlans(); }
+    if (button.dataset.tab === 'style') { loadPreviews(); fillStyleFileSelect(); }
+    if (button.dataset.tab === 'replacer') { loadRules(); }
+  });
 });
 
 /* ---------------------------------------------------------------- 启动 */
 loadSteps();
-loadTemplates();
-loadRuleFiles();
-log('界面就绪。先「选择文件」，再勾功能、跑 dry-run。');</script>
+loadPlans();
+loadTemp();
+log('界面就绪。顶栏「导入报告」可一次选多份；执行方案页选一套方案，点「运行此方案」先出临时版。');
+</script>
 </body>
 </html>

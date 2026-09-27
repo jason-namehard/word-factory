@@ -39,6 +39,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .. import pipeline as pipeline_mod
+from .. import replace_rules as replace_rules_mod
 from .. import tablestyle as tablestyle_mod
 from ..ooxml import PackageError
 from ..pipeline import PipelineError
@@ -52,6 +53,11 @@ _LOCK = threading.Lock()
 
 #: 执行方案存哪（用户级数据目录；便携：整个目录拷走就能带走）
 PLANS_DIR = os.path.join(os.path.expanduser(u"~"), u".wordfactory", u"plans")
+
+#: **临时文件夹**（用户 2026-09-27 拍板：放 wordfactory 项目文件夹内，就叫「临时文件」）。
+#: 「运行此方案」跑出的临时版本（标蓝）都落这里，「清理临时文件」一键清空。
+BASE_DIR = os.path.dirname(os.path.dirname(HERE))
+TEMP_DIR = os.path.join(BASE_DIR, u"临时文件")
 
 #: 出厂自带的执行方案（只读；用户改完"另存为"就成了自己的）
 BUILTIN_PLANS = [
@@ -80,6 +86,8 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "WordFactoryGUI/1.0"
     root = os.path.expanduser(u"~")
     plans_dir = PLANS_DIR
+    #: 替换规则存哪（项目 rules/；测试里可以指去别处，免得测试数据落进真规则库）
+    rules_base_dir = None
 
     # ------------------------------------------------------------- 基础
     def log_message(self, fmt, *args):        # 控制台别刷屏
@@ -111,7 +119,9 @@ class Handler(BaseHTTPRequestHandler):
                 with io.open(PAGE, "rb") as handle:
                     self._send(200, handle.read())
             elif path == "/api/steps":
-                self._json({"ok": True, "steps": [
+                self._json({"ok": True,
+                            "labels": dict(pipeline_mod.STEP_LABELS),
+                            "steps": [
                     {"op": name, "note": note, "params": params}
                     for name, (note, params) in pipeline_mod.STEPS.items()]})
             elif path == "/api/templates":
@@ -127,6 +137,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, "drives": _drives()})
             elif path == "/api/plans":
                 self._plans()
+            elif path == "/api/temp-dir":
+                self._temp_dir()
+            elif path == "/api/template-previews":
+                self._template_previews()
+            elif path == "/api/replace-rules":
+                self._json({"ok": True,
+                            "rules": replace_rules_mod.list_rules(self.rules_base())})
+            elif path == "/api/frontmatter":
+                self._frontmatter(_query(query).get("path", u""))
+            elif path == "/api/doc-formats":
+                self._doc_formats(_query(query).get("path", u""))
             elif path == "/api/read":
                 self._read(_query(query).get("path", u""))
             elif path == "/api/plugin-guide":
@@ -157,6 +178,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._plan_save()
             elif path == "/api/plans/delete":
                 self._plan_delete()
+            elif path == "/api/temp/clean":
+                self._temp_clean()
+            elif path == "/api/replace-rules/save":
+                self._rule_save()
+            elif path == "/api/replace-rules/delete":
+                self._rule_delete()
             elif path == "/api/shutdown":
                 self._json({"ok": True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -266,6 +293,100 @@ class Handler(BaseHTTPRequestHandler):
         os.remove(path)
         self._json({"ok": True, "name": name, "text": u"已删除执行方案：%s" % name})
 
+    # ------------------------------------------------------------- 临时文件夹
+    def _temp_dir(self):
+        if not os.path.isdir(TEMP_DIR):
+            os.makedirs(TEMP_DIR)
+        files = []
+        for name in sorted(os.listdir(TEMP_DIR)):
+            full = os.path.join(TEMP_DIR, name)
+            if os.path.isfile(full):
+                files.append({"name": name, "size": os.path.getsize(full)})
+        self._json({"ok": True, "dir": TEMP_DIR, "files": files})
+
+    def _temp_clean(self):
+        """清空临时文件夹（只清这个目录里的**文件**，目录本身保留；防误删别处）。"""
+        if not os.path.isdir(TEMP_DIR):
+            self._json({"ok": True, "removed": 0, "text": u"临时文件夹还没有创建，无需清理"})
+            return
+        removed = 0
+        for name in os.listdir(TEMP_DIR):
+            full = os.path.join(TEMP_DIR, name)
+            if os.path.isfile(full) and _inside(full, TEMP_DIR):
+                os.remove(full)
+                removed += 1
+        self._json({"ok": True, "removed": removed,
+                    "text": u"已清空临时文件夹（%d 个文件）" % removed})
+
+    # ------------------------------------------------------------- 表格模板预览
+    def _template_previews(self):
+        styles = tablestyle_mod.StyleSet.load(_rules_path(u"tablestyle.json"))
+        self._json({"ok": True, "styles": [
+            {"name": style.name, "note": style.note,
+             "svg": tablestyle_mod.preview_svg(style)}
+            for style in styles.styles.values()]})
+
+    # ------------------------------------------------------------- 替换规则
+    def _rule_save(self):
+        data = self._body_json()
+        name = (data.get("name") or u"").strip()
+        rules = data.get("rules") or {}
+        path = replace_rules_mod.save(self.rules_base(), name, rules)
+        self._json({"ok": True, "name": name, "path": path,
+                    "text": u"已存替换规则：%s → %s" % (name, path)})
+
+    def _rule_delete(self):
+        data = self._body_json()
+        name = (data.get("name") or u"").strip()
+        replace_rules_mod.delete(self.rules_base(), name)
+        self._json({"ok": True, "name": name, "text": u"已删除替换规则：%s" % name})
+
+    def rules_base(self):
+        return self.rules_base_dir or os.path.join(os.path.dirname(os.path.dirname(HERE)),
+                                                   "rules")
+
+    # ------------------------------------------------------------- 前置区
+    def _frontmatter(self, path):
+        if not path or not os.path.exists(path):
+            raise PipelineError(u"文件不存在：%s" % path)
+        from .. import frontmatter
+        from ..document import Document
+        with Document(path) as doc:
+            info = frontmatter.detect(doc)
+        self._json({"ok": True, "info": info, "text": frontmatter.format_report(info)})
+
+    # ------------------------------------------------------------- 文档格式清单
+    def _doc_formats(self, path):
+        """读出报告里**实际用过**的格式：给「替换规则」的下拉框做数据源。"""
+        if not path or not os.path.exists(path):
+            raise PipelineError(u"文件不存在：%s" % path)
+        from ..ooxml import qn
+        from ..document import Document
+        east_asia, latin, sizes, aligns = set(), set(), set(), set()
+        with Document(path) as doc:
+            for run in doc.part().iter(qn("w:r")):
+                pr = run.find(qn("w:rPr"))
+                if pr is None:
+                    continue
+                rfonts = pr.find(qn("w:rFonts"))
+                if rfonts is not None:
+                    for attr, bucket in (("eastAsia", east_asia), ("ascii", latin)):
+                        value = rfonts.get(qn("w:%s" % attr))
+                        if value:
+                            bucket.add(value)
+                for tag in ("w:sz", "w:szCs"):
+                    node = pr.find(qn(tag))
+                    if node is not None and node.get(qn("w:val")):
+                        sizes.add(node.get(qn("w:val")))
+            for pr in doc.part().iter(qn("w:pPr")):
+                jc = pr.find(qn("w:jc"))
+                if jc is not None and jc.get(qn("w:val")):
+                    aligns.add(jc.get(qn("w:val")))
+        self._json({"ok": True,
+                    "east_asia": sorted(east_asia), "latin": sorted(latin),
+                    "sizes": sorted(sizes, key=lambda v: float(v) if v.replace(".", u"").isdigit() else 0),
+                    "aligns": sorted(aligns)})
+
     def _pdf(self):
         """导出 PDF：编排本机装着的渲染器（Word/WPS/LibreOffice）。"""
         from ..ops import pdf as pdf_op
@@ -287,17 +408,55 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"ok": True, "report": report, "text": text, "download": download})
 
     def _extdata(self):
-        """文档数据外置更新：``gen`` 生成外置数据表 + 配方，``rebuild`` 按数据表重建。"""
+        """文档数据外置更新：``gen`` 生成外置数据表 + 配方，``rebuild`` 按数据表重建，
+        ``update`` 把高亮数值**就地**换成数据表新值（文档数据更新 / 表格数据更新）。"""
         from ..document import Document
         from ..ops import recipe as recipe_op
         data = self._body_json()
         action = data.get("action") or u""
         path = data.get("path") or u""
-        if action not in ("gen", "rebuild"):
-            raise PipelineError(u"只有两个动作：gen（生成外置数据）/ rebuild（按数据表更新）")
+        if action not in ("gen", "rebuild", "update"):
+            raise PipelineError(u"动作只有 gen（生成外置数据）/ rebuild（按数据表重建段落）/"
+                                u" update（就地更新数值）")
         if not path or not os.path.exists(path):
             raise PipelineError(u"文件不存在：%s" % path)
         stem = os.path.splitext(os.path.basename(path))[0]
+
+        if action == "update":
+            scope = data.get("scope") or u"body"
+            if scope not in ("body", "tables"):
+                raise PipelineError(u"scope 只能是 body（正文）/ tables（表格单元格）")
+            xlsx = data.get("xlsx")
+            if not xlsx or not os.path.exists(xlsx):
+                raise PipelineError(u"先选数据表（.xlsx）再更新")
+            from ..xlsx import read_column_b
+            values = read_column_b(xlsx, max_rows=500)
+            out = data.get("out") or os.path.join(
+                os.path.dirname(os.path.abspath(path)),
+                stem + (u"_表格更新.docx" if scope == "tables" else u"_数据更新.docx"))
+            if not data.get("dry_run") and os.path.abspath(out) == os.path.abspath(path):
+                raise PipelineError(u"输出不能跟输入同一个文件")
+            with Document(path) as doc:
+                report = recipe_op.update_values(doc, values, scope=scope,
+                                                 dry_run=bool(data.get("dry_run")))
+                written = None
+                if not data.get("dry_run"):
+                    written = doc.save(os.path.abspath(out))
+            label = u"表格数据更新" if scope == "tables" else u"文档数据更新"
+            lines = [u"%s：%s" % (label, path),
+                     u"数据表：%s ｜ 取到 %d 个值" % (xlsx, len(values)),
+                     u"就地替换 %d 处%s" % (report["replaced"],
+                                           u"（还有 %d 处高亮没给到值）" % report["missing"]
+                                           if report["missing"] else u""),
+                     u"（只换字，不动段落结构；没有高亮的地方不碰）"]
+            if data.get("dry_run"):
+                lines.insert(0, u"--dry-run：一个字节都没写")
+            else:
+                lines.insert(0, u"已写出：%s" % written)
+            self._json({"ok": True, "report": dict(report, out=written, xlsx=xlsx),
+                        "text": u"\n".join(lines),
+                        "download": allow_download(written) if written else None})
+            return
 
         if action == "gen":
             mode = data.get("mode") or u"highlight"

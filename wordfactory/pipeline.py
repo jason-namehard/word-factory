@@ -8,7 +8,7 @@
 1. **配方** = 一串内容宏（题注 / 上下标 / 表格清理 / 文本替换 / Markdown / 一键整理），
    **顺序由用户排**（GUI 里拖排序；JSON 里就是数组顺序）；
 2. **收尾**按模式（用户 2026-09-21 的两版输出口径）：
-   * ``verify`` 验证版：把**改动的地方标蓝**，你打开核对；
+   * ``verify`` 预览版（用户 2026-09-27 起，旧叫"验证版"）：把**改动的地方标蓝**，你打开核对；
    * ``formal`` 正式版：**通体黑 + 字体合规**，然后自动体检（`audit`），末行 AUDIT=PASS。
 
 所以「字体/颜色」不是配方里的一步，而是**收尾** —— 否则验证版会被"全部改黑"把标蓝盖掉。
@@ -30,7 +30,7 @@ from .ops import table_clean as table_clean_op
 from .ops import textfix as textfix_op
 from .ops import tidy as tidy_op
 
-#: 模式：verify = 验证版（改动标蓝）；formal = 正式版（通体黑 + 字体合规）
+#: 模式：verify = 预览版（改动标蓝，旧叫"验证版"）；formal = 正式版（通体黑 + 字体合规）
 MODES = ("verify", "formal")
 
 #: 配方里可选的步骤：名字 → (说明, 默认参数)。加新宏只在这里加一行。
@@ -41,10 +41,27 @@ STEPS = collections.OrderedDict([
     (u"sup", (u"上下标规则（外置 JSON）", {"rules": None})),
     (u"tableclean", (u"表格去空格/回车", {"level": 3, "merge_lines": False,
                                        "remove_spaces": False})),
+    (u"tablestyle", (u"表格模板（套用款式；支持映射与通篇一致）",
+                     {"style": u"通用款·外粗内细", "uniform": False, "tables": u"all",
+                      "mapping": None, "wrap_header": None})),
     (u"textfix", (u"文本替换 + 两端对齐改左对齐", {"replace": True, "align": True})),
+    (u"replace", (u"替换规则（文本/字体/段落，三段合一）", {"rules": None, "scope": "all"})),
     (u"mdclean", (u"Markdown 标记清理", {})),
     (u"tidy", (u"一键整理（段尾空格/空白行）", {"blank_lines": True, "trailing_spaces": True})),
 ])
+
+#: 界面上的**中文显示名**（用户 2026-09-27：可选功能要用中文命名 + 中文简介）。
+#: 内部代号保持英文（执行方案 JSON、命令行 --steps 都用它），界面显示用这张表。
+STEP_LABELS = {
+    u"captions": u"题注统一",
+    u"sup": u"上下标规则",
+    u"tableclean": u"表格清理",
+    u"tablestyle": u"表格模板",
+    u"textfix": u"文本替换对齐",
+    u"replace": u"替换规则",
+    u"mdclean": u"Markdown 清理",
+    u"tidy": u"一键整理",
+}
 
 #: 只有这些步骤的报告里带"可以标蓝的区间"
 MARKABLE = (u"captions",)
@@ -157,6 +174,25 @@ def _run_step(doc, name, params, dry_run):
                    if key in params}
         return table_clean_op.clean(doc, options, dry_run=dry_run)
 
+    if name == u"tablestyle":
+        from . import tablestyle as tablestyle_mod
+        spec = {key: params[key] for key in ("style", "uniform", "tables",
+                                             "mapping", "wrap_header")
+                if params.get(key) not in (None, False)}
+        if "uniform" in params:
+            spec["uniform"] = bool(params.get("uniform"))
+        return tablestyle_mod.apply_plan(doc, spec, dry_run=dry_run)
+
+    if name == u"replace":
+        from . import replace_rules as replace_rules_mod
+        if not params.get("rules"):
+            return {"op": "replace", "name": u"", "text": 0, "font": 0, "para": 0,
+                    "total": 0, "dry_run": bool(dry_run),
+                    "note": u"没指定替换规则 —— 在「替换规则」页做好、在执行方案里选中"}
+        rules = replace_rules_mod.load(_replace_rules_path(params["rules"]))
+        return replace_rules_mod.apply(doc, rules, dry_run=dry_run,
+                                       scope=params.get("scope") or "all")
+
     if name == u"textfix":
         options = {}
         if params.get("replace") is False:
@@ -172,10 +208,30 @@ def _run_step(doc, name, params, dry_run):
     if name == u"tidy":
         options = {key: params[key] for key in ("blank_lines", "trailing_spaces",
                                                 "trim_leading", "collapse_space_runs",
-                                                "caption_skip") if key in params}
+                                                "caption_skip", "merge_lines",
+                                                "remove_spaces", "scope",
+                                                "protect_frontmatter",
+                                                "frontmatter_pages")
+                   if key in params}
         return tidy_op.tidy(doc, options, dry_run=dry_run)
 
     raise PipelineError(u"步骤 %s 没有实现" % name)
+
+
+def _replace_rules_path(name_or_path):
+    """替换规则的参数：给名字就在 rules/replace-rules/ 下找，给路径就直接用。"""
+    import os as _os
+    if os.path.isabs(name_or_path) or _os.path.exists(name_or_path):
+        return name_or_path
+    base = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                         "rules")
+    candidate = _os.path.join(base, "replace-rules", u"%s.json" % name_or_path)
+    if _os.path.exists(candidate):
+        return candidate
+    candidate2 = _os.path.join(base, u"%s.json" % name_or_path)
+    if _os.path.exists(candidate2):
+        return candidate2
+    return name_or_path
 
 
 def _rules(path):
@@ -187,7 +243,7 @@ def _rules(path):
 def _default_out(source_path, mode):
     """输出文件名：`某报告（正式版）.docx`；已存在就加序号，绝不覆盖用户的东西。"""
     stem, ext = os.path.splitext(os.path.basename(source_path))
-    suffix = u"（验证版）" if mode == "verify" else u"（正式版）"
+    suffix = u"（预览版）" if mode == "verify" else u"（正式版）"
     parent = os.path.dirname(os.path.abspath(source_path))
     candidate = os.path.join(parent, u"%s%s%s" % (stem, suffix, ext))
     index = 2
@@ -199,7 +255,7 @@ def _default_out(source_path, mode):
 
 def format_report(report):
     """人看的运行报告（GUI 直接显示这段）。"""
-    mode_text = (u"验证版（改动的地方标蓝，供你核对）" if report["mode"] == "verify"
+    mode_text = (u"预览版（改动的地方标蓝，供你核对）" if report["mode"] == "verify"
                  else u"正式版（通体黑 + 字体合规）")
     lines = [u"文件：%s" % report["file"],
              u"模式：%s" % mode_text,
