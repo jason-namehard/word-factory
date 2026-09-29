@@ -199,7 +199,10 @@ class PlanCase(unittest.TestCase):
             manual = frontmatter.protected_elements(doc, pages=1)
         self.assertTrue(auto, u"自动识别：封面+签字页都在前言之前")
         self.assertTrue(manual, u"手动第 1 页也要有保护")
-        self.assertLess(len(manual), len(auto), u"只保护第 1 页时比自动（前 2 页）少")
+        # 2026-09-30 起：手动页数与自动识别**取并集**（手动只能加不能减）——
+        # 替代会让前置区的排版空段被清理掉（真实报告实测：13 个空段被删 10 个）。
+        self.assertGreaterEqual(len(manual), len(auto),
+                                u"手动页数不能把自动识别的保护改小")
 
     def test_tidy_honors_frontmatter_pages(self):
         from wordfactory.ops import tidy as tidy_op

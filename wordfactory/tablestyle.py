@@ -419,7 +419,8 @@ def table_titles(document):
                 continue
             seen += 1
             if _TABLE_TITLE_RE.match(text):
-                titles[index] = text
+                # 题注用一串空格把名字推到中间（规则 B）；显示时压成两个，别糊一屏
+                titles[index] = re.sub(r"[ 　]{2,}", "  ", text)
                 break
             if seen >= 5:                # 往上 5 段还没有编号行 = 大概率这张表没有题注
                 break

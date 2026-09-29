@@ -331,3 +331,45 @@ class TestFrontmatterProtection(unittest.TestCase):
             self.assertIn(u"没遍历到", info["note"])
         finally:
             shutil.rmtree(work, ignore_errors=True)
+
+    def test_manual_pages_add_to_auto_instead_of_replacing_it(self):
+        """手动页数是"至少再加保护到第 N 页"，不能把自动识别改小（用户 2026-09-30）。
+
+        实测真实报告：封面在第 4–5 页，手动填"1 页"若替代自动识别，
+        前置区 13 个排版空段会被清掉 10 个 —— 封面直接垮。
+        """
+        from wordfactory import frontmatter
+        work = tempfile.mkdtemp(prefix="wf_fm_add_")
+        try:
+            path = os.path.join(work, u"报告.docx")
+            cover = (fixtures.paragraph(fixtures.run(u"某某水库工程", sz="72"))
+                     + u'<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
+                     + fixtures.paragraph(fixtures.run(u"编制：张三  校核：李四"))
+                     + fixtures.paragraph(fixtures.run(u"前 言"))
+                     + fixtures.paragraph(fixtures.run(u"正文。")))
+            fixtures.write_fixture(path, body=cover)
+            with Document(path) as doc:
+                auto = frontmatter.protected_elements(doc)
+                manual = frontmatter.protected_elements(doc, pages=1)
+            self.assertTrue(auto)
+            self.assertEqual(manual, auto,
+                             u"手动 1 页不能比自动识别更少（自动永远保护）")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def test_cover_is_the_first_page_with_text_not_always_page_one(self):
+        """真实报告封面在第 4–5 页（前面是排版空段）—— 按"第 1 页"判会误报无。"""
+        from wordfactory import frontmatter
+        work = tempfile.mkdtemp(prefix="wf_fm_cover_")
+        try:
+            path = os.path.join(work, u"报告.docx")
+            body = u"".join(u'<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>' for _ in range(3))
+            body += (fixtures.paragraph(fixtures.run(u"某某水库工程防洪安全复核报告", sz="72"))
+                     + fixtures.paragraph(fixtures.run(u"前 言"))
+                     + fixtures.paragraph(fixtures.run(u"正文。")))
+            fixtures.write_fixture(path, body=body)
+            with Document(path) as doc:
+                info = frontmatter.detect(doc)
+            self.assertEqual(info["page_map"]["cover"], u"第 4 页")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)

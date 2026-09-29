@@ -108,17 +108,24 @@ def detect(document):
     texts = [_normalized(Paragraph(element).text) for element in front
              if element.tag == qn("w:p")]
     roles = [role for role in ROLES if any(role in text for text in texts)]
-    # **封面 = 第 1 页且有非空文字**（用户 2026-09-28："如果没找到封面，则说无"——
-    # 前面只有空段/空白页的不算封面）
-    cover = bool(groups) and group_has_text(groups[0])
+    # **封面 = 前置区里第一个有非空文字的页**（用户 2026-09-30 实测：真实报告的封面
+    # 在第 4–5 页——前面 3 页是排版空段；按"第 1 页"判会把封面判成"无"）。
+    # 整片前置区都没有文字才报"无"。
+    cover_index = None
+    for position, group in enumerate(groups, start=1):
+        if group_has_text(group):
+            cover_index = position
+            break
+    cover = cover_index is not None
     signature_page = bool(groups) and bool(roles) and group_has_text(groups[-1])
-    middle = groups[1:-1] if (signature_page and len(groups) > 2) else (
-        groups[1:] if len(groups) > 1 else [])
+    start = cover_index or 1
+    middle = groups[start:-1] if (signature_page and len(groups) > start + 1) else (
+        groups[start:] if len(groups) > start else [])
     title_page = bool(middle) and any(group_has_text(g) for g in middle)
     # 给人看的"到第几页"（用户 2026-09-28：光说"有"没法判断对错，要看到页码）
-    page_map = {"cover": u"第 1 页" if cover else u"无"}
+    page_map = {"cover": u"第 %d 页" % cover_index if cover else u"无"}
     if title_page:
-        first = 2
+        first = start + 1
         last = len(groups) if not signature_page else len(groups) - 1
         page_map["title"] = (u"第 %d–%d 页" % (first, last)) if last > first \
             else (u"第 %d 页" % first)
@@ -160,20 +167,22 @@ def _page_groups(document):
 def protected_elements(document, pages=None):
     """前置区里的**段落元素集合**（按 id），清理类算子用它跳过。
 
-    * ``pages=None``：自动识别 —— 从头走到「目录/目次/前言」，前面全是前置区；
-      **没遍历到标志 = 没有可靠边界 = 返回空集**（一个都不保护，绝不把整篇当前置区）。
-    * ``pages=N``（用户手动指定"前置区到第 N 页"）：直接按物理页分组取前 N 页，
-      **不看标志** —— 这就是手动修正窗口的引擎侧。
+    * 自动识别：从头走到「目录/目次/前言」，前面全是前置区；**没遍历到标志 =
+      没有可靠边界 = 一个都不保护**（绝不能把整篇当前置区）。
+    * 手动页数 ``pages=N``：**与自动识别取并集**，不是替代（用户 2026-09-30 实测：
+      真实报告封面在第 4–5 页，手动填"1 页"时若替代掉自动识别，封面那些排版空段
+      会被清理掉 10 个 —— 页面直接垮掉）。手动数字的语义是"**至少**保护到第 N 页"。
+
+    所以：**自动识别的永远都保护**，手动只能加不能减。
     """
+    protected = set()
     if pages:
-        protected = set()
         for number, blocks in _page_groups(document):
             if number > int(pages):
                 break
             for element in blocks:
                 if element.tag == qn("w:p"):
                     protected.add(id(element))
-        return protected
     body = document.body()
     blocks = list(body)[:MAX_BLOCKS]
     seen = []
@@ -183,9 +192,10 @@ def protected_elements(document, pages=None):
             continue
         text = _normalized(Paragraph(element).text)
         if text in MARKERS or _has_toc_field(element):
-            return set(id(item) for item in seen)
+            protected.update(id(item) for item in seen)
+            return protected
         seen.append(element)
-    return set()
+    return protected
 
 
 def format_report(info):

@@ -232,6 +232,8 @@
         <div class="card">
           <h4>表格模板（点选一张样图，看右边预览）</h4>
           <div class="hint">样图按模板参数现画：框线粗细、三线表、表头加粗居中、长文本列左对齐。</div>
+          <div id="style-current" class="hint"
+               style="padding:8px 10px;background:#f6f8fc;border-radius:8px;margin-bottom:10px"></div>
           <div class="rowline" style="margin-bottom:8px">
             <label><input type="checkbox" id="uniform"> 通篇一致（所有表都用选定的模板，不逐表区分）</label>
             <span style="margin-left:auto;font-size:12px;color:#64748b">当前文件：
@@ -979,7 +981,9 @@ function renderFrontmatter() {
     // 用户 2026-09-28：光说"有"没法判断对错 —— 直接显示"第几页"
     const foundText = pageMap[key] || '无';   // 「第 1 页」或「无」，不写"有"
     const override = state.fmPages[key] || 0;
-    const range = override ? '手动：到第 ' + override + ' 页' : '自动识别';
+    const autoPages = state.fmInfo.pages || 0;
+    const range = override ? ('自动：到第 ' + autoPages + ' 页 ＋ 手动：到第 ' + override + ' 页')
+                           : ('自动：到第 ' + autoPages + ' 页');
     const roleNote = (key === 'signature' && found[key] && state.fmInfo.roles)
       ? '<br><span style="color:#94a3b8;font-size:11px">角色词：'
         + state.fmInfo.roles.join('、') + '</span>' : '';
@@ -998,8 +1002,9 @@ let fmEditing = null;
 function openFmDialog(key, name) {
   fmEditing = key;
   $('fm-dialog-title').textContent = '手动调整：' + name;
-  $('fm-dialog-hint').textContent = '「' + name + '到第几页」= 它占据报告的第 1…N 页里的第几页为止'
-    + '（例：扉页占到第 2 页就填 2）。留空保存 = 这一行回到自动识别。';
+  $('fm-dialog-hint').innerHTML = '「' + name + '到第几页」= 它占到第几页为止（例：扉页占到第 2 页就填 2）。<br>'
+    + '<b>自动识别的部分永远都保护</b>，这里填的数字是「<b>至少</b>再加保护到第几页」，'
+    + '不能把它改小。留空保存 = 这一行回到自动识别。';
   $('fm-page-input').value = state.fmPages[key] || '';
   $('fm-dialog').classList.add('on');
 }
@@ -1123,9 +1128,40 @@ function renderTables() {
   });
   holder.appendChild(table);
 }
+function planTemplateStep() {
+  return state.steps.find(s => s.op === 'tablestyle');
+}
+function styleSignature(template, uniform, tableStyle) {
+  const per = Object.entries(tableStyle || {}).map(([i, s]) => i + ':' + s);
+  return (template || '') + (uniform ? '|通篇' : '') + '|' + per.join(',');
+}
 function renderTemplatePlan() {
   const holder = $('tpl-plan');
   if (!holder) return;
+  // ① 执行方案里现在是什么（用户 2026-09-30：改了样式却不知道进没进方案）
+  const step = planTemplateStep();
+  const current = $('style-current');
+  if (current) {
+    if (!step || !step.on) {
+      current.innerHTML = '⚠ <b>执行方案里没有表格模板这一步</b> —— 选好样式后要点页面底部的'
+        + '「应用表格模板」，它才会进方案。';
+    } else {
+      const params = step.params || {};
+      const per = (params.mapping || []).length;
+      current.innerHTML = '执行方案里现在：<b>' + (step.alias || '表格模板') + '</b>'
+        + '（统一模板 ' + (params.style || '?') + (params.uniform ? '，通篇一致' : '')
+        + (per ? '，' + per + ' 张表单独指定/不套用' : '') + '）';
+      // ② 你刚才调的设置还没进方案 → 明说
+      const mine = styleSignature(state.template, state.uniform, state.tableStyle);
+      const theirs = styleSignature(params.style, params.uniform,
+        Object.fromEntries((params.mapping || []).map(m => [m.index,
+          m.none ? '（不套用）' : m.style])));
+      if (mine !== theirs) {
+        current.innerHTML += '<br><span style="color:#b45309">⚠ 你上面刚调的设置'
+          + '<b>还没加入方案</b> —— 要生效请点底部「应用表格模板」</span>';
+      }
+    }
+  }
   if (!state.template && !Object.keys(state.tableStyle).length) {
     holder.textContent = '（还没选模板；每张表的下拉框里可以单独指定，或选「这张表不套用」）';
     return;
@@ -1180,6 +1216,7 @@ function commitTemplate(name, mapping) {
                    tables: 'all', mapping: mapping};
   }
   renderSteps();
+  renderTemplatePlan();     // 指示器要跟着刷新（否则还停在"没有这一步"）
   log('已把「表格模板（' + name + '）」加进执行方案 —— 跑方案时生效'
       + (mapping.length ? '（' + mapping.length + ' 张表单独指定/不套用）' : ''));
 }
