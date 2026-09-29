@@ -84,21 +84,40 @@ def detect(document):
         return {"present": False, "marker": None, "paragraphs": 0, "pages": 0,
                 "cover": False, "title_page": False, "signature_page": False,
                 "roles": [], "blocks": 0,
-                "note": u"没遍历到「目录/前言」，不能确定哪里是正文开头 —— 不保护（可手动指定，界面待排布）"}
-    pages = 1
+                "page_map": {"cover": u"无", "title": u"无", "signature": u"无"},
+                "note": u"没遍历到「目录/前言」，不能确定哪里是正文开头 —— 不保护（可手动指定）"}
+    # 按分页痕迹把前置区分页：第 1 页=封面，最后一页带角色词=签字页，中间=扉页
+    groups = []
+    current_page = 1
+    bucket = []
     for element in front:
-        if element.tag == qn("w:p"):
-            pages += _page_breaks(element)
-    texts = [_normalized(Paragraph(element).text) for element in front
-             if element.tag == qn("w:p")]
+        bucket.append((current_page, element))
+        if element.tag == qn("w:p") and _page_breaks(element):
+            groups.append(bucket)
+            bucket = []
+            current_page += 1
+    if bucket:
+        groups.append(bucket)
+    pages = current_page
+    texts = [_normalized(Paragraph(element).text) for group in groups
+             for _page, element in group if element.tag == qn("w:p")]
     roles = [role for role in ROLES if any(role in text for text in texts)]
     cover = bool(front)
-    signature_page = bool(roles)
-    title_page = pages >= 2          # 封面之外还有页 → 有扉页（封面扉页合一就只有 1 页）
+    signature_page = bool(roles) and pages >= 1
+    title_page = pages >= 2
+    # 给人看的"到第几页"（用户 2026-09-28：光说"有"没法判断对错，要看到页码）
+    page_map = {"cover": u"第 1 页" if cover else u"无"}
+    if title_page:
+        page_map["title"] = u"第 2–%d 页" % (pages - 1 if signature_page and pages > 2 else pages) \
+            if pages > 2 else u"第 2 页"
+    else:
+        page_map["title"] = u"无"
+    page_map["signature"] = u"第 %d 页" % pages if signature_page else u"无"
     return {"present": True, "marker": marker, "paragraphs":
             sum(1 for element in front if element.tag == qn("w:p")),
             "pages": pages, "cover": cover, "title_page": title_page,
             "signature_page": signature_page, "roles": roles, "blocks": len(front),
+            "page_map": page_map,
             "note": u"「%s」之前共 %d 段、约 %d 页，已整体划为前置区" % (marker, len(front), pages)}
 
 

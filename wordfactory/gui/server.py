@@ -144,6 +144,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/replace-rules":
                 self._json({"ok": True,
                             "rules": replace_rules_mod.list_rules(self.rules_base())})
+            elif path == "/api/subs-rules":
+                self._json({"ok": True, "data": _read_json(_rules_path(u"subscripts.json"))})
             elif path == "/api/frontmatter":
                 self._frontmatter(_query(query).get("path", u""))
             elif path == "/api/doc-formats":
@@ -184,6 +186,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._rule_save()
             elif path == "/api/replace-rules/delete":
                 self._rule_delete()
+            elif path == "/api/subs-rules/save":
+                self._subs_save()
             elif path == "/api/shutdown":
                 self._json({"ok": True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -350,6 +354,19 @@ class Handler(BaseHTTPRequestHandler):
     def rules_base(self):
         return self.rules_base_dir or os.path.join(os.path.dirname(os.path.dirname(HERE)),
                                                    "rules")
+
+    def _subs_save(self):
+        """上下标规则（字典）存盘 —— 界面「上下标规则」页用（用户 2026-09-28 要的管理区）。"""
+        data = self._body_json()
+        payload = data.get("data")
+        if not isinstance(payload, dict) or not isinstance(payload.get("rules"), list):
+            raise PipelineError(u"规则内容不对：要是一个带 rules 数组的对象")
+        path = _rules_path(u"subscripts.json")
+        with io.open(path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        count = len(payload["rules"])
+        self._json({"ok": True, "count": count, "path": path,
+                    "text": u"已保存上下标规则（%d 条）→ %s" % (count, path)})
 
     # ------------------------------------------------------------- 前置区
     def _frontmatter(self, path):
@@ -644,6 +661,13 @@ def _unquote(text):
 def _quote(text):
     import urllib.parse
     return urllib.parse.quote(text or u"")
+
+
+def _read_json(path, default=None):
+    if not os.path.exists(path):
+        return default if default is not None else {}
+    with io.open(path, "r", encoding="utf-8-sig") as handle:
+        return json.load(handle)
 
 
 def _inside(path, root):

@@ -26,6 +26,7 @@ import collections
 import io
 import json
 import os
+import re
 from xml.etree import ElementTree as ET
 
 from .ooxml import NAMESPACES, qn
@@ -387,13 +388,53 @@ def _header_cells(table):
     return [element for element in rows[0] if element.tag == qn("w:tc")]
 
 
-def table_summaries(document):
-    """遍历所有表格，给出一份"清单"：序号 / 表头文字 / 几行几列 / 现有列宽是否等宽。
+#: 表标题的样子：``表6-2`` / ``表4.2-1`` / ``表 4.2-1``（题注宏生成的编号格式，见 ops/captions）
+_TABLE_TITLE_RE = re.compile(u"^\\s*表\\s*\\d+(?:[.\\u2014-]\\d+)*")
 
-    这就是"按表头叫表格"的数据源 —— 将来 GUI 里那排**复选框**直接渲染它
-    （`tablestyle list` 会把它打成表，`--json` 下是结构化数据）。
+
+def table_titles(document):
+    """每张表**上面**最近的表标题（"表6-2 欧峪水库水位～泄量关系"）→ ``{表序号: 标题}``。
+
+    用户 2026-09-28 的原话："查取出来的表头名字应该是表格上面的表格名字…只需要往上找最近的
+    '表+数字' 的那一行文字"。找法：从表的块位置往前扫，最多看 5 个非空段
+    （表标题就在表格紧上面；段落顺序来自 ``document.body()``）。
+    """
+    from .text import Paragraph
+    blocks = list(document.body())
+    positions = {}
+    for index, table in enumerate(tables_of(document), start=1):
+        for pos, element in enumerate(blocks):
+            if element is table:
+                positions[index] = pos
+                break
+    titles = {}
+    for index, pos in positions.items():
+        seen = 0
+        for back in range(pos - 1, -1, -1):
+            element = blocks[back]
+            if element.tag != qn("w:p"):
+                continue
+            text = Paragraph(element).text.strip()
+            if not text:
+                continue
+            seen += 1
+            if _TABLE_TITLE_RE.match(text):
+                titles[index] = text
+                break
+            if seen >= 5:                # 往上 5 段还没有编号行 = 大概率这张表没有题注
+                break
+    return titles
+
+
+def table_summaries(document):
+    """遍历所有表格，给出清单：序号 / **表标题（表上方那行"表X-Y …"）** / 表头文字 /
+    几行几列 / 现有列宽是否等宽。
+
+    界面上认表认的是**表标题**（用户 2026-09-28："表6-2 欧峪水库水位～泄量关系"）；
+    表头行放在第二行当辅助信息。
     """
     out = []
+    titles = table_titles(document)
     for index, table in enumerate(tables_of(document), start=1):
         rows = [element for element in table if element.tag == qn("w:tr")]
         header = [(_text_of_cell(cell)).strip() for cell in _header_cells(table)]
@@ -401,6 +442,7 @@ def table_summaries(document):
         widths = [int(column.get(qn("w:w")) or 0) for column in grid] if grid is not None else []
         out.append({"index": index, "header": header,
                     "header_text": u" / ".join(header),
+                    "title": titles.get(index) or u"（表上方没有表X-Y标题）",
                     "rows": len(rows),
                     "columns": len(widths) or (len(header) or None),
                     "widths": widths,
@@ -490,6 +532,7 @@ def apply_plan(document, spec, dry_run=False, styles_path=None):
             continue
         chosen = fallback
         chosen_name = fallback_name
+        skipped = False
         if not uniform:
             for entry in mapping:
                 by_index = entry.get("index")
@@ -506,6 +549,9 @@ def apply_plan(document, spec, dry_run=False, styles_path=None):
                     hit = by_match in header
                 if not hit:
                     continue
+                if entry.get("none"):       # 这张表明确"不套用"
+                    skipped = True
+                    break
                 candidate = styles.styles.get(entry.get("style"))
                 if candidate is None:
                     raise TableStyleError(
@@ -514,13 +560,15 @@ def apply_plan(document, spec, dry_run=False, styles_path=None):
                 chosen = candidate
                 chosen_name = candidate.name
                 break
+        used_styles[index] = u"（不套用）" if skipped else chosen_name
+        if skipped:
+            continue
         style = chosen
         if wrap:
             merged = dict(style.raw)
             merged["header_wrap"] = list(style.header_wrap) + wrap
             style = TableStyle(style.name, merged)
         count = _apply_to_table(table, style, dry_run, page_width)
-        used_styles[index] = chosen_name
         if count:
             touched.append(index)
             changes.update(count)

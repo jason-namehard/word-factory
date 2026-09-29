@@ -168,6 +168,7 @@
       <button data-tab="style">表格款式</button>
       <button data-tab="extdata">文档数据外置</button>
       <button data-tab="replacer">替换规则</button>
+      <button data-tab="subs">上下标字典</button>
       <button data-tab="about">这是什么</button>
     </div>
     <div id="panels">
@@ -175,15 +176,26 @@
       <!-- ==================== 页面一：执行方案 ==================== -->
       <div class="panel on" id="panel-plan">
         <div class="card">
-          <h4>执行方案（选一套，点「运行此方案」先跑临时版看效果）</h4>
+          <h4>执行方案</h4>
+          <div class="hint">左边勾好功能、排好序（可以加表格模板、替换规则、上下标字典），在这里
+             <b>起名 + 写备注</b>存下来；下拉框里选一套，下一行会显示它具体跑什么。
+             「运行此方案」只出临时版（标蓝），满意了再去顶栏出预览版 / 正式版。</div>
           <div class="rowline">
-            <select id="plan-select" style="min-width:280px"></select>
-            <button id="plan-load" class="primary">载入</button>
+            <select id="plan-select" style="min-width:220px"></select>
+            <button id="plan-refresh">刷新</button>
             <button id="plan-delete" class="danger">删除</button>
             <button id="plan-run" class="primary">运行此方案（临时版）</button>
             <button id="plan-dry">先看会改多少</button>
           </div>
-          <div class="hint" id="plan-note" style="margin-top:8px">—</div>
+          <div class="hint" id="plan-desc" style="margin:8px 0"></div>
+          <div class="rowline">
+            <input type="text" id="plan-name" placeholder="方案名（如：报告规范化）">
+            <input type="text" id="plan-note" placeholder="备注：这套方案跑什么、什么时候用（可选）"
+                   style="min-width:280px">
+            <button id="plan-save" class="primary">保存这套</button>
+            <button id="plan-export">导出到文件…</button>
+            <button id="plan-import">从文件导入…</button>
+          </div>
           <div class="rowline" style="margin-top:6px">
             <button id="temp-clean">清理临时文件</button>
             <span class="hint" id="temp-note" style="margin:0"></span>
@@ -209,17 +221,10 @@
           <div id="steps"></div>
         </div>
 
-        <div class="card">
-          <h4>把当前勾选存成执行方案</h4>
-          <div class="rowline">
-            <input type="text" id="plan-name" placeholder="方案名（如：报告规范化）">
-            <input type="text" id="plan-note" placeholder="备注：这套方案跑什么、什么时候用（可选）"
-                   style="min-width:320px">
-            <button id="plan-save" class="primary">保存</button>
-            <button id="plan-export">导出到文件…</button>
-            <button id="plan-import">从文件导入…</button>
-          </div>
-        </div>
+        <!-- 保存入口已并到页面上方「执行方案」卡片（用户 2026-09-28：底部录入的和顶部
+             是同一个东西，别做两处；原来这里还留着重复的 plan-name/plan-note 输入框，
+             与上方同 id —— $('plan-note') 拿到 div、.value 是 undefined，
+             于是点保存报 "Cannot read properties of undefined (reading 'trim')"。） -->
       </div>
 
       <!-- ==================== 页面二：表格款式 ==================== -->
@@ -241,6 +246,7 @@
         </div>
         <div class="card">
           <h4>应用</h4>
+          <div class="hint" id="tpl-plan" style="margin-bottom:10px"></div>
           <div class="rowline">
             <input type="text" id="tpl-name" placeholder="给这套表格应用起个名字（如：成果表三线款）">
             <button id="apply-templates" class="primary">应用表格模板（加进执行方案）</button>
@@ -298,6 +304,44 @@
             <button id="rule-attach">加入执行方案</button>
           </div>
           <div id="rules"></div>
+        </div>
+      </div>
+
+      <!-- ==================== 上下标字典 ==================== -->
+      <div class="panel" id="panel-subs">
+        <div class="card">
+          <h4>上下标字典（智能上下标）—— 直接在这里改，不用碰 JSON</h4>
+          <div class="hint">两种条目：<b>字典条目</b>（写死"m2 → 2 上标"这种）
+             和 <b>正则条目</b>（按正则找、按组替换）。顺序即优先级，先匹配先应用。
+             改完保存，执行方案里的「上下标规则」用这份字典。</div>
+          <div class="rowline" style="margin-bottom:10px">
+            <button id="subs-save" class="primary">保存字典</button>
+            <button id="subs-reset">恢复默认字典</button>
+            <span class="hint" id="subs-note" style="margin:0"></span>
+          </div>
+          <div class="fmtbox to">
+            <div class="fmt-title">加一条</div>
+            <div class="rowline">
+              <select id="subs-kind">
+                <option value="dict">字典条目（逐字符）</option>
+                <option value="regex">正则条目（按正则）</option>
+              </select>
+              <input type="text" id="subs-match" placeholder="字面量（如 m2）" style="min-width:120px">
+              <input type="text" id="subs-kinds" placeholder="逐字类型 N S B（如 NS）" style="min-width:170px">
+              <input type="text" id="subs-pattern" placeholder="正则（如 m([2-9]+)）" style="min-width:150px">
+              <select id="subs-target">
+                <option value="all">整段匹配</option>
+                <option value="group:1">第 1 捕获组</option>
+              </select>
+              <select id="subs-effect">
+                <option value="superscript">上标</option>
+                <option value="subscript">下标</option>
+              </select>
+              <button id="subs-add" class="primary">添加</button>
+            </div>
+          </div>
+          <div class="hint">当前字典（点「删」去掉一条）：</div>
+          <table class="grid" id="subs-table"></table>
         </div>
       </div>
 
@@ -449,6 +493,7 @@ const state = {files: [], file: null, steps: [], plans: [], planName: '',
                tables: [], picked: new Set(), tableStyle: {}, uniform: false,
                template: null, tempDir: '', tempFiles: [], fmPages: {cover: 0, title: 0, signature: 0},
                extFiles: [], rule: {text: [], font: [], para: []}, docFormats: null,
+               subs: null,
                lastOut: null};
 
 /* ---------------------------------------------------------------- 基础 */
@@ -685,19 +730,56 @@ async function loadPlans() {
   const data = await api('/api/plans');
   state.plans = data.plans;
   const select = $('plan-select');
+  const keep = select.value;
   select.textContent = '';
+  const blank = document.createElement('option');
+  blank.value = ''; blank.textContent = '（选择已保存的方案）';
+  select.appendChild(blank);
   data.plans.forEach(plan => {
     const option = document.createElement('option');
-    option.value = plan.name;
-    option.textContent = plan.name + (plan.note ? ' — ' + plan.note : '');
+    option.value = plan.name;              // 下拉框**只显示名字**（用户 2026-09-28）
+    option.textContent = plan.name;
     select.appendChild(option);
   });
+  if (keep && data.plans.some(p => p.name === keep)) select.value = keep;
+  showPlanDesc();
 }
-$('plan-load').addEventListener('click', () => {
-  const plan = state.plans.find(p => p.name === $('plan-select').value);
-  if (!plan) return;
-  applyPlan(plan);
+$('plan-refresh').addEventListener('click', async () => {
+  await loadPlans(); await loadSteps(); await loadRules();
+  log('已刷新执行方案（方案清单、功能清单、替换规则）');
 });
+$('plan-select').addEventListener('change', () => {
+  const plan = state.plans.find(p => p.name === $('plan-select').value);
+  if (plan) { applyPlan(plan); showPlanDesc(plan); }
+});
+function stepSummary(step) {
+  const params = step.params || {};
+  if (step.op === 'tablestyle') {
+    const per = params.mapping || [];
+    return params.uniform ? '表格模板：全部表用 ' + (params.style || '')
+      : (per.length ? '表格模板：' + params.style + '（' + per.length + ' 张表单独指定/不套用）'
+                    : '表格模板：' + (params.style || ''));
+  }
+  if (step.op === 'replace') return '替换规则：' + (params.rules || '（未选）');
+  if (step.op === 'sup') return '上下标规则：（当前字典）';
+  return step.label || step.op;
+}
+function showPlanDesc(plan) {
+  const holder = $('plan-desc');
+  if (!plan) { holder.textContent = ''; return; }
+  const steps = (plan.steps || []).map(item => {
+    const alias = item.label || (state.steps.find(s => s.op === (item.op || item)) || {}).label || item.op;
+    const params = item.params || {};
+    let extra = '';
+    if ((item.op || item) === 'tablestyle')
+      extra = params.uniform ? '（通篇一致：' + params.style + '）'
+        : (params.mapping || []).length
+          ? '（' + params.style + '，' + params.mapping.length + ' 张表单独指定）' : '（' + params.style + '）';
+    if ((item.op || item) === 'replace') extra = '（' + (params.rules || '未选') + '）';
+    return alias + extra;
+  });
+  holder.textContent = (plan.note ? plan.note + '　—　' : '—　') + (steps.length ? steps.join(' → ') : '（空）');
+}
 function applyPlan(plan) {
   const wanted = plan.steps || [];
   state.steps.forEach(step => {
@@ -710,7 +792,7 @@ function applyPlan(plan) {
   $('plan-name').value = plan.name;
   $('plan-note').value = plan.note || '';
   renderSteps();
-  log('已载入执行方案：' + plan.name);
+  log('已选中执行方案：' + plan.name + '（' + (plan.steps || []).map(s => s.label || s.op).join(' → ') + '）');
 }
 $('plan-delete').addEventListener('click', async () => {
   const name = $('plan-select').value;
@@ -872,9 +954,11 @@ function renderFrontmatter() {
   }
   const found = {cover: state.fmInfo.cover, title: state.fmInfo.title_page,
                  signature: state.fmInfo.signature_page};
+  const pageMap = state.fmInfo.page_map || {};
   FM_ROWS.forEach(([key, name]) => {
     const tr = document.createElement('tr');
-    const foundText = found[key] ? '有' : '无';
+    // 用户 2026-09-28：光说"有"没法判断对错 —— 直接显示"第几页"
+    const foundText = found[key] ? (pageMap[key] || '有') : '无';
     const override = state.fmPages[key] || 0;
     const range = override ? '手动：到第 ' + override + ' 页' : '自动识别';
     tr.innerHTML = '<td><b>' + name + '</b></td>'
@@ -920,6 +1004,10 @@ $('fm-cancel').addEventListener('click', () => $('fm-dialog').classList.remove('
 async function loadPreviews() {
   const data = await api('/api/template-previews');
   state.allTemplateNames = data.styles.map(s => s.name);
+  // 模板名拿到后**必须重画表格清单**：此前清单先渲染、当时模板名还没到，
+  // 每张表的下拉框里就只剩两个占位项 —— 选了也记不进去，映射永远是空，
+  // 于是"逐表指定"看着做了、跑出来全用统一模板（用户 2026-09-28 踩的就是这个）。
+  if (state.tables.length) { renderTables(); renderTemplatePlan(); }
   const holder = $('previews');
   holder.textContent = '';
   data.styles.forEach(style => {
@@ -970,7 +1058,8 @@ function renderTables() {
   if (!state.tables.length) { holder.textContent = '（这份文档里没有表格）'; return; }
   const table = document.createElement('table');
   table.className = 'grid';
-  table.innerHTML = '<tr><th>参与</th><th>#</th><th>表头</th><th>行×列</th><th>应用模板</th></tr>';
+  table.innerHTML = '<tr><th>参与</th><th>#</th><th>表标题（表上方那行）</th><th>表头</th>'
+    + '<th>行×列</th><th>应用模板</th></tr>';
   state.tables.forEach(item => {
     const tr = document.createElement('tr');
     const td0 = document.createElement('td'); td0.className = 'center';
@@ -982,23 +1071,29 @@ function renderTables() {
     });
     td0.appendChild(box);
     const td1 = document.createElement('td'); td1.className = 'center'; td1.textContent = item.index;
-    const td2 = document.createElement('td'); td2.textContent = item.header_text || '（表头是空的）';
+    const td2 = document.createElement('td');
+    td2.innerHTML = '<b>' + (item.title || '（表上方没有表X-Y标题）') + '</b>'
+      + '<br><span style="color:#94a3b8;font-size:11px">' + (item.header_text || '（表头是空的）') + '</span>';
     const td3 = document.createElement('td'); td3.className = 'center';
     td3.textContent = item.rows + '×' + (item.columns || '?');
     const td4 = document.createElement('td');
     const select = document.createElement('select');
     const auto = document.createElement('option');
-    auto.value = ''; auto.textContent = '（跟选定模板/映射走）';
+    auto.value = ''; auto.textContent = '（跟统一模板/映射走）';
     select.appendChild(auto);
     (state.allTemplateNames || []).forEach(name => {
       const option = document.createElement('option');
       option.value = name; option.textContent = name;
       select.appendChild(option);
     });
+    const none = document.createElement('option');
+    none.value = '（不套用）'; none.textContent = '（这张表不套用）';
+    select.appendChild(none);
     select.value = state.tableStyle[item.index] || '';
     select.addEventListener('change', () => {
       if (select.value) state.tableStyle[item.index] = select.value;
       else delete state.tableStyle[item.index];
+      renderTemplatePlan();
     });
     td4.appendChild(select);
     tr.append(td0, td1, td2, td3, td4);
@@ -1006,14 +1101,37 @@ function renderTables() {
   });
   holder.appendChild(table);
 }
-$('uniform').addEventListener('change', () => { state.uniform = $('uniform').checked; });
+function renderTemplatePlan() {
+  const holder = $('tpl-plan');
+  if (!holder) return;
+  if (!state.template && !Object.keys(state.tableStyle).length) {
+    holder.textContent = '（还没选模板；每张表的下拉框里可以单独指定，或选「这张表不套用」）';
+    return;
+  }
+  const uniform = $('uniform').checked;
+  const lines = [];
+  if (uniform) lines.push('全部 ' + state.tables.length + ' 张表都用 ' + state.template);
+  else {
+    lines.push('统一模板：' + state.template);
+    const per = Object.entries(state.tableStyle);
+    if (per.length) per.forEach(([index, style]) => {
+      lines.push('第 ' + index + ' 张表：' + (style === '（不套用）' ? '不套用' : style));
+    });
+  }
+  holder.textContent = '将套用 → ' + lines.join('；');
+}
+$('uniform').addEventListener('change', () => {
+  state.uniform = $('uniform').checked;
+  renderTemplatePlan();
+});
 $('apply-templates').addEventListener('click', () => {
   const name = $('tpl-name').value.trim();
   if (!name) { log('先给这套表格应用起个名字', 'err'); return; }
   if (!state.template) { log('先在上面点选一个模板', 'err'); return; }
   const mapping = [];
   for (const [index, style] of Object.entries(state.tableStyle)) {
-    if (state.picked.has(+index)) mapping.push({index: +index, style: style});
+    if (state.picked.has(+index))
+      mapping.push(style === '（不套用）' ? {index: +index, none: true} : {index: +index, style: style});
   }
   const step = state.steps.find(s => s.op === 'tablestyle');
   if (step) {
@@ -1256,6 +1374,83 @@ $('rule-save').addEventListener('click', async () => {
   } catch (error) { log('保存失败：' + error.message, 'err'); }
 });
 
+/* ---------------------------------------------------------------- 上下标字典 */
+async function loadSubs() {
+  try {
+    const data = await api('/api/subs-rules');
+    state.subs = data.data;
+    renderSubs();
+  } catch (error) { log('读上下标字典失败：' + error.message, 'err'); }
+}
+function renderSubs() {
+  const table = $('subs-table');
+  table.innerHTML = '<tr><th>类型</th><th>内容</th><th>效果</th><th>说明</th><th style="width:70px"></th></tr>';
+  const rules = (state.subs && state.subs.rules) || [];
+  $('subs-note').textContent = '共 ' + rules.length + ' 条（保存后立即生效）';
+  rules.forEach((rule, index) => {
+    const tr = document.createElement('tr');
+    const isDict = !!rule.match;
+    const content = isDict
+      ? rule.match + '　逐字：' + (rule.kinds || '')
+      : (rule.pattern || '') + '　→　' + (rule.target || 'all');
+    const effect = isDict
+      ? (rule.kinds || '').split('').map(k =>
+          k === 'S' ? '↑上标' : (k === 'B' ? '↓下标' : '正常')).join(' ')
+      : ({superscript: '上标', subscript: '下标'}[rule.kind] || rule.kind || '');
+    tr.innerHTML = '<td class="center">' + (isDict ? '字典' : '正则') + '</td>'
+      + '<td>' + content + '</td><td class="center">' + effect + '</td>'
+      + '<td style="color:#8a97a8">' + (rule.note || '') + '</td>';
+    const td = document.createElement('td');
+    const del = document.createElement('button');
+    del.className = 'danger'; del.textContent = '删';
+    del.addEventListener('click', () => { rules.splice(index, 1); renderSubs(); });
+    td.appendChild(del);
+    tr.appendChild(td);
+    table.appendChild(tr);
+  });
+}
+$('subs-add').addEventListener('click', () => {
+  if (!state.subs) state.subs = {rules: []};
+  if (!state.subs.rules) state.subs.rules = [];
+  const kind = $('subs-kind').value;
+  if (kind === 'dict') {
+    const match = $('subs-match').value.trim();
+    const kinds = $('subs-kinds').value.trim().toUpperCase();
+    if (!match || !kinds) { log('字典条目要填"字面量"和"逐字类型"（N/S/B）', 'err'); return; }
+    state.subs.rules.push({id: match, match: match, kinds: kinds, note: ''});
+    $('subs-match').value = ''; $('subs-kinds').value = '';
+  } else {
+    const pattern = $('subs-pattern').value.trim();
+    if (!pattern) { log('正则条目要填正则', 'err'); return; }
+    state.subs.rules.push({id: pattern, pattern: pattern,
+                            target: $('subs-target').value,
+                            kind: $('subs-effect').value, enabled: true, note: ''});
+    $('subs-pattern').value = '';
+  }
+  renderSubs();
+});
+$('subs-save').addEventListener('click', async () => {
+  try {
+    const data = await api('/api/subs-rules/save', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({data: state.subs})});
+    log(data.text);
+  } catch (error) { log('保存失败：' + error.message, 'err'); }
+});
+$('subs-reset').addEventListener('click', async () => {
+  if (!confirm('恢复默认字典？当前改动会丢（没保存的）')) return;
+  await loadSubs();
+  log('已重新读取规则文件');
+});
+$('subs-kind').addEventListener('change', () => {
+  const isDict = $('subs-kind').value === 'dict';
+  $('subs-match').style.display = isDict ? '' : 'none';
+  $('subs-kinds').style.display = isDict ? '' : 'none';
+  $('subs-pattern').style.display = isDict ? 'none' : '';
+  $('subs-target').style.display = isDict ? 'none' : '';
+  $('subs-effect').style.display = isDict ? 'none' : '';
+});
+
 /* ---------------------------------------------------------------- 新增功能 / PDF / 退出 */
 $('add-op').addEventListener('click', async () => {
   $('report').textContent = '正在读插件指南…';
@@ -1298,6 +1493,7 @@ document.querySelectorAll('#tabs button').forEach(button => {
     if (button.dataset.tab === 'plan') { loadPlans(); }
     if (button.dataset.tab === 'style') { loadPreviews(); fillStyleFileSelect(); }
     if (button.dataset.tab === 'replacer') { loadRules(); }
+    if (button.dataset.tab === 'subs') { loadSubs(); }
   });
 });
 
