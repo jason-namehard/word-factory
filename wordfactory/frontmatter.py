@@ -27,8 +27,11 @@ from .text import Paragraph
 
 #: 前置区结束的标志（去空格后整段等于这些词，或该段带 TOC 域）
 MARKERS = (u"目录", u"目次", u"前言")
-#: 签字页的角色词（用户原话：常见内容为审核、编制、校核等）
-ROLES = (u"编制", u"校核", u"审核", u"审查", u"审定", u"核定", u"批准", u"复核", u"设代")
+#: 签字页的角色词（用户原话：常见内容为审核、编制、校核等）。
+#: **不含"复核"** —— 实测（2026-09-30）报告标题"防洪安全复核报告"里的"复核"会被误判成签字页。
+ROLES = (u"编制", u"校核", u"审核", u"审查", u"审定", u"核定", u"批准", u"设代")
+#: 角色词必须出现在**短行**里（签字页通常一行"编制：张三"），否则正文里的"编制方案"也会误判
+ROLE_LINE_MAX = 20
 #: 安全阀：最多往前找多少个块（真报告的封面区不会超过这个；找不到标志就不能无限吞正文）
 MAX_BLOCKS = 120
 
@@ -59,8 +62,11 @@ def _page_breaks(paragraph_element):
     return breaks
 
 
-def detect(document):
+def detect(document, block_pages=None):
     """识别前置区。返回 dict；**只读**，不动文档。
+    block_pages = **真实页码**（pageprobe 用 Word/WPS 排版后读出的，
+                       第几块落在第几页）。有它按真实页码分页；没有才
+                       退回"分页符估算"（排版空段/回车不换页，估算会数多）。
 
     结果字段：``present``（有没有识别出前置区）、``marker``（靠哪个词定的界）、
     ``paragraphs``（前置区段数）、``pages``（按分页痕迹估的页数）、
@@ -86,28 +92,41 @@ def detect(document):
                 "roles": [], "blocks": 0,
                 "page_map": {"cover": u"无", "title": u"无", "signature": u"无"},
                 "note": u"没遍历到「目录/前言」，不能确定哪里是正文开头 —— 不保护（可手动指定）"}
-    # 按分页痕迹把前置区分页：第 1 页=封面，最后一页带角色词=签字页，中间=扉页
+    # 分页：优先用**真实页码**（Word/WPS 排版结果），否则退回分页符估算
+    body_blocks = list(body)[:MAX_BLOCKS]
+    index_of = {}
+    for position, element in enumerate(body_blocks):
+        index_of[id(element)] = position
     groups = []
-    current_page = 1
-    bucket = []
-    for element in front:
-        bucket.append((current_page, element))
-        if element.tag == qn("w:p") and _page_breaks(element):
-            groups.append(bucket)
-            bucket = []
-            current_page += 1
-    if bucket:
-        groups.append(bucket)
-    pages = current_page
+    if block_pages:
+        for element in front:
+            number = block_pages[index_of.get(id(element), 0)] or 1
+            if not groups or groups[-1][0] != number:
+                groups.append([number, []])
+            groups[-1][1].append((number, element))
+    else:
+        current_page = 1
+        bucket = []
+        for element in front:
+            bucket.append((current_page, element))
+            if element.tag == qn("w:p") and _page_breaks(element):
+                groups.append([current_page, bucket])
+                bucket = []
+                current_page += 1
+        if bucket:
+            groups.append([current_page, bucket])
+    pages = max(number for number, _blocks in groups) if groups else 1
 
     def group_has_text(group):
-        """这一页（group = [(页号, 块), …]）里有没有非空文字。"""
+        """这一页（group = [页号, [(页号, 块), …]]）里有没有非空文字。"""
+        _number, blocks = group
         return any(_normalized(Paragraph(element).text)
-                   for _page, element in group if element.tag == qn("w:p"))
+                   for _page, element in blocks if element.tag == qn("w:p"))
 
     texts = [_normalized(Paragraph(element).text) for element in front
              if element.tag == qn("w:p")]
-    roles = [role for role in ROLES if any(role in text for text in texts)]
+    roles = [role for role in ROLES
+             if any(role in text and len(text) <= ROLE_LINE_MAX for text in texts)]
     # **封面 = 前置区里第一个有非空文字的页**（用户 2026-09-30 实测：真实报告的封面
     # 在第 4–5 页——前面 3 页是排版空段；按"第 1 页"判会把封面判成"无"）。
     # 整片前置区都没有文字才报"无"。
@@ -123,15 +142,19 @@ def detect(document):
         groups[start:] if len(groups) > start else [])
     title_page = bool(middle) and any(group_has_text(g) for g in middle)
     # 给人看的"到第几页"（用户 2026-09-28：光说"有"没法判断对错，要看到页码）
-    page_map = {"cover": u"第 %d 页" % cover_index if cover else u"无"}
+    def page_at(position):
+        return groups[position][0] if 0 <= position < len(groups) else pages
+
+    page_map = {"cover": u"第 %d 页" % page_at(cover_index - 1) if cover else u"无"}
     if title_page:
-        first = start + 1
-        last = len(groups) if not signature_page else len(groups) - 1
-        page_map["title"] = (u"第 %d–%d 页" % (first, last)) if last > first \
-            else (u"第 %d 页" % first)
+        first = page_at(start)
+        last = page_at(len(groups) - 1) if not signature_page else page_at(len(groups) - 2)
+        page_map["title"] = (u"第 %d–%d 页" % (first, last)) if last > first             else (u"第 %d 页" % first)
     else:
         page_map["title"] = u"无"
-    page_map["signature"] = u"第 %d 页" % len(groups) if signature_page else u"无"
+    page_map["signature"] = u"第 %d 页" % page_at(len(groups) - 1) if signature_page else u"无"
+    page_map["total_pages"] = pages
+    page_map["accurate"] = bool(block_pages)
     return {"present": True, "marker": marker, "paragraphs":
             sum(1 for element in front if element.tag == qn("w:p")),
             "pages": pages, "cover": cover, "title_page": title_page,

@@ -493,3 +493,51 @@ class TestPerCellAlignment(StyleCase):
         problems = bad.check()
         self.assertTrue([p for p in problems if u"不认识的键" in p], problems)
         self.assertTrue([p for p in problems if u"只能" in p], problems)
+
+
+class TestRowOverridesCleared(TablestyleCase if 'TablestyleCase' in dir() else unittest.TestCase):
+    """行级 ``w:tblPrEx`` 会**盖住**表级框线（2026-09-30 实测最深的坑）。
+
+    真实报告的每一行都带 tblPrEx，里面存着完整旧框线：我们把 tblBorders 全写成
+    none，Word 与 WPS 渲染出来**仍然有线**（两者实测一致）。必须删掉行级例外。
+    """
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="wf_tbex_")
+        self.path = os.path.join(self.dir, u"行级例外.docx")
+        row_override = (u'<w:tblPrEx><w:tblBorders>'
+                        u'<w:top w:val="single" w:sz="12" w:space="0" w:color="auto"/>'
+                        u'<w:left w:val="single" w:sz="12" w:space="0" w:color="auto"/>'
+                        u'<w:insideV w:val="single" w:sz="4" w:space="0" w:color="auto"/>'
+                        u'</w:tblBorders></w:tblPrEx>')
+        cell = (u'<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr>'
+                u'<w:p><w:r><w:t>甲</w:t></w:r></w:p></w:tc>')
+        row = u'<w:tr>' + row_override + cell * 2 + u'</w:tr>'
+        body = (u'<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/>'
+                u'<w:gridCol w:w="2000"/></w:tblGrid>'
+                + row + u'<w:tr>' + cell * 2 + u'</w:tr></w:tbl>')
+        fixtures.write_fixture(self.path, body=body)
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_applying_a_style_removes_row_overrides(self):
+        from wordfactory import tablestyle as ts_mod
+        with Document(self.path) as doc:
+            report = ts_mod.apply_plan(doc, {"style": u"三线表·学术款", "uniform": True})
+            self.assertEqual(report["changes"].get(u"清除行级例外"), 1)
+            table = ts_mod.tables_of(doc)[0]
+            for row in [e for e in table if e.tag == qn("w:tr")]:
+                self.assertIsNone(row.find(qn("w:tblPrEx")),
+                                  u"行级例外必须删掉，否则渲染还是有线")
+            borders = table.find(qn("w:tblPr")).find(qn("w:tblBorders"))
+            self.assertEqual(borders.find(qn("w:insideV")).get(qn("w:val")), u"none")
+
+    def test_dry_run_does_not_remove_them(self):
+        from wordfactory import tablestyle as ts_mod
+        with Document(self.path) as doc:
+            report = ts_mod.apply_plan(doc, {"style": u"三线表·学术款", "uniform": True}, dry_run=True)
+            self.assertEqual(report["changes"].get(u"清除行级例外"), 1)
+            table = ts_mod.tables_of(doc)[0]
+            self.assertIsNotNone(table.findall(qn("w:tr"))[0].find(qn("w:tblPrEx")),
+                                 u"dry-run 不许动树")

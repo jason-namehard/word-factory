@@ -66,7 +66,7 @@ RPR_ORDER = ("w:rStyle", "w:rFonts", "w:b", "w:bCs", "w:i", "w:iCs", "w:caps",
 STYLE_KEYS = ("note", "table_align", "table_layout", "width_percent", "borders",
               "cell_margins", "v_align", "header", "body", "column_widths",
               "font_size_half_points", "font_east_asia", "allow_overflow",
-              "header_wrap")
+              "header_wrap", "clear_table_style")
 #: `body` 里允许的键：可分别规定**数字 / 文本 / 第一列**怎么排，
 #: 以及**长文本**（一行放不下的）怎么排 —— 用户 2026-09-22 的口径：
 #: 「只有长文本，例如说明、备注左对齐，其余一律居中。长文本的判别方式是一行表格放不下」
@@ -225,6 +225,10 @@ class TableStyle(object):
         #: 自适应列宽时**允许总宽超出页边距**（用户要求：WPS 的自适应做得不好，
         #: 我们宁可让表格宽一点，也不要为塞进版心把每列都挤扁）
         self.allow_overflow = bool(data.get("allow_overflow", False))
+        #: **清掉表格样式**（2026-09-30 实测：这张表引用了 Table Grid 样式，它的全网格框线
+        #: 会被 WPS 用来**覆盖** tblPr 里的直接设置 —— 写 none 也没用，渲染出来还是有线）。
+        #: 套款式时把 w:tblStyle 换成"无表格样式"（Normal Table / TableNormal），框线就唯一说了算。
+        self.clear_table_style = data.get("clear_table_style", True)
         #: 把某些表头**折成两行**展示：给表头文字（或列号）→ 在平衡点插换行。
         #: 好处是那一列可以窄一半，整张表就排得开。
         wrap = data.get("header_wrap")
@@ -263,6 +267,8 @@ class TableStyle(object):
                             % (self.name, self.column_widths))
         if not isinstance(self.allow_overflow, bool):
             problems.append(u"款式 %s 的 allow_overflow 必须是 true/false" % self.name)
+        if not isinstance(self.clear_table_style, bool):
+            problems.append(u"款式 %s 的 clear_table_style 必须是 true/false" % self.name)
         if self.v_align not in (None, "top", "center", "bottom"):
             problems.append(u"款式 %s 的 v_align=%r 只能是 top/center/bottom" % (self.name, self.v_align))
         for key in ("bold", "align", "repeat"):
@@ -583,9 +589,54 @@ def apply_plan(document, spec, dry_run=False, styles_path=None):
             "total": total, "dry_run": bool(dry_run)}
 
 
+#: "无表格样式"的 styleId（Word/WPS 都认；找不到就干脆删掉 w:tblStyle 引用）
+PLAIN_TABLE_STYLE = (u"TableNormal", u"Normal Table", u"a", u"0", u"12")
+
+
+def clear_table_style_of(table, dry_run):
+    """把 ``w:tblStyle`` 换成"无表格样式"——否则样式里的框线会盖住我们的直接设置。
+
+    实测（2026-09-30，用户真实报告）：那张表引用 ``Table Grid``（全网格 0.5 磅），
+    我们把 ``tblBorders`` 全写成 ``none``，**WPS 渲染出来仍然全是有线** ——
+    它拿样式的框线盖住了直接格式。所以套款式前必须先解除样式引用。
+    """
+    pr = _ensure(table, "w:tblPr", None, 0, dry_run=dry_run)
+    node = pr.find(qn("w:tblStyle"))
+    if node is None:
+        return False
+    if not dry_run:
+        node.set(qn("w:val"), PLAIN_TABLE_STYLE[0])
+    return True
+
+
+def clear_row_overrides(table, dry_run):
+    """删掉每行的 ``w:tblPrEx``（行级"表格属性例外"）。
+
+    **实测最深的坑（2026-09-30）**：真实报告的每一行都带一个 ``tblPrEx``，
+    里面存着**完整的旧框线**（外框 1.5 磅 + 内线 0.5 磅）。行级例外的优先级
+    **高于表级 tblPr/tblBorders** —— 于是我们把表级框线全写成 none 也没用，
+    Word 与 WPS 渲染出来仍然是有线（两者实测一致，会让人以为是 WPS 的问题）。
+    删掉 tblPrEx 就回落到表级设置（列宽在 tcPr/tcW 里，不受影响）。
+    """
+    removed = 0
+    for row in [element for element in table if element.tag == qn("w:tr")]:
+        override = row.find(qn("w:tblPrEx"))
+        if override is None:
+            continue
+        removed += 1
+        if not dry_run:
+            row.remove(override)
+    return removed
+
+
 def _apply_to_table(table, style, dry_run, page_width=None):
     changes = collections.Counter()
     pr = _ensure(table, "w:tblPr", None, 0)                 # tblPr 必须是 tbl 的第一个孩子
+    if style.clear_table_style:
+        if clear_table_style_of(table, dry_run):
+            changes["解除表格样式"] += 1
+        if clear_row_overrides(table, dry_run):
+            changes["清除行级例外"] += 1
     if style.table_align and _set_attribute(_ensure(pr, "w:jc", TBLPR_ORDER, dry_run=dry_run), qn("w:val"),
                                             style.table_align, dry_run):
         changes["表格对齐"] += 1

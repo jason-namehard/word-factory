@@ -206,6 +206,12 @@
           <h4>前置区（封面 / 扉页 / 签字页）—— 这几页的空白行不许清理</h4>
           <div class="hint">自动识别：从文档开头走到「目录 / 前言」为止。识别不对就点各行的「手动调整」，
              告诉工具它**到第几页**（第几页 = 整份报告的物理页序，不看页脚页码）。</div>
+          <div class="rowline" style="margin-bottom:10px">
+            <button id="fm-accurate">用 Word 校准页码（推荐）</button>
+            <span class="hint" id="fm-accurate-note" style="margin:0">
+              现在是**估算**（按分页符数）——排版用的空段和回车不换页，会数多。
+              点这个按钮让 Word/WPS 真排一遍，读出每段真正在哪一页（和你状态栏的 3/26 一个口径）。</span>
+          </div>
           <table class="grid" id="fm-table">
             <tr><th>页面</th><th>识别结果</th><th>保护范围</th><th style="width:110px"></th></tr>
           </table>
@@ -956,17 +962,30 @@ $('temp-clean').addEventListener('click', async () => {
 
 /* ---------------------------------------------------------------- 前置区 */
 const FM_ROWS = [['cover', '封面'], ['title', '扉页'], ['signature', '签字页']];
-async function loadFrontmatter() {
+async function loadFrontmatter(accurate) {
   if (!state.file) { state.fmInfo = null; renderFrontmatter(); return; }
+  const note = $('fm-accurate-note');
+  if (note) note.innerHTML = accurate ? '正在用 Word 排版并读页码…（几十秒）' : note.innerHTML;
   try {
-    const data = await api('/api/frontmatter?path=' + encodeURIComponent(state.file));
+    const url = '/api/frontmatter?accurate=' + (accurate ? '1' : '0')
+      + '&path=' + encodeURIComponent(state.file);
+    const data = await api(url);
     state.fmInfo = data.info;
+    if (note) {
+      const who = (data.renderer && data.renderer.renderer) || 'Word/WPS';
+      const total = (data.renderer && data.renderer.pages);
+      note.innerHTML = data.accurate
+        ? '✅ 已用 <b>' + who + '</b> 校准（全文 ' + total + ' 页）—— 下表的页码就是你状态栏那个口径'
+        : '当前是<b>估算</b>（按分页符数）—— 排版空段/回车不换页，会数多；点上面的按钮用 Word 校准';
+    }
   } catch (error) {
     state.fmInfo = null;
     log('前置区识别失败：' + error.message, 'err');
+    if (note) note.innerHTML = '⚠ ' + error.message + '（先用估算口径）';
   }
   renderFrontmatter();
 }
+$('fm-accurate').addEventListener('click', () => loadFrontmatter(true));
 function effectiveFmPages() {
   return Math.max(state.fmPages.cover || 0, state.fmPages.title || 0,
                   state.fmPages.signature || 0);
@@ -989,6 +1008,9 @@ function renderFrontmatter() {
     const foundText = pageMap[key] || '无';   // 「第 1 页」或「无」，不写"有"
     const override = state.fmPages[key] || 0;
     const autoPages = state.fmInfo.pages || 0;
+    if (state.fmInfo.page_map && state.fmInfo.page_map.accurate) {
+      // 真实页码口径：不要再显示"自动：到第 N 页"（那是估算值，会误导）
+    }
     const range = override ? ('自动：到第 ' + autoPages + ' 页 ＋ 手动：到第 ' + override + ' 页')
                            : ('自动：到第 ' + autoPages + ' 页');
     const roleNote = (key === 'signature' && found[key] && state.fmInfo.roles)

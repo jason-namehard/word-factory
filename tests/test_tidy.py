@@ -285,7 +285,8 @@ class TestFrontmatterProtection(unittest.TestCase):
                 info = frontmatter.detect(doc)
             self.assertTrue(info["present"])
             self.assertEqual(info["marker"], u"前言")
-            self.assertEqual(info["pages"], 3)
+            # 前置区 = 封面页 + 签字页（第二个分页符已经属于"前言"那一页，不算进来）
+            self.assertEqual(info["pages"], 2)
             self.assertTrue(info["cover"])
             self.assertTrue(info["title_page"])
             self.assertTrue(info["signature_page"])
@@ -371,5 +372,46 @@ class TestFrontmatterProtection(unittest.TestCase):
             with Document(path) as doc:
                 info = frontmatter.detect(doc)
             self.assertEqual(info["page_map"]["cover"], u"第 4 页")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def test_real_page_numbers_win_over_the_estimate(self):
+        """给了**真实页码**（Word/WPS 排版结果）就按它分页 —— 排版空段/回车不换页。"""
+        from wordfactory import frontmatter
+        work = tempfile.mkdtemp(prefix="wf_fm_real_")
+        try:
+            path = os.path.join(work, u"报告.docx")
+            # 15 个"带分页符的空段"——按符号数会数成 15 页，真实排版全在第 1 页
+            body = u"".join(u'<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>' for _ in range(10))
+            body += (fixtures.paragraph(fixtures.run(u"某某水库工程防洪安全复核报告", sz="72"))
+                     + fixtures.paragraph(fixtures.run(u"前 言"))
+                     + fixtures.paragraph(fixtures.run(u"正文。")))
+            fixtures.write_fixture(path, body=body)
+            with Document(path) as doc:
+                estimate = frontmatter.detect(doc)
+                # 真实页码：前 11 块都在第 1 页，"前言"起第 2 页
+                block_pages = [1] * 11 + [2, 2]
+                real = frontmatter.detect(doc, block_pages=block_pages)
+            self.assertGreater(estimate["pages"], real["pages"],
+                               u"估算口径会把排版空段数成很多页")
+            self.assertEqual(real["page_map"]["cover"], u"第 1 页")
+            self.assertTrue(real["page_map"]["accurate"])
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def test_a_title_containing_review_is_not_a_signature_page(self):
+        """"防洪安全**复核**报告"里的复核不是签字角色（2026-09-30 实测误判）。"""
+        from wordfactory import frontmatter
+        work = tempfile.mkdtemp(prefix="wf_fm_role_")
+        try:
+            path = os.path.join(work, u"报告.docx")
+            body = (fixtures.paragraph(fixtures.run(u"某某水库防洪安全复核报告", sz="72"))
+                    + fixtures.paragraph(fixtures.run(u"前 言"))
+                    + fixtures.paragraph(fixtures.run(u"编制方案：本报告。")))   # 长行 + 编制
+            fixtures.write_fixture(path, body=body)
+            with Document(path) as doc:
+                info = frontmatter.detect(doc)
+            self.assertEqual(info["roles"], [], u"长行里的编制不算签字角色")
+            self.assertFalse(info["signature_page"])
         finally:
             shutil.rmtree(work, ignore_errors=True)

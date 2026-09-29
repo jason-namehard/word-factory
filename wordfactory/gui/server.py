@@ -154,7 +154,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/subs-rules":
                 self._json({"ok": True, "data": _read_json(_rules_path(u"subscripts.json"))})
             elif path == "/api/frontmatter":
-                self._frontmatter(_query(query).get("path", u""))
+                self._frontmatter(_query(query).get("path", u""),
+                                  _query(query).get("accurate") == "1")
             elif path == "/api/doc-formats":
                 self._doc_formats(_query(query).get("path", u""))
             elif path == "/api/read":
@@ -376,14 +377,29 @@ class Handler(BaseHTTPRequestHandler):
                     "text": u"已保存上下标规则（%d 条）→ %s" % (count, path)})
 
     # ------------------------------------------------------------- 前置区
-    def _frontmatter(self, path):
+    def _frontmatter(self, path, accurate=False):
+        """前置区识别。``accurate=True`` 时用 **Word/WPS 真实页码**（最准，但要起排版引擎）。"""
         if not path or not os.path.exists(path):
             raise PipelineError(u"文件不存在：%s" % path)
         from .. import frontmatter
         from ..document import Document
+        block_pages = None
+        probe_info = None
+        if accurate:
+            from .. import pageprobe
+            try:
+                info_probe = pageprobe.probe(path, blocks=70)
+                block_pages = info_probe["block_pages"]
+                probe_info = {u"renderer": info_probe.get("renderer"),
+                              u"pages": info_probe.get("pages")}
+            except pageprobe.PageProbeError as exc:
+                raise PipelineError(u"读真实页码失败：%s（可以先用估算口径）" % exc)
         with Document(path) as doc:
-            info = frontmatter.detect(doc)
-        self._json({"ok": True, "info": info, "text": frontmatter.format_report(info)})
+            info = frontmatter.detect(doc, block_pages=block_pages)
+        self._json({"ok": True, "info": info,
+                    "text": frontmatter.format_report(info),
+                    "accurate": bool(block_pages),
+                    "renderer": probe_info or None})
 
     # ------------------------------------------------------------- 文档格式清单
     def _doc_formats(self, path):
