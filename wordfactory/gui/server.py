@@ -117,7 +117,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path in ("/", "/index.html"):
                 with io.open(PAGE, "rb") as handle:
-                    self._send(200, handle.read())
+                    page = handle.read()
+                stamp = str(int(os.path.getmtime(PAGE)))
+                page = page.replace(b"</head>",
+                                    (b'<meta name="wf-build" content="' + stamp.encode()
+                                     + b'"></head>'))
+                self._send(200, page)
             elif path == "/api/steps":
                 self._json({"ok": True,
                             "labels": dict(pipeline_mod.STEP_LABELS),
@@ -144,6 +149,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/replace-rules":
                 self._json({"ok": True,
                             "rules": replace_rules_mod.list_rules(self.rules_base())})
+            elif path == "/api/build":
+                self._json({"ok": True, "build": str(int(os.path.getmtime(PAGE)))})
             elif path == "/api/subs-rules":
                 self._json({"ok": True, "data": _read_json(_rules_path(u"subscripts.json"))})
             elif path == "/api/frontmatter":

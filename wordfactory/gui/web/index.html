@@ -247,6 +247,15 @@
         <div class="card">
           <h4>应用</h4>
           <div class="hint" id="tpl-plan" style="margin-bottom:10px"></div>
+          <div id="tpl-confirm" style="display:none;margin-bottom:10px;padding:10px 12px;
+               border:1px solid #f0c9a0;background:#fff8ef;border-radius:8px">
+            <div id="tpl-confirm-text" style="font-size:12px;color:#7a4b12"></div>
+            <div class="rowline" style="margin-top:8px">
+              <button id="tpl-confirm-yes" class="primary">用我刚调的（覆盖）</button>
+              <button id="tpl-confirm-rename">换个名字（新增一条）</button>
+              <button id="tpl-confirm-no">取消</button>
+            </div>
+          </div>
           <div class="rowline">
             <input type="text" id="tpl-name" placeholder="给这套表格应用起个名字（如：成果表三线款）">
             <button id="apply-templates" class="primary">应用表格模板（加进执行方案）</button>
@@ -311,9 +320,19 @@
       <div class="panel" id="panel-subs">
         <div class="card">
           <h4>上下标字典（智能上下标）—— 直接在这里改，不用碰 JSON</h4>
-          <div class="hint">两种条目：<b>字典条目</b>（写死"m2 → 2 上标"这种）
-             和 <b>正则条目</b>（按正则找、按组替换）。顺序即优先级，先匹配先应用。
-             改完保存，执行方案里的「上下标规则」用这份字典。</div>
+          <div class="hint">
+            <b>逐字符（N/S/B）</b>：左边写死一串字，右边逐个字符标格式 ——
+            <code>N</code> 正常、<code>S</code> 上标、<code>B</code> 下标。
+            例：写 <b>m2</b> + <b>NS</b> = m 正常、2 上标（最常用，字典里 20 多条都是这种）。<br>
+            <b>正则</b>：左边写正则，右边选"整段匹配"或"第 1 捕获组" + 上标/下标。
+            例：写 <b>m([2-9]+)</b> + 第 1 捕获组 + 上标 = 任何 m2…m9 里的数字都上标。<br>
+            <b>两者的区别不是快慢</b>：逐字符是"原文照着写死"，一个写法一条；
+            正则是"按模式找"，一类写法一条（适合 m 后跟任意数字这种）。两者都按**从上到下**的
+            顺序匹配，<b>先匹配上的先处理、后面的规则不再动同一段字</b>。<br>
+            <b>一串字符里多个上下标怎么办</b>：逐字符方式把整串都写进去、逐个字母标，例如
+            <code>Qpl</code> + <code>NBB</code> = Q 正常、p 下标、l 下标。
+            只写一部分（如 <code>mm2</code> + <code>NNS</code>）也可以，长度对得上就行。
+          </div>
           <div class="rowline" style="margin-bottom:10px">
             <button id="subs-save" class="primary">保存字典</button>
             <button id="subs-reset">恢复默认字典</button>
@@ -493,7 +512,7 @@ const state = {files: [], file: null, steps: [], plans: [], planName: '',
                tables: [], picked: new Set(), tableStyle: {}, uniform: false,
                template: null, tempDir: '', tempFiles: [], fmPages: {cover: 0, title: 0, signature: 0},
                extFiles: [], rule: {text: [], font: [], para: []}, docFormats: null,
-               subs: null,
+               subs: null, tplConfirmFor: null,
                lastOut: null};
 
 /* ---------------------------------------------------------------- 基础 */
@@ -958,13 +977,14 @@ function renderFrontmatter() {
   FM_ROWS.forEach(([key, name]) => {
     const tr = document.createElement('tr');
     // 用户 2026-09-28：光说"有"没法判断对错 —— 直接显示"第几页"
-    const foundText = found[key] ? (pageMap[key] || '有') : '无';
+    const foundText = pageMap[key] || '无';   // 「第 1 页」或「无」，不写"有"
     const override = state.fmPages[key] || 0;
     const range = override ? '手动：到第 ' + override + ' 页' : '自动识别';
+    const roleNote = (key === 'signature' && found[key] && state.fmInfo.roles)
+      ? '<br><span style="color:#94a3b8;font-size:11px">角色词：'
+        + state.fmInfo.roles.join('、') + '</span>' : '';
     tr.innerHTML = '<td><b>' + name + '</b></td>'
-      + '<td>' + foundText + (found[key] && key === 'signature' && state.fmInfo.roles
-            ? '（' + state.fmInfo.roles.join('、') + '）' : '')
-      + '</td><td>' + range + '</td>';
+      + '<td>' + foundText + roleNote + '</td><td>' + range + '</td>';
     const td = document.createElement('td');
     const button = document.createElement('button');
     button.textContent = '手动调整';
@@ -1018,7 +1038,9 @@ async function loadPreviews() {
       state.template = style.name;
       document.querySelectorAll('.tplcard').forEach(c => c.classList.remove('on'));
       card.classList.add('on');
-      log('选中表格模板：' + style.name);
+      renderTemplatePlan();
+      log('选中表格模板：' + style.name
+          + '（要让方案用它，还要点页面底部的「应用表格模板」）');
     });
     holder.appendChild(card);
   });
@@ -1128,11 +1150,28 @@ $('apply-templates').addEventListener('click', () => {
   const name = $('tpl-name').value.trim();
   if (!name) { log('先给这套表格应用起个名字', 'err'); return; }
   if (!state.template) { log('先在上面点选一个模板', 'err'); return; }
+  // 重名处理：方案里已经有"表格模板（同名）"这一步就问清楚（用户 2026-09-28：
+  // 是替换掉它，还是换一个新名字——别闷头覆盖）
+  const existing = state.steps.find(s => s.op === 'tablestyle' && s.alias === '表格模板（' + name + '）');
+  if (existing && !state.tplConfirmFor) {
+    state.tplConfirmFor = name;
+    $('tpl-confirm-text').innerHTML = '执行方案里已经有「<b>表格模板（' + name
+      + '）</b>」这一步。是用它现在存的设置，还是用你刚才调的？'
+      + '<br>（刚才调的：' + state.template
+      + (state.uniform ? '，通篇一致' : '，' + Object.keys(state.tableStyle).length + ' 张表单独指定') + '）';
+    $('tpl-confirm').style.display = '';
+    return;
+  }
   const mapping = [];
   for (const [index, style] of Object.entries(state.tableStyle)) {
     if (state.picked.has(+index))
       mapping.push(style === '（不套用）' ? {index: +index, none: true} : {index: +index, style: style});
   }
+  commitTemplate(name, mapping);
+});
+function commitTemplate(name, mapping) {
+  state.tplConfirmFor = null;
+  $('tpl-confirm').style.display = 'none';
   const step = state.steps.find(s => s.op === 'tablestyle');
   if (step) {
     step.on = true;
@@ -1142,7 +1181,28 @@ $('apply-templates').addEventListener('click', () => {
   }
   renderSteps();
   log('已把「表格模板（' + name + '）」加进执行方案 —— 跑方案时生效'
-      + (mapping.length ? '（' + mapping.length + ' 张表单独指定了模板）' : ''));
+      + (mapping.length ? '（' + mapping.length + ' 张表单独指定/不套用）' : ''));
+}
+$('tpl-confirm-yes').addEventListener('click', () => {
+  const mapping = [];
+  for (const [index, style] of Object.entries(state.tableStyle)) {
+    if (state.picked.has(+index))
+      mapping.push(style === '（不套用）' ? {index: +index, none: true} : {index: +index, style: style});
+  }
+  commitTemplate(state.tplConfirmFor, mapping);
+});
+$('tpl-confirm-rename').addEventListener('click', () => {
+  state.tplConfirmFor = null;
+  $('tpl-confirm').style.display = 'none';
+  const box = $('tpl-name');
+  box.value = box.value + '（新）';
+  box.focus();
+  box.select();
+  log('改个新名字再点「应用表格模板」就是新增一条，不会覆盖原来那条');
+});
+$('tpl-confirm-no').addEventListener('click', () => {
+  state.tplConfirmFor = null;
+  $('tpl-confirm').style.display = 'none';
 });
 
 /* ---------------------------------------------------------------- 文档数据外置 */
@@ -1498,6 +1558,25 @@ document.querySelectorAll('#tabs button').forEach(button => {
 });
 
 /* ---------------------------------------------------------------- 启动 */
+// 页面版本自检：服务端的页面文件变了就自动刷新一次
+// （用户 2026-09-28：改了界面但浏览器里还是旧的，"表格模板不生效"查了半天是这个）
+(function buildWatch() {
+  const current = document.querySelector('meta[name="wf-build"]');
+  if (!current) return;
+  const stamp = current.getAttribute('content');
+  const previous = localStorage.getItem('wf-build');
+  if (previous && previous !== stamp) {
+    localStorage.setItem('wf-build', stamp);
+    location.reload();
+    return;
+  }
+  localStorage.setItem('wf-build', stamp);
+  setInterval(() => fetch('/api/build', {cache: 'no-store'})
+    .then(r => r.json()).then(d => {
+      if (d.build && d.build !== stamp) { localStorage.setItem('wf-build', d.build); location.reload(); }
+    }).catch(() => {}), 8000);
+})();
+
 loadSteps();
 loadPlans();
 loadTemp();

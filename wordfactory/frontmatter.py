@@ -99,20 +99,32 @@ def detect(document):
     if bucket:
         groups.append(bucket)
     pages = current_page
-    texts = [_normalized(Paragraph(element).text) for group in groups
-             for _page, element in group if element.tag == qn("w:p")]
+
+    def group_has_text(group):
+        """这一页（group = [(页号, 块), …]）里有没有非空文字。"""
+        return any(_normalized(Paragraph(element).text)
+                   for _page, element in group if element.tag == qn("w:p"))
+
+    texts = [_normalized(Paragraph(element).text) for element in front
+             if element.tag == qn("w:p")]
     roles = [role for role in ROLES if any(role in text for text in texts)]
-    cover = bool(front)
-    signature_page = bool(roles) and pages >= 1
-    title_page = pages >= 2
+    # **封面 = 第 1 页且有非空文字**（用户 2026-09-28："如果没找到封面，则说无"——
+    # 前面只有空段/空白页的不算封面）
+    cover = bool(groups) and group_has_text(groups[0])
+    signature_page = bool(groups) and bool(roles) and group_has_text(groups[-1])
+    middle = groups[1:-1] if (signature_page and len(groups) > 2) else (
+        groups[1:] if len(groups) > 1 else [])
+    title_page = bool(middle) and any(group_has_text(g) for g in middle)
     # 给人看的"到第几页"（用户 2026-09-28：光说"有"没法判断对错，要看到页码）
     page_map = {"cover": u"第 1 页" if cover else u"无"}
     if title_page:
-        page_map["title"] = u"第 2–%d 页" % (pages - 1 if signature_page and pages > 2 else pages) \
-            if pages > 2 else u"第 2 页"
+        first = 2
+        last = len(groups) if not signature_page else len(groups) - 1
+        page_map["title"] = (u"第 %d–%d 页" % (first, last)) if last > first \
+            else (u"第 %d 页" % first)
     else:
         page_map["title"] = u"无"
-    page_map["signature"] = u"第 %d 页" % pages if signature_page else u"无"
+    page_map["signature"] = u"第 %d 页" % len(groups) if signature_page else u"无"
     return {"present": True, "marker": marker, "paragraphs":
             sum(1 for element in front if element.tag == qn("w:p")),
             "pages": pages, "cover": cover, "title_page": title_page,
