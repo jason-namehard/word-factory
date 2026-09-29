@@ -565,7 +565,8 @@ function renderFiles() {
     holder.appendChild(chip);
   });
   $('st-file').textContent = state.files.length
-    ? ('文件：' + state.files.length + ' 份' + (state.file ? '（当前：' + state.file.split('\\').pop() + '）' : ''))
+    ? ('文件：' + state.files.length + ' 份（当前：' + (state.file ? state.file.split('\\').pop() : '—')
+       + '，原文件不会被改）')
     : '未选文件';
 }
 $('import-files').addEventListener('click', () => pickDocx(path => {
@@ -903,8 +904,14 @@ async function runMany(mode, outDir) {
     }
     $('st-last').textContent = '上次：' + (outDir ? '临时版' : mode);
     if (downloads.length) {
-      $('preview').innerHTML = '已生成 ' + downloads.length + ' 份：<br><br>'
-        + downloadsHtml(downloads, outDir ? ('临时版在 ' + outDir) : '下载后用 Word 打开看效果');
+      $('preview').innerHTML = '<b>生成了 ' + downloads.length + ' 份新文件</b>'
+        + '<br><span style="color:#8a97a8">你的原文件一个字都没动（工具永远不覆盖原件）。</span>'
+        + (outDir ? ('<br>新文件在：' + outDir) : '<br>点下面的按钮下载')
+        + '<br><br>' + downloadsHtml(downloads,
+            outDir ? '临时版（改动处标蓝）也在这个文件夹里，满意后再出预览版/正式版'
+                   : '下载后用 Word 打开看效果')
+        + '<br><br><span style="color:#8a97a8">对比时注意别打开错了：'
+        + '原文件打开还是老样子，套了样式的新文件才是改过的。</span>';
     } else {
       $('preview').textContent = '没有需要改的地方（也没写文件）';
     }
