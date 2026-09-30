@@ -415,3 +415,59 @@ class TestFrontmatterProtection(unittest.TestCase):
             self.assertFalse(info["signature_page"])
         finally:
             shutil.rmtree(work, ignore_errors=True)
+
+
+class TestPageBreaksAreNeverBlankLines(unittest.TestCase):
+    """带换页记号的空段**不是**空白行，删了就塌版（用户 2026-09-30 实测 40 个）。
+
+    原话："这个目录前面的分页符也是不计入删除的……你需要处理的只有真正的回车引起的
+    空白行和空白格，像是 tab 的空格不需要你删除，分页符也不需要"。
+    """
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="wf_break_")
+        self.path = os.path.join(self.dir, u"分页.docx")
+        body = (u'<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>'
+                + fixtures.paragraph(fixtures.run(u"前言第一段。"))
+                + u'<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>'
+                + fixtures.paragraph(fixtures.run(u"前言第二段。"))
+                + u'<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
+                + u'<w:p><w:pPr><w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+                  u'</w:sectPr></w:pPr></w:p>'
+                + fixtures.paragraph(fixtures.run(u"正文一段。"))
+                + fixtures.paragraph(fixtures.run(u"  "))     # 相邻的两个真空白段（该删一个）
+                + fixtures.paragraph(fixtures.run(u""))
+                + fixtures.paragraph(fixtures.run(u"结尾。"))
+                )
+        fixtures.write_fixture(self.path, body=body)
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _breaks(self, document):
+        from wordfactory.ops.tidy import carries_page_break
+        return [el for el in list(document.body())
+                if el.tag == qn("w:p") and not Paragraph(el).text.strip()
+                and carries_page_break(el)]
+
+    def test_page_break_paragraphs_survive_tidy(self):
+        with Document(self.path) as doc:
+            before = len(self._breaks(doc))
+            report = tidy_op.tidy(doc)
+            after = len(self._breaks(doc))
+        self.assertEqual(before, 4, u"夹具里应有 4 个带换页记号的空段")
+        self.assertEqual(after, before, u"分页符一个都不能少")
+        self.assertGreaterEqual(report["changes"].get(u"空行里带分页符（保留）", 0), 4)
+
+    def test_real_blank_paragraphs_are_still_removed(self):
+        with Document(self.path) as doc:
+            report = tidy_op.tidy(doc)
+        self.assertGreaterEqual(
+            report["changes"].get(u"空白段压缩", 0)
+            + report["changes"].get(u"首尾空白段删除", 0), 1,
+            u"真正的空白行还是要删的 —— 分页符保护不能变成什么都不删")
+
+    def test_dry_run_leaves_everything(self):
+        with Document(self.path) as doc:
+            tidy_op.tidy(doc, dry_run=True)
+            self.assertEqual(len(self._breaks(doc)), 4)

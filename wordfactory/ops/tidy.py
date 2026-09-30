@@ -129,6 +129,33 @@ def _scope_paragraphs(document, scope):
     return out
 
 
+def carries_page_break(element):
+    """这个段是不是**用换页记号撑版面**的（空段但删了会塌版）。
+
+    用户 2026-09-30 的原话（这就是本函数的判据）：
+    "这个目录前面的分页符也是不计入删除的……你的检索逻辑没能区分分页符和回车
+    和真正的空白行。你需要处理的只有真正的回车引起的空白行和空白格，
+    像是 tab 的空格不需要你删除，**分页符也不需要**"。
+
+    三种记号都算：
+    * ``w:pPr/w:pageBreakBefore`` —— 段前换页（实测这份报告 40 个空段都是这种）；
+    * ``w:r/w:br w:type="page"``  —— 段内插入的分页符；
+    * ``w:pPr/w:sectPr``            —— 分节符（下一页），也决定版面。
+    """
+    if element.tag != qn("w:p"):
+        return False
+    pr = element.find(qn("w:pPr"))
+    if pr is not None:
+        if pr.find(qn("w:pageBreakBefore")) is not None:
+            return True
+        if pr.find(qn("w:sectPr")) is not None:
+            return True
+    for br in element.iter(qn("w:br")):
+        if br.get(qn("w:type")) == "page":
+            return True
+    return False
+
+
 def _remove_blank_paragraphs(document, report, dry_run, protected=frozenset()):
     """**删掉全部空段落**（Copy++ 的「合并换行」：把被空行隔开的行并成连续行）。
 
@@ -139,6 +166,7 @@ def _remove_blank_paragraphs(document, report, dry_run, protected=frozenset()):
     body = document.body()
     doomed = [element for element in body
               if element.tag == qn("w:p") and id(element) not in protected
+              and not carries_page_break(element)
               and not Paragraph(element).text.strip()]
     for element in doomed:
         report["删除空行"] += 1
@@ -158,7 +186,12 @@ def _collapse_blank_paragraphs(document, report, dry_run, protected=frozenset())
                   if element.tag == qn("w:p") and id(element) not in protected]
     if not paragraphs:
         return
-    blank = [not Paragraph(element).text.strip() for element in paragraphs]
+    # **带换页记号的空段一律不算"空白段"** —— 它是版面撑出来的，删了就塌
+    for element in paragraphs:
+        if not Paragraph(element).text.strip() and carries_page_break(element):
+            report["空行里带分页符（保留）"] =                 report.get("空行里带分页符（保留）", 0) + 1
+    blank = [not Paragraph(element).text.strip() and not carries_page_break(element)
+             for element in paragraphs]
     doomed = []
     previous_blank = False
     for element, is_blank in zip(paragraphs, blank):

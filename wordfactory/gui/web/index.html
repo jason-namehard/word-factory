@@ -207,7 +207,7 @@
           <div class="hint">自动识别：从文档开头走到「目录 / 前言」为止。识别不对就点各行的「手动调整」，
              告诉工具它**到第几页**（第几页 = 整份报告的物理页序，不看页脚页码）。</div>
           <div class="rowline" style="margin-bottom:10px">
-            <button id="fm-accurate">用 Word 校准页码（推荐）</button>
+            <button id="fm-accurate">重新用 Word 校准页码</button>
             <span class="hint" id="fm-accurate-note" style="margin:0">
               现在是**估算**（按分页符数）——排版用的空段和回车不换页，会数多。
               点这个按钮让 Word/WPS 真排一遍，读出每段真正在哪一页（和你状态栏的 3/26 一个口径）。</span>
@@ -520,7 +520,7 @@ const state = {files: [], file: null, steps: [], plans: [], planName: '',
                tables: [], picked: new Set(), tableStyle: {}, uniform: false,
                template: null, tempDir: '', tempFiles: [], fmPages: {cover: 0, title: 0, signature: 0},
                extFiles: [], rule: {text: [], font: [], para: []}, docFormats: null,
-               subs: null, tplConfirmFor: null,
+               subs: null, tplConfirmFor: null, fmAccurate: {},
                lastOut: null};
 
 /* ---------------------------------------------------------------- 基础 */
@@ -964,13 +964,18 @@ $('temp-clean').addEventListener('click', async () => {
 const FM_ROWS = [['cover', '封面'], ['title', '扉页'], ['signature', '签字页']];
 async function loadFrontmatter(accurate) {
   if (!state.file) { state.fmInfo = null; renderFrontmatter(); return; }
+  // 默认真实页码（用户 2026-09-30：要的就是 Word 状态栏那个口径）；
+  // 校准过的文件不重复起 Word。
+  const useAccurate = (accurate === undefined) ? true : !!accurate;
+  if (useAccurate && state.fmAccurate[state.file]) { renderFrontmatter(); return; }
   const note = $('fm-accurate-note');
-  if (note) note.innerHTML = accurate ? '正在用 Word 排版并读页码…（几十秒）' : note.innerHTML;
+  if (note) note.innerHTML = '正在用 Word 排版并读页码…（几秒）';
   try {
-    const url = '/api/frontmatter?accurate=' + (accurate ? '1' : '0')
+    const url = '/api/frontmatter?accurate=' + (useAccurate ? '1' : '0')
       + '&path=' + encodeURIComponent(state.file);
     const data = await api(url);
     state.fmInfo = data.info;
+    if (data.accurate) state.fmAccurate[state.file] = true;
     if (note) {
       const who = (data.renderer && data.renderer.renderer) || 'Word/WPS';
       const total = (data.renderer && data.renderer.pages);
