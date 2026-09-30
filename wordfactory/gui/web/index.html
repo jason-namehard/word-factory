@@ -961,7 +961,8 @@ $('temp-clean').addEventListener('click', async () => {
 });
 
 /* ---------------------------------------------------------------- 前置区 */
-const FM_ROWS = [['cover', '封面'], ['title', '扉页'], ['signature', '签字页']];
+const FM_ROWS = [['cover', '封面'], ['title', '扉页'], ['signature', '签字页'],
+                  ['preface', '前言'], ['toc', '目录']];
 async function loadFrontmatter(accurate) {
   if (!state.file) { state.fmInfo = null; renderFrontmatter(); return; }
   // 默认真实页码（用户 2026-09-30：要的就是 Word 状态栏那个口径）；

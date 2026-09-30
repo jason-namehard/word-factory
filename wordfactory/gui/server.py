@@ -38,6 +38,7 @@ import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from .. import paths as paths_mod
 from .. import pipeline as pipeline_mod
 from .. import replace_rules as replace_rules_mod
 from .. import tablestyle as tablestyle_mod
@@ -51,13 +52,12 @@ PAGE = os.path.join(HERE, "web", "index.html")
 _DOWNLOADS = {}
 _LOCK = threading.Lock()
 
-#: 执行方案存哪（用户级数据目录；便携：整个目录拷走就能带走）
-PLANS_DIR = os.path.join(os.path.expanduser(u"~"), u".wordfactory", u"plans")
+#: 执行方案存哪（打包后跟着 exe 走；源码运行时在用户目录）
+PLANS_DIR = paths_mod.plans_dir()
 
 #: **临时文件夹**（用户 2026-09-27 拍板：放 wordfactory 项目文件夹内，就叫「临时文件」）。
 #: 「运行此方案」跑出的临时版本（标蓝）都落这里，「清理临时文件」一键清空。
-BASE_DIR = os.path.dirname(os.path.dirname(HERE))
-TEMP_DIR = os.path.join(BASE_DIR, u"临时文件")
+TEMP_DIR = paths_mod.temp_dir()
 
 #: 出厂自带的执行方案（只读；用户改完"另存为"就成了自己的）
 BUILTIN_PLANS = [
@@ -360,8 +360,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"ok": True, "name": name, "text": u"已删除替换规则：%s" % name})
 
     def rules_base(self):
-        return self.rules_base_dir or os.path.join(os.path.dirname(os.path.dirname(HERE)),
-                                                   "rules")
+        return self.rules_base_dir or paths_mod.rules_dir()
 
     def _subs_save(self):
         """上下标规则（字典）存盘 —— 界面「上下标规则」页用（用户 2026-09-28 要的管理区）。"""
@@ -711,8 +710,7 @@ def _drives():
 
 
 def _rules_path(name):
-    base = os.path.dirname(os.path.dirname(HERE))
-    return os.path.join(base, "rules", name)
+    return paths_mod.rules_path(name)
 
 
 def _port_busy(host, port):

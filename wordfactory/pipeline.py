@@ -224,9 +224,9 @@ def _replace_rules_path(name_or_path):
     import os as _os
     if os.path.isabs(name_or_path) or _os.path.exists(name_or_path):
         return name_or_path
-    base = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
-                         "rules")
-    candidate = _os.path.join(base, "replace-rules", u"%s.json" % name_or_path)
+    from . import paths as _paths
+    base = _paths.rules_dir()
+    candidate = _os.path.join(_paths.replace_rules_dir(), u"%s.json" % name_or_path)
     if _os.path.exists(candidate):
         return candidate
     candidate2 = _os.path.join(base, u"%s.json" % name_or_path)

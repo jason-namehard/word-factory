@@ -62,6 +62,94 @@ def _page_breaks(paragraph_element):
     return breaks
 
 
+#: 目录项的样子："1·水库概况……………………1" / "1.1 基本情况 ……… 3"
+_TOC_ENTRY_RE = re.compile(u"[.．·…]{2,}\s*\d+\s*$")
+
+
+def _is_toc_marker(element):
+    """是不是"目录"那一块。
+
+    三种形态都要认（实测真实报告用的是第 3 种）：
+    1. 文字是「目录/目次」——**允许中间有 1~2 个空格**（用户 2026-09-30 补充的辨别依据）；
+    2. 段落里有 TOC 域指令；
+    3. **整块包在 ``w:sdt``（内容控件）里** —— Word/WPS 生成的目录默认是这种，
+       目录标题和条目都在 sdt 里，光扫段落会整个漏掉。
+    """
+    tag = element.tag
+    if tag == qn("w:p"):
+        if _normalized(Paragraph(element).text) in (u"目录", u"目次"):
+            return True
+        return _has_toc_field(element)
+    if tag == qn("w:sdt"):
+        for node in element.iter():
+            if node.tag == qn("w:docPartGallery"):
+                if u"目录" in (node.get(qn("w:val")) or u"") or                         "Table of Contents" in (node.get(qn("w:val")) or u""):
+                    return True
+            if node.tag == qn("w:instrText") and "TOC" in (node.text or u""):
+                return True
+    return False
+
+
+def _block_text(element):
+    """一块（段落或 sdt）的文字。"""
+    if element.tag == qn("w:p"):
+        return Paragraph(element).text or u""
+    if element.tag == qn("w:sdt"):
+        return u"".join(Paragraph(node).text or u""
+                        for node in element.iter(qn("w:p")))
+    return u""
+
+
+def _is_preface(element):
+    """「前 言」「前言」——同样允许中间有空格（用户 2026-09-30 补充的辨别依据）。"""
+    return element.tag == qn("w:p") and _normalized(Paragraph(element).text) == u"前言"
+
+
+def _front_matter_end(blocks):
+    """前置区到哪儿为止（返回正文起始下标；没找到标志返回 None）。
+
+    口径完全按用户 2026-09-30 的描述：
+    顺序一般是 **封面 → 扉页 → 签字页 → 前言 → 目录**；
+    **前言、目录本身也属于前置区（不删空白）**；
+    **目录后面多半有一个分页符，从那个分页符往后就是正文了**。
+
+    找法：定位「目录」（文字或 TOC 域；没有就退用「前言」），然后从它往后连续吃掉
+    空段、目录项、带分页/分节记号的段，遇到第一段**有内容且不是目录项**的就是正文。
+    """
+    limit = min(len(blocks), MAX_BLOCKS)
+    marker = None
+    for index in range(limit):
+        if _is_toc_marker(blocks[index]):
+            marker = index
+            break
+    if marker is None:
+        # 没有目录 → 用「前言」当标志（但仍要越过它继续找目录）
+        for index in range(limit):
+            if _is_preface(blocks[index]):
+                marker = index
+                break
+        if marker is None:
+            return None
+    position = marker + 1
+    while position < limit:
+        element = blocks[position]
+        if element.tag == qn("w:tbl"):
+            break
+        if _is_toc_marker(element):        # 目录整块（sdt）
+            position += 1
+            continue
+        raw = _block_text(element)
+        text = _normalized(raw)
+        if not text:
+            position += 1                 # 空段：还在前置区（目录后的空段也算）
+            continue
+        if _TOC_ENTRY_RE.search(raw.strip()):
+            position += 1                 # 目录项 "1·水库概况……1"
+            continue
+        break                              # 有内容且不是目录项 → 正文开始
+    return position
+
+
 def detect(document, block_pages=None):
     """识别前置区。返回 dict；**只读**，不动文档。
     block_pages = **真实页码**（pageprobe 用 Word/WPS 排版后读出的，
@@ -75,22 +163,18 @@ def detect(document, block_pages=None):
     """
     body = document.body()
     blocks = list(body)[:MAX_BLOCKS]
-    front = []
-    marker = None
-    for element in blocks:
-        if element.tag != qn("w:p"):
-            front.append(element)          # 前置区里的表格（罕见，但有）也算
-            continue
-        text = _normalized(Paragraph(element).text)
-        if text in MARKERS or _has_toc_field(element):
-            marker = text or u"目录域"
-            break
-        front.append(element)
-    if not marker:
+    end = _front_matter_end(blocks)
+    # **没找到标志 = 没有可靠边界 = 前置区为空**（绝不能"整篇都是前置区"——
+    # 那样清理功能等于全废，测试钉过这条）
+    front = list(blocks[:end]) if end is not None else []
+    marker = u"目录" if any(_is_toc_marker(el) for el in front) else (
+        u"前言" if any(_is_preface(el) for el in front) else u"开头")
+    if not front:
         return {"present": False, "marker": None, "paragraphs": 0, "pages": 0,
                 "cover": False, "title_page": False, "signature_page": False,
                 "roles": [], "blocks": 0,
-                "page_map": {"cover": u"无", "title": u"无", "signature": u"无"},
+                "page_map": {u"cover": u"无", u"title": u"无", u"signature": u"无",
+                             u"preface": u"无", u"toc": u"无", u"accurate": False},
                 "note": u"没遍历到「目录/前言」，不能确定哪里是正文开头 —— 不保护（可手动指定）"}
     # 分页：优先用**真实页码**（Word/WPS 排版结果），否则退回分页符估算
     body_blocks = list(body)[:MAX_BLOCKS]
@@ -145,7 +229,8 @@ def detect(document, block_pages=None):
     def page_at(position):
         return groups[position][0] if 0 <= position < len(groups) else pages
 
-    page_map = {"cover": u"第 %d 页" % page_at(cover_index - 1) if cover else u"无"}
+    page_map = {"cover": (u"第 %d 页" % page_at(cover_index - 1))
+                if (cover and cover_index) else u"无"}
     if title_page:
         first = page_at(start)
         last = page_at(len(groups) - 1) if not signature_page else page_at(len(groups) - 2)
@@ -153,6 +238,20 @@ def detect(document, block_pages=None):
     else:
         page_map["title"] = u"无"
     page_map["signature"] = u"第 %d 页" % page_at(len(groups) - 1) if signature_page else u"无"
+    # 前言与目录也是前置区的一部分（用户 2026-09-30 补充的五种页面）
+    floor = cover_index or 0
+    preface_index = next((i for i in range(floor, len(groups))
+                          if any(_is_preface(el) for _p, el in groups[i][1])), None)
+    if preface_index is not None:
+        page_map["preface"] = u"第 %d 页" % page_at(preface_index)
+    else:
+        page_map["preface"] = u"无"
+    toc_index = next((i for i in range(floor, len(groups))
+                      if any(_is_toc_marker(el) for _p, el in groups[i][1])), None)
+    if toc_index is not None:
+        page_map["toc"] = u"第 %d 页" % page_at(toc_index)
+    else:
+        page_map["toc"] = u"无"
     page_map["total_pages"] = pages
     page_map["accurate"] = bool(block_pages)
     return {"present": True, "marker": marker, "paragraphs":

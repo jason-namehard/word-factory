@@ -285,8 +285,8 @@ class TestFrontmatterProtection(unittest.TestCase):
                 info = frontmatter.detect(doc)
             self.assertTrue(info["present"])
             self.assertEqual(info["marker"], u"前言")
-            # 前置区 = 封面页 + 签字页（第二个分页符已经属于"前言"那一页，不算进来）
-            self.assertEqual(info["pages"], 2)
+            # 前言也属于前置区（用户 2026-09-30 补充的五种页面），所以是三页
+            self.assertEqual(info["pages"], 3)
             self.assertTrue(info["cover"])
             self.assertTrue(info["title_page"])
             self.assertTrue(info["signature_page"])
@@ -471,3 +471,77 @@ class TestPageBreaksAreNeverBlankLines(unittest.TestCase):
         with Document(self.path) as doc:
             tidy_op.tidy(doc, dry_run=True)
             self.assertEqual(len(self._breaks(doc)), 4)
+
+
+class TestFrontMatterPartsAndToc(unittest.TestCase):
+    """五种前置页面（用户 2026-09-30 补充的完整概念）。
+
+    顺序一般是 **封面 → 扉页 → 签字页 → 前言 → 目录**；前言/目录本身也算前置区
+    （不删空白）；**目录后面那个分页符之后才是正文**。
+    「前 言」「目 录」中间有 1~2 个空格也要认。
+    """
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="wf_fm_parts_")
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _build(self, toc_as_sdt=True, toc_text=u"目 录"):
+        path = os.path.join(self.dir, u"报告.docx")
+        parts = [fixtures.paragraph(fixtures.run(u"某某水库工程防洪安全复核报告", sz="72")),
+                 u'<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>',
+                 fixtures.paragraph(fixtures.run(u"编制：张三")),
+                 u'<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>',
+                 fixtures.paragraph(fixtures.run(u"前 言")),
+                 fixtures.paragraph(fixtures.run(u"受委托开展复核。")),
+                 u'<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>']
+        if toc_as_sdt:
+            parts.append(
+                u'<w:sdt><w:sdtPr><w:docPartGallery w:val="目录"/></w:sdtPr>'
+                u'<w:sdtContent><w:p><w:r><w:t>1 水库概况</w:t></w:r></w:p>'
+                u'</w:sdtContent></w:sdt>')
+        else:
+            parts.append(fixtures.paragraph(fixtures.run(toc_text)))
+            parts.append(fixtures.paragraph(fixtures.run(u"1 水库概况…………1")))
+        parts.append(u'<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>')
+        parts.append(fixtures.paragraph(fixtures.run(u"水库概况")))
+        parts.append(fixtures.paragraph(fixtures.run(u"基本情况")))
+        fixtures.write_fixture(path, body=u"".join(parts))
+        return path
+
+    def test_toc_as_sdt_is_part_of_the_front_matter(self):
+        from wordfactory import frontmatter
+        from wordfactory.ooxml import qn as _qn
+        from wordfactory.text import Paragraph
+        path = self._build(toc_as_sdt=True)
+        with Document(path) as doc:
+            info = frontmatter.detect(doc)
+            blocks = list(doc.body())
+            first_body = blocks[info["blocks"]]
+        self.assertEqual(Paragraph(first_body).text.strip(), u"水库概况",
+                         u"目录后面的分页符之后才是正文（正文第一块 = 水库概况）")
+        self.assertNotEqual(info["page_map"]["toc"], u"无", u"目录应该被认出来")
+        self.assertIn(u"目录", info["marker"])
+
+    def test_toc_heading_with_spaces_is_recognized(self):
+        """「目 录」「前 言」中间有空格也要认（用户明确要求作为辨别依据）。"""
+        from wordfactory import frontmatter
+        from wordfactory.text import Paragraph
+        for heading in (u"目 录", u"目  录", u"目录"):
+            path = self._build(toc_as_sdt=False, toc_text=heading)
+            with Document(path) as doc:
+                info = frontmatter.detect(doc)
+                blocks = list(doc.body())
+                first_body = blocks[info["blocks"]]
+            self.assertEqual(Paragraph(first_body).text.strip(), u"水库概况",
+                             u"标题「%s」没被认出来" % heading)
+
+    def test_preface_is_protected_too(self):
+        from wordfactory import frontmatter
+        path = self._build(toc_as_sdt=True)
+        with Document(path) as doc:
+            info = frontmatter.detect(doc)
+        self.assertTrue(info["preface_covered"] if "preface_covered" in info
+                        else info["page_map"]["preface"] != u"无",
+                        u"前言属于前置区（不删空白）")

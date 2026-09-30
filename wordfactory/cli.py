@@ -15,19 +15,16 @@ import sys
 import traceback
 
 from . import __version__
+from . import paths as paths_mod
 from .inspect import format_report, format_text_report, inspect, text_report
 from .ooxml import DocxPackage, PackageError
 from .rules import RuleError, RuleSet, apply_to_part, default_ruleset, write_default
 
 #: 规则文件默认放这里（项目根下的 rules/）。它就是用户要的"外置接口"。
-DEFAULT_RULES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                  "rules", "subscripts.json")
-DEFAULT_FONTS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                  "rules", "fonts.json")
-DEFAULT_STYLES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                    "rules", "tablestyle.json")
-DEFAULT_REPLACEMENTS_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rules", "replacements.json")
+DEFAULT_RULES_PATH = paths_mod.rules_path("subscripts.json")
+DEFAULT_FONTS_PATH = paths_mod.rules_path("fonts.json")
+DEFAULT_STYLES_PATH = paths_mod.rules_path("tablestyle.json")
+DEFAULT_REPLACEMENTS_PATH = paths_mod.rules_path("replacements.json")
 
 
 def emit_json(payload):

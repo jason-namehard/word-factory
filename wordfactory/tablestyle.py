@@ -494,9 +494,8 @@ def apply(document, style, selector="all", dry_run=False):
 
 
 def _DEFAULT_STYLES_PATH():
-    import os
-    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "rules", "tablestyle.json")
+    from . import paths
+    return paths.rules_path("tablestyle.json")
 
 
 def apply_plan(document, spec, dry_run=False, styles_path=None):
