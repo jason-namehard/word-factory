@@ -5,7 +5,7 @@ a = Analysis(
     ['E:/Zspace/projects/word-factory/wordfactory_app.py'],
     pathex=['E:/Zspace/projects/word-factory'],
     binaries=[],
-    datas=[('E:/Zspace/projects/word-factory/wordfactory/gui/web/index.html', 'wordfactory/gui/web')],
+    datas=[('E:/Zspace/projects/word-factory/wordfactory/gui/web/index.html', 'wordfactory/gui/web'), ('E:/Zspace/projects/word-factory/docs/PLUGIN-GUIDE.md', 'docs')],
     hiddenimports=['wordfactory', 'wordfactory.gui.server', 'wordfactory.paths'],
     hookspath=[],
     hooksconfig={},

@@ -37,9 +37,11 @@ def main():
         "--distpath", DIST,
         "--workpath", BUILD,
         "--specpath", BUILD,
-        # 界面是数据文件（**必须绝对路径**：--add-data 相对 spec 目录解析）
+        # 数据文件（**必须绝对路径**：--add-data 相对 spec 目录解析）
         "--add-data", os.path.join(ROOT, "wordfactory", "gui", "web", "index.html")
                       + ";wordfactory/gui/web",
+        # 插件指南（界面「新增功能」按钮要显示它；不打进去就 500）
+        "--add-data", os.path.join(ROOT, "docs", "PLUGIN-GUIDE.md") + ";docs",
         # 入口在项目根（包内脚本当顶层跑会丢相对导入，实测过）
         "--paths", ROOT,
         # 把包本身也打进去（onefile 下由 --paths 提供源码）

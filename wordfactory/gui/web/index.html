@@ -204,12 +204,12 @@
 
         <div class="card">
           <h4>前置区（封面 / 扉页 / 签字页）—— 这几页的空白行不许清理</h4>
-          <div class="hint">自动识别：从文档开头走到「目录 / 前言」为止。识别不对就点各行的「手动调整」，
+          <div class="hint">自动识别：封面、扉页、签字页、前言、目录<b>都算前置区</b>，到目录后面那个分页符为止（之后是正文）。识别不对就点各行的「手动调整」，
              告诉工具它**到第几页**（第几页 = 整份报告的物理页序，不看页脚页码）。</div>
           <div class="rowline" style="margin-bottom:10px">
             <button id="fm-accurate">重新用 Word 校准页码</button>
             <span class="hint" id="fm-accurate-note" style="margin:0">
-              现在是**估算**（按分页符数）——排版用的空段和回车不换页，会数多。
+              现在是「估算」（按分页符数）——排版用的空段和回车不换页，会数多。
               点这个按钮让 Word/WPS 真排一遍，读出每段真正在哪一页（和你状态栏的 3/26 一个口径）。</span>
           </div>
           <table class="grid" id="fm-table">
