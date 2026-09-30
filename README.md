@@ -436,19 +436,6 @@ GUI 只是 `http.server` 上的一层薄壳（只绑 127.0.0.1、下载走白名
 换桌面壳（pywebview / Tauri / Electron 打包同一个服务）时**引擎和接口一行不用改**。
 布局也不是拍脑袋定的：先用 `gui-prototype/index.html`（SVG 拖拽设计稿）排到用户满意，再照它写成真界面。
 
-## 桌面版（exe）
-
-```bash
-"D:\Hermes\hermes-agentenv\Scripts\python.exe" build_exe.py     # 打包
-```
-
-产物 `dist/word工厂.exe`（单文件，约 8 MB，自带 Python 运行时）。
-**拷给别人 → 双击 → 自动起本地服务并打开浏览器**；exe 旁边会出现
-`word工厂数据/` 目录（规则、执行方案、临时文件都在那儿，整个目录跟着走）。
-数据目录由 `wordfactory/paths.py` 统一管理，源码运行时仍在项目的 `rules/`。
-
-演示要点：PDF 导出和**真实页码**需要对方机器上装有 Word 或 WPS；其余功能不依赖 Office。
-
 ## 状态
 
 **M1 内核 / M2 三个宏 / M3 题注与外置数据 / M4 执行方案编排 + GUI / M5 PDF 编排全部落地**；

@@ -241,12 +241,29 @@ def _rules(path):
     return rules_mod.RuleSet.load(path)
 
 
+def default_out(source_path, mode, suffix=None):
+    """算出这次该写到哪个文件（不检查存在性）。
+
+    ``suffix=None`` 用默认后缀（``（预览版）/（正式版）``）；给了就用它
+    （用户界面上"改后缀另存"时传的）。
+    """
+    stem, ext = os.path.splitext(os.path.basename(source_path))
+    if suffix is None:
+        suffix = u"（预览版）" if mode == "verify" else u"（正式版）"
+    parent = os.path.dirname(os.path.abspath(source_path))
+    return os.path.join(parent, u"%s%s%s" % (stem, suffix, ext))
+
+
 def _default_out(source_path, mode):
-    """输出文件名：`某报告（正式版）.docx`；已存在就加序号，绝不覆盖用户的东西。"""
+    """输出文件名：默认后缀；**已存在就加序号**（命令行/内部兜底，绝不覆盖用户的东西）。
+
+    界面上的主路径是"先问一句"（server 侧 conflict → 用户选覆盖或改后缀），
+    这里只是没有界面时的安全默认。
+    """
     stem, ext = os.path.splitext(os.path.basename(source_path))
     suffix = u"（预览版）" if mode == "verify" else u"（正式版）"
     parent = os.path.dirname(os.path.abspath(source_path))
-    candidate = os.path.join(parent, u"%s%s%s" % (stem, suffix, ext))
+    candidate = default_out(source_path, mode)
     index = 2
     while os.path.exists(candidate):
         candidate = os.path.join(parent, u"%s%s%d%s" % (stem, suffix, index, ext))

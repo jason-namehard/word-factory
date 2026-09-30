@@ -638,9 +638,28 @@ class Handler(BaseHTTPRequestHandler):
         path = data.get("path") or u""
         if not path or not os.path.exists(path):
             raise PipelineError(u"文件不存在：%s" % path)
+        out = data.get("out") or None
+        # **重名先问一句**（用户 2026-09-30："告知用户是替换还是另建一个"）：
+        # 目标文件已存在时，不自作主张 —— 回一个 conflict 让界面弹确认。
+        mode = data.get("mode") or "verify"
+        if not out and not data.get("dry_run"):
+            # 空字符串要当"没给"处理：否则后缀为空 → 路径退回原文件，永远冲突
+            candidate = pipeline_mod.default_out(
+                path, mode, suffix=data.get("suffix") or None)
+            if os.path.exists(candidate):
+                if not data.get("allow_overwrite"):
+                    self._json({"ok": True, "conflict": {
+                        "path": candidate,
+                        "name": os.path.basename(candidate),
+                        "dir": os.path.dirname(candidate),
+                        "mode": mode}})
+                    return
+            # 算好的名字直接用（别再让引擎"已存在就加序号"那套兜底插手 ——
+            # 覆盖就是覆盖、改后缀就是改后缀）
+            out = candidate
         report = pipeline_mod.run_pipeline(
             path, data.get("steps") or [], mode=data.get("mode") or "verify",
-            out_path=data.get("out") or None, dry_run=bool(data.get("dry_run")))
+            out_path=out or None, dry_run=bool(data.get("dry_run")))
         download = None
         if report.get("out"):
             download = allow_download(report["out"])

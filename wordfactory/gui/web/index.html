@@ -200,6 +200,17 @@
             <button id="temp-clean">清理临时文件</button>
             <span class="hint" id="temp-note" style="margin:0"></span>
           </div>
+          <div id="out-confirm" style="display:none;margin-top:10px;padding:10px 12px;
+               border:1px solid #f0c9a0;background:#fff8ef;border-radius:8px">
+            <div id="out-confirm-text" style="font-size:12px;color:#7a4b12"></div>
+            <div class="rowline" style="margin-top:8px">
+              <input type="text" id="out-suffix" placeholder="新后缀，如（预览版-定稿）"
+                     style="min-width:220px">
+              <button id="out-overwrite" class="danger">覆盖原文件</button>
+              <button id="out-rename" class="primary">用这个后缀另存</button>
+              <button id="out-cancel">取消</button>
+            </div>
+          </div>
         </div>
 
         <div class="card">
@@ -883,11 +894,12 @@ $('plan-import').addEventListener('click', () => {
 
 /* ---------------------------------------------------------------- 运行（临时/预览/正式） */
 function targetFiles() { return state.files.length ? state.files : (state.file ? [state.file] : []); }
-async function runOne(path, mode, outPath) {
-  const data = await api('/api/run', {method: 'POST',
+async function runOne(path, mode, outPath, extra) {
+  const payload = Object.assign({path: path, steps: chosenSteps(), mode: mode,
+                                out: outPath || null}, extra || {});
+  return api('/api/run', {method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({path: path, steps: chosenSteps(), mode: mode, out: outPath || null})});
-  return data;
+    body: JSON.stringify(payload)});
 }
 async function runMany(mode, outDir) {
   const files = targetFiles();
@@ -897,6 +909,7 @@ async function runMany(mode, outDir) {
   buttons.forEach(b => b.disabled = true);
   $('report').textContent = '正在跑…';
   const downloads = [];
+  const conflicts = [];      // 重名的产物：先问一句，不自作主张（用户 2026-09-30）
   try {
     for (const path of files) {
       const outPath = outDir
@@ -904,10 +917,12 @@ async function runMany(mode, outDir) {
         : null;
       log('跑：' + path.split('\\').pop());
       const data = await runOne(path, mode, outPath);
+      if (data.conflict) { conflicts.push({path: path, conflict: data.conflict}); continue; }
       $('report').textContent = data.text;
       if (data.download) downloads.push(data.download);
       if (data.report.audit) log('体检：' + (data.report.audit.verdict === 'PASS' ? 'AUDIT=PASS' : 'AUDIT=FAIL'));
     }
+    if (conflicts.length) { askOutConflicts(conflicts, mode, outDir, downloads); return; }
     $('st-last').textContent = '上次：' + (outDir ? '临时版' : mode);
     if (downloads.length) {
       $('preview').innerHTML = '<b>生成了 ' + downloads.length + ' 份新文件</b>'
@@ -945,6 +960,60 @@ $('plan-dry').addEventListener('click', async () => {
 });
 $('preview-btn').addEventListener('click', () => runMany('verify', null));
 $('formal').addEventListener('click', () => runMany('formal', null));
+
+/* ---------------------------------------------------------------- 产物重名确认 */
+let outPending = null;        // {conflicts, mode, outDir, downloads, index}
+
+function askOutConflicts(conflicts, mode, outDir, downloads) {
+  outPending = {conflicts: conflicts, mode: mode, outDir: outDir,
+                downloads: downloads, index: 0};
+  showOutConflict();
+}
+function showOutConflict() {
+  const item = outPending.conflicts[outPending.index];
+  $('out-confirm-text').innerHTML = '产物已存在：<b>' + item.conflict.name + '</b>'
+    + '（在 ' + item.conflict.dir + '）'
+    + (outPending.conflicts.length > 1
+       ? '<br>本次共 ' + outPending.conflicts.length + ' 个重名，现在是第 '
+         + (outPending.index + 1) + ' 个' : '')
+    + '<br>要覆盖它，还是换个后缀另存一个新文件？';
+  $('out-suffix').value = outPending.mode === 'verify' ? '（预览版-新）' : '（正式版-新）';
+  $('out-confirm').style.display = '';
+}
+$('out-overwrite').addEventListener('click', () => resumeOut(true, null));
+$('out-rename').addEventListener('click', () => {
+  const suffix = $('out-suffix').value.trim();
+  if (!suffix) { log('给个后缀（留空就取消）', 'err'); return; }
+  resumeOut(false, suffix);
+});
+$('out-cancel').addEventListener('click', () => {
+  outPending = null;
+  $('out-confirm').style.display = 'none';
+  log('已取消，剩下没跑的文件没动');
+});
+async function resumeOut(overwrite, suffix) {
+  if (!outPending) return;
+  const item = outPending.conflicts[outPending.index];
+  try {
+    const data = await runOne(item.path, outPending.mode, null,
+                              overwrite ? {allow_overwrite: true} : {suffix: suffix});
+    if (data.conflict) { log('还是重名：' + data.conflict.name, 'err'); return; }
+    $('report').textContent = data.text;
+    if (data.download) outPending.downloads.push(data.download);
+    log((overwrite ? '已覆盖 ' : '已另存 ') + data.report.out);
+  } catch (error) {
+    log('出错：' + error.message, 'err');
+  }
+  outPending.index += 1;
+  if (outPending.index < outPending.conflicts.length) { showOutConflict(); return; }
+  const downloads = outPending.downloads;
+  outPending = null;
+  $('out-confirm').style.display = 'none';
+  if (downloads.length) {
+    $('preview').innerHTML = '已生成 ' + downloads.length + ' 份：<br><br>'
+      + downloadsHtml(downloads, '你的原文件没被动；重名的按你的选择处理了');
+  }
+}
 
 /* ---------------------------------------------------------------- 临时文件夹 */
 async function loadTemp() {

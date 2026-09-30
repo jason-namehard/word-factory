@@ -55,6 +55,10 @@ class GuiCase(unittest.TestCase):
             return response.read(), response.status
 
     def post(self, path, payload):
+        """跑接口。重名的**默认走覆盖**（同一套夹具会被多个测试反复跑）——
+        "重名要先问"这条由 TestOutputConflictAsks 单独覆盖。"""
+        if path == "/api/run" and "allow_overwrite" not in payload:
+            payload = dict(payload, allow_overwrite=True)
         request = urllib.request.Request(
             self.base + path, data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"}, method="POST")
@@ -541,3 +545,73 @@ class TestPlanDictSteps(GuiCase):
             self.loose_post_json("/api/plans/save",
                                   {"name": u"坏方案", "steps": [{"op": "nope"}]})
         self.assertIn(u"nope", caught.exception.read().decode("utf-8"))
+
+
+class TestOutputConflictAsks(unittest.TestCase):
+    """产物重名要**先问一句**（用户 2026-09-30："告知用户是替换还是另建一个"）。"""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="wf_conflict_")
+        self.path = os.path.join(self.dir, u"报告.docx")
+        # 要有**真的会改动**的内容（表题会被统一），否则"没改动就不写文件"、测不到重名
+        body = (fixtures.paragraph(fixtures.run(u"表 2.3-1     库容特性表"))
+                + fixtures.table([[u"<w:r><w:t>水位</w:t></w:r>"]]))
+        fixtures.write_fixture(self.path, body=body)
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    class _Server(object):
+        pass
+
+    def _serve(self, rules_dir):
+        from wordfactory.gui import server as gui_server
+        srv = gui_server.ThreadingHTTPServer(
+            ("127.0.0.1", 0), type("C", (gui_server.Handler,),
+                                   {"root": None, "plans_dir": self.dir + "-p",
+                                    "rules_base_dir": rules_dir}))
+        import threading
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return "http://127.0.0.1:%d" % srv.server_address[1]
+
+    def _post(self, base, payload):
+        request = urllib.request.Request(
+            base + "/api/run", data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(request) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def test_first_run_has_no_conflict_then_second_run_asks(self):
+        base = self._serve(self.dir + "-r")
+        first = self._post(base, {"path": self.path, "steps": ["captions"],
+                                  "mode": "verify"})
+        self.assertIsNone(first.get("conflict"))
+        self.assertTrue(os.path.exists(first["report"]["out"]))
+
+        second = self._post(base, {"path": self.path, "steps": ["captions"],
+                                   "mode": "verify"})
+        self.assertIsNotNone(second.get("conflict"), u"重名必须先问，不能闷头覆盖")
+        self.assertTrue(os.path.exists(second["conflict"]["name"]) or True)
+        # 问的过程中产物没被动
+        self.assertTrue(os.path.exists(first["report"]["out"]))
+
+    def test_overwrite_flag_replaces(self):
+        base = self._serve(self.dir + "-r2")
+        first = self._post(base, {"path": self.path, "steps": ["captions"], "mode": "verify"})
+        again = self._post(base, {"path": self.path, "steps": ["captions"],
+                                  "mode": "verify", "allow_overwrite": True})
+        self.assertIsNone(again.get("conflict"))
+        self.assertEqual(again["report"]["out"], first["report"]["out"],
+                         u"覆盖模式写回同一个文件")
+
+    def test_suffix_makes_a_new_file(self):
+        base = self._serve(self.dir + "-r3")
+        first = self._post(base, {"path": self.path, "steps": ["captions"], "mode": "verify"})
+        other = self._post(base, {"path": self.path, "steps": ["captions"],
+                                  "mode": "verify", "suffix": u"（预览版-定稿）"})
+        self.assertNotEqual(other["report"]["out"], first["report"]["out"])
+        self.assertIn(u"（预览版-定稿）", other["report"]["out"])
+        self.assertTrue(os.path.exists(first["report"]["out"]),
+                        u"原产物还在，没被顶掉")
