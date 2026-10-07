@@ -44,6 +44,8 @@ DEFAULT_TIDY = {
     "merge_lines": False,          # 合并换行：**删掉全部空段落**（Copy++ 的「合并换行」）
     "remove_spaces": False,        # 去除空格：**删掉全部半角/不间断空格**（Copy++ 的「去除空格」）
     "scope": "body",               # body = 正文段落；all = 连表格里的段落一起
+    "blank_pages": True,           # 空白页删除：整页只有空格/回车/分页符的页（用户
+                                   # 2026-09-30 要求；前置区的空白页由前置区保护挡住）
     # **前置区保护**（用户 2026-09-27）：封面/扉页/签字页里的空白行是排版，不许删。
     # 识别口径见 frontmatter.py；识别不出前置区时这条自然不生效（等于没保护）。
     "protect_frontmatter": True,
@@ -100,6 +102,8 @@ def tidy(document, options=None, dry_run=False):
                     report["连续空格压缩"] += hits
                     if not dry_run:
                         paragraph.replace_regex(u"[ \u00a0\u3000]{2,}", u" ", count=0)
+    if opts.get("blank_pages"):
+        _remove_blank_pages(document, report, dry_run, protected)
     # **两种口径互斥**：`merge_lines`（照 Copy++ 删光空行）与 `blank_lines`（保守：连续空段压一个）
     # 是对同一批段落的两种做法；同时开会重复计数、结果也说不清（踩过：43 + 28 两边都在数）。
     if opts.get("merge_lines"):
@@ -210,3 +214,52 @@ def _collapse_blank_paragraphs(document, report, dry_run, protected=frozenset())
         report[key] += 1
         if not dry_run:
             body.remove(element)
+
+
+def _remove_blank_pages(document, report, dry_run, protected=frozenset()):
+    """**空白页检索**（用户 2026-09-30 要求加到一键整理里）。
+
+    一页里**一个有内容的块都没有**（只有空段、空格、分页符，页眉页脚不算）→ 空白页。
+    处理：删掉该页里的空段；**分页符段保留**（它决定版面，删了会牵动前后页）——
+    如果整页只剩一个分页符段，那页删不掉，如实报告"保留（含分页符）"。
+    **前置区里的空白页不删**（封面/扉页的排版空段是版面，前置区保护已经挡住了）。
+
+    页的划分用 :func:`wordfactory.ops.tidy.carries_page_break` 的分页记号估算
+    （与前置区同一套口径）；**精确页码**由调用方用 ``pageprobe`` 校准后传进来更好。
+    """
+    body = document.body()
+    # 按换页记号把块分组（与前置区同一套估算；精确页码由调用方传 pageprobe 结果更准）
+    groups = []
+    bucket = []
+    for element in body:
+        bucket.append(element)
+        if element.tag == qn("w:p") and carries_page_break(element):
+            groups.append(bucket)
+            bucket = []
+    if bucket:
+        groups.append(bucket)
+
+    removed = 0
+    kept_with_break = 0
+    for group in groups:
+        has_text = any(el.tag == qn("w:p") and Paragraph(el).text.strip()
+                       for el in group if el.tag == qn("w:p"))
+        if has_text:
+            continue                              # 有内容的页不动
+        for el in group:
+            if id(el) in protected:
+                continue                          # 前置区保护
+            if el.tag != qn("w:p"):
+                continue
+            if carries_page_break(el):
+                kept_with_break += 1              # 分页符段保留（决定版面）
+                continue
+            if not dry_run:
+                body.remove(el)
+            removed += 1
+    if removed:
+        report["空白页空段删除"] = removed
+        if not dry_run:
+            document.mark_dirty()
+    if kept_with_break:
+        report["空白页保留分页符段"] = kept_with_break

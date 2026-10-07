@@ -184,7 +184,9 @@ def detect(document, block_pages=None):
     groups = []
     if block_pages:
         for element in front:
-            number = block_pages[index_of.get(id(element), 0)] or 1
+            index = index_of.get(id(element), 0)
+            # block_pages 只探了开头 70 块；正文在它之外的照常用估算页号
+            number = (block_pages[index] if index < len(block_pages) else 1) or 1
             if not groups or groups[-1][0] != number:
                 groups.append([number, []])
             groups[-1][1].append((number, element))
@@ -229,29 +231,53 @@ def detect(document, block_pages=None):
     def page_at(position):
         return groups[position][0] if 0 <= position < len(groups) else pages
 
-    page_map = {"cover": (u"第 %d 页" % page_at(cover_index - 1))
-                if (cover and cover_index) else u"无"}
-    if title_page:
-        first = page_at(start)
-        last = page_at(len(groups) - 1) if not signature_page else page_at(len(groups) - 2)
-        page_map["title"] = (u"第 %d–%d 页" % (first, last)) if last > first             else (u"第 %d 页" % first)
-    else:
-        page_map["title"] = u"无"
-    page_map["signature"] = u"第 %d 页" % page_at(len(groups) - 1) if signature_page else u"无"
-    # 前言与目录也是前置区的一部分（用户 2026-09-30 补充的五种页面）
-    floor = cover_index or 0
-    preface_index = next((i for i in range(floor, len(groups))
-                          if any(_is_preface(el) for _p, el in groups[i][1])), None)
-    if preface_index is not None:
-        page_map["preface"] = u"第 %d 页" % page_at(preface_index)
-    else:
-        page_map["preface"] = u"无"
-    toc_index = next((i for i in range(floor, len(groups))
-                      if any(_is_toc_marker(el) for _p, el in groups[i][1])), None)
-    if toc_index is not None:
-        page_map["toc"] = u"第 %d 页" % page_at(toc_index)
-    else:
-        page_map["toc"] = u"无"
+    # **页码范围按用户 2026-09-30 的规则**（真实页码 groups = [[页号, 块], …]）：
+    # 封面 = 第一个有文字的页；**扉页一定紧挨封面、一般只有一页**（大字体标题，
+    # 签字页常与扉页同页）；前言 = 标题页 .. 第一个分页符前（前言一定有分页符收尾）；
+    # 目录 = 标题页 .. 前置区末页（目录后的分页符之后就是正文）。
+    # 每个标志的范围 = 自己的页 .. 下一个标志页 - 1；最后一个标志到前置区末页。
+    cover_page = page_at(cover_index - 1) if cover else None      # 封面标题所在**页码**
+    title_page = (cover_page + 1) if cover_page else None         # 扉页紧挨封面
+    signature_page = None
+    preface_page = None
+    toc_page = None
+    for position, group in enumerate(groups):
+        blocks_here = group[1]
+        texts_here = [_normalized(Paragraph(el).text) for _p, el in blocks_here
+                      if el.tag == qn("w:p")]
+        if preface_page is None and any(_is_preface(el) for _p, el in blocks_here):
+            preface_page = group[0]
+        if toc_page is None and any(_is_toc_marker(el) for _p, el in blocks_here):
+            toc_page = group[0]
+        if signature_page is None and any(
+                role in t and len(t) <= ROLE_LINE_MAX
+                for role in roles for t in texts_here):
+            signature_page = group[0]
+    front_last = groups[-1][0] if groups else pages
+
+    entries = [(name, page) for name, page in
+               ((u"cover", cover_page), (u"title", title_page),
+                (u"signature", signature_page), (u"preface", preface_page),
+                (u"toc", toc_page)) if page is not None]
+    entries.sort(key=lambda item: item[1])
+    distinct = sorted(set(page for _name, page in entries))
+
+    def _range(first_page, last_page):
+        if last_page <= first_page:
+            return u"第 %d 页" % first_page
+        return u"第 %d–%d 页" % (first_page, last_page)
+
+    page_map = {}
+    for order, (name, page) in enumerate(entries):
+        following = [value for value in distinct if value > page]
+        nxt = following[0] if following else front_last + 1
+        last_page = nxt - 1
+        if name == u"title":
+            last_page = page            # **扉页固定一页**（用户：扉页一般只有一页）
+        page_map[name] = _range(page, last_page)
+    # 签字页与扉页同页 → 并入扉页行（显示同一页码，不单独占一行）
+    if signature_page is not None and signature_page == title_page:
+        page_map[u"signature"] = page_map.get(u"title", u"无")
     page_map["total_pages"] = pages
     page_map["accurate"] = bool(block_pages)
     return {"present": True, "marker": marker, "paragraphs":

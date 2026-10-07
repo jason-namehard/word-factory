@@ -36,7 +36,38 @@ class PageProbeError(Exception):
     """读不到真实页码时的用户可见错误。"""
 
 
-def probe(path, blocks=60, renderer=None, timeout=180):
+def block_start_paragraphs(document, limit=None):
+    """每个 body 块的**起始段落序号**（1-based，与 Word/WPS 的 Paragraphs(i) 对应）。
+
+    为什么需要它：COM 的 ``doc.Paragraphs(i)`` 按**文档顺序**数所有段落——
+    表格里的、目录 sdt 里的段落都算；而 body 的**块索引**只数直接子元素。
+    目录一个 sdt 里往往有几十个段落，不按段落序号对齐的话，sdt 之后的
+    所有块页码全部错位（2026-09-30 实测：用户报告目录后页码整体偏小）。
+    """
+    from .ooxml import qn
+    starts = []
+    counter = 0
+    blocks = list(document.body())
+    if limit:
+        blocks = blocks[:limit]
+    for element in blocks:
+        first = None
+        for node in element.iter(qn("w:p")):
+            counter += 1
+            if first is None:
+                first = counter
+        starts.append(first if first is not None else counter + 1)
+    return starts
+
+
+def probe(path, blocks=60, renderer=None, timeout=180, block_starts=None):
+    """…（docstring 不动，只加参数说明）…
+
+    ``block_starts``：每个 body 块的**起始段落序号**（1-based，由
+    :func:`block_start_paragraphs` 算出）。给了就按段落序号读页码 ——
+    **必须给**，否则 sdt（目录）之后的块页码全部错位
+    （2026-09-30 实测：sdt 里 20 个段落没算进 Paragraphs 序号，
+    目录之后的块页码整体偏小）。"""
     """返回 ``{"pages": 总页数, "block_pages": [每个块的页码, …]}``。
 
     ``blocks`` 只探测正文开头这么多个块（前置区判断足够；全文扫慢且没必要）。
@@ -75,11 +106,20 @@ def probe(path, blocks=60, renderer=None, timeout=180):
             result["pages"] = doc.ComputeStatistics(WD_STATISTIC_PAGES)
             pages = []
             total = doc.Paragraphs.Count
-            for index in range(1, min(int(blocks), total) + 1):
-                try:
-                    pages.append(int(doc.Paragraphs(index).Range.Information(WD_ACTIVE_END_PAGE)))
-                except Exception:                      # noqa: BLE001 - 拿不到就沿用上一个
-                    pages.append(pages[-1] if pages else 1)
+            if block_starts:
+                for start in block_starts:
+                    try:
+                        pages.append(int(doc.Paragraphs(int(start)).Range.Information(
+                            WD_ACTIVE_END_PAGE)))
+                    except Exception:                  # noqa: BLE001 - 拿不到沿用上一个
+                        pages.append(pages[-1] if pages else 1)
+            else:
+                for index in range(1, min(int(blocks), total) + 1):
+                    try:
+                        pages.append(int(doc.Paragraphs(index).Range.Information(
+                            WD_ACTIVE_END_PAGE)))
+                    except Exception:                  # noqa: BLE001 - 拿不到就沿用上一个
+                        pages.append(pages[-1] if pages else 1)
             result["block_pages"] = pages
             result["renderer"] = prog_id
         finally:
@@ -105,16 +145,20 @@ def probe(path, blocks=60, renderer=None, timeout=180):
     return result
 
 
-def block_pages_for(document, limit=60, renderer=None):
+def block_pages_for(document, limit=120, renderer=None):
     """给一份已打开的文档补上"每个正文块在第几页"（供前置区识别用）。
 
     返回 ``[页码, …]``，与 ``list(document.body())[:limit]`` 一一对应；读不到就返回 None。
+    ``limit`` 必须覆盖**前置区全部块**（2026-09-30 实测：默认 60 时目录 sdt 的段落
+    序号 66 超界，页码沿用 1 —— 目录被识别成"第 1 页"）。前置区最多 120 块。
     """
     path = getattr(document.package, "path", None)
     if not path or not os.path.exists(path):
         return None
+    starts = block_start_paragraphs(document, limit=limit + 5)
     try:
-        info = probe(path, blocks=limit + 5, renderer=renderer)
+        info = probe(path, blocks=limit + 5, renderer=renderer,
+                     block_starts=starts)
     except PageProbeError:
         return None
     return info["block_pages"][:limit]
