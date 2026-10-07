@@ -784,19 +784,19 @@ def _port_busy(host, port):
         probe.close()
 
 
-def serve(host="127.0.0.1", port=8765, open_browser=True, root=None, plans=None):
-    """起服务；``open_browser`` 时顺手打开浏览器。
+def make_server(host="127.0.0.1", port=8765, root=None, plans=None):
+    """把服务建好但**先不跑**（返回 ``(server, url)``）—— 给桌面窗口版用。
 
-    ``root=None`` 表示**不限目录**（要能挑到其它盘的文件）；给了才关起来。
-    ``plans=None`` 用默认的用户目录，可指到别处（测试用）。
+    桌面版（`wordfactory/desktop.py`）要"服务跑在后台线程 + 原生窗口指着它"，
+    所以得能把 socket 先绑好、拿到真实 URL 再交给窗口层。
     """
     if not os.path.exists(PAGE):
         raise PackageError(u"找不到页面文件：%s" % PAGE)
     if _port_busy(host, port):
         raise PackageError(
-            u"端口 %d 已经有人在听了 —— 多半是 word 工厂已经起了一个。\n"
+            u"端口 %d 已经有人在听了 —— 多半是 word工厂 已经起了一个。\n"
             u"  先试试打开 http://%s:%d/ ，能用就直接用；\n"
-            u"  打不开就关掉之前那个黑色命令行窗口，或者换个端口：\n"
+            u"  打不开就关掉之前那个窗口，或者换个端口：\n"
             u"  python -m wordfactory.cli gui --port 8766" % (port, host, port))
     handler = type("BoundHandler", (Handler,),
                    {"root": os.path.abspath(root) if root else None,
@@ -808,10 +808,21 @@ def serve(host="127.0.0.1", port=8765, open_browser=True, root=None, plans=None)
         raise PackageError(
             u"端口 %d 绑不上（%s）。换个端口试试：python -m wordfactory.cli gui --port 8766"
             % (port, exc))
-    url = "http://%s:%d/" % (host, port)
-    print(u"word 工厂 GUI 已启动：%s" % url)
+    # **用真正绑上的端口**（传 0 时由系统分配，回给调用方的 URL 必须是实际那个）
+    real_host, real_port = server.server_address[0], server.server_address[1]
+    return server, "http://%s:%d/" % (real_host, real_port)
+
+
+def serve(host="127.0.0.1", port=8765, open_browser=True, root=None, plans=None):
+    """起服务；``open_browser`` 时顺手打开浏览器（命令行 / 源码运行的口径）。
+
+    ``root=None`` 表示**不限目录**（要能挑到其它盘的文件）；给了才关起来。
+    ``plans=None`` 用默认的用户目录，可指到别处（测试用）。
+    """
+    server, url = make_server(host, port, root=root, plans=plans)
+    print(u"word工厂 GUI 已启动：%s" % url)
     print(u"（只监听本机 %s；关掉这个窗口或点页面上的「退出」即停）" % host)
-    print(u"执行方案存在：%s" % handler.plans_dir)
+    print(u"执行方案存在：%s" % server.RequestHandlerClass.plans_dir)
     if open_browser:
         try:
             webbrowser.open(url)

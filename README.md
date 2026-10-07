@@ -444,10 +444,43 @@ python -m wordfactory.cli pdf "报告.docx" --renderer word --timeout 300
 实测那份报告：第 1 页（22 个空段）与第 4 页（1 个分页符段）两个空白页被清掉，
 封面/扉页/签字页/前言/目录的空白一行没动（31 页 → 27 页）。
 
-## 界面（GUI）
+## 桌面版 exe（word工厂）—— 主要交付形态
+
+用户 2026-10-08 拍板：「把这个工具箱从 web 页面撤掉，做成 exe 封装……
+**我要一个可以直接复制到 U 盘谁都能用的 exe 软件**」，打包方式照用户自己的
+`水库调洪工具箱v4.exe`（PyInstaller、`console=False`）。
 
 ```bash
-python -m wordfactory.cli gui                 # 起本地服务，默认 http://127.0.0.1:8765
+双击「打包 word工厂.bat」            # 第一次会自动建 .buildenv 并装依赖
+# 或手动：
+python -m venv .buildenv && .buildenv\Scripts\python.exe -m pip install pywebview pywin32 pyinstaller
+.buildenv\Scripts\python.exe -m PyInstaller build_exe_onefile.spec --noconfirm --distpath dist_onefile --workpath build_onefile
+```
+
+产出**两种**（同一份代码，只是打包形状不同）：
+
+| 产物 | 大小 | 说明 |
+|---|---|---|
+| `dist_onefile\word工厂.exe` | ~15 MB | **一个文件**，拷到 U 盘就能用（首次启动慢几秒，要先解包） |
+| `dist\word工厂\` | ~28 MB | 文件夹版（exe + `_internal\`），启动快；整个文件夹拷走 |
+
+* **一个原生窗口，不弹浏览器**：`wordfactory/desktop.py` 用 **pywebview**（系统自带
+  Edge WebView2 内核）开窗口，窗口里就是原来那套五页界面（**按钮和布局一个字没改**）；
+  服务仍只绑 `127.0.0.1`，端口**随机取空闲的**（不再死磕 8765）；
+* **数据跟着 exe 走**：首次运行在 exe 旁边建 `word工厂数据\`（`rules/` `plans/` `临时文件/`），
+  整个文件夹拷到别的机器照样用（`paths.py` 管，`sys.executable` 的目录）；
+* **漏装 pywin32 会静默退化成"估算口径"**（打包踩过）：`pythoncom` / `win32com.client`
+  都是**函数里 import**，PyInstaller 静态分析扫不到 → 要在 spec 的 `hiddenimports` 里点名，
+  否则 exe 里"读真实页码"失败 → **空白页又删不掉**（实测：exe 里 `accurate_pages=False`，
+  空白页删段 0；补上 pywin32 + 隐藏导入后与源码跑出一字不差的结果）。
+  依赖 Word/WPS 的功能（真实页码、导 PDF）在**目标机器上也得装 Office/WPS**，其余纯 XML 功能不需要；
+* 窗口关掉 = 进程退出；页面上的「退出」按钮走 `/api/shutdown`，窗口会自动跟着关（`desktop.py` 里盯着）。
+
+**源码/命令行仍在**（引擎 + REST + 静态页三层没动，桌面窗口只是最外面那层壳）：
+
+```bash
+python word工厂.py                            # 源码方式起桌面窗口（没装 pywebview 时退回浏览器）
+python -m wordfactory.cli gui                 # 老口径：起服务 + 开浏览器，默认 http://127.0.0.1:8765
 python -m wordfactory.cli gui --port 9000 --no-browser
 ```
 

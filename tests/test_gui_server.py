@@ -81,7 +81,7 @@ class GuiCase(unittest.TestCase):
         body, status = self.get("/")
         self.assertEqual(status, 200)
         text = body.decode("utf-8")
-        self.assertIn(u"word 工厂", text)
+        self.assertIn(u"word工厂", text, u"软件名（用户 2026-10-08 定：就叫 word工厂，中间不带空格）")
         self.assertIn(u"/api/run", text, u"页面要能调到 run 接口")
 
     def test_steps_and_templates_are_listed(self):

@@ -17,3 +17,11 @@ out/
 
 # 用户自建的替换规则（界面「替换规则」页存的，属于用户数据不入库）
 rules/replace-rules/
+
+# 打包（桌面版 exe）：中间件、产物、打包用的虚拟环境都不入库
+build/
+build_onefile/
+dist/
+dist_onefile/
+.buildenv/
+*.spec.bak
