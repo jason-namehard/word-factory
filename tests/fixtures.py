@@ -48,7 +48,7 @@ DOC_TAIL = u"""
 
 
 #: ``w:rPr`` 子元素的顺序（OOXML 里是固定序列，夹具也照这个顺序写，别造出 Word 不认的 XML）
-RPR_ORDER = ("rstyle", "rfonts", "color", "highlight", "sz", "u", "vertAlign")
+RPR_ORDER = ("rstyle", "rfonts", "b", "i", "color", "highlight", "sz", "u", "vertAlign")
 
 
 def run(text, **props):
@@ -60,12 +60,18 @@ def run(text, **props):
     """
     rfonts = props.pop("rfonts", None)
     rstyle = props.pop("rstyle", None)
+    bold = props.pop("bold", None)          # True → <w:b/>（OOXML 正确标签）
+    italic = props.pop("italic", None)      # True → <w:i/>
     bits = {}
     if rstyle:
         bits["rstyle"] = u'<w:rStyle w:val="%s"/>' % rstyle
     if rfonts:
         bits["rfonts"] = u"<w:rFonts %s/>" % u" ".join(
             u'w:%s="%s"' % (key, value) for key, value in sorted(rfonts.items()))
+    if bold:
+        bits["b"] = u"<w:b/>"
+    if italic:
+        bits["i"] = u"<w:i/>"
     for key, value in props.items():
         bits[key] = u'<w:%s w:val="%s"/>' % (key, value)
     rpr = u""

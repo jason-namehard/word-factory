@@ -289,3 +289,43 @@ class TestHighlightHonesty(FontCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBoldItalicSurviveNormalization(unittest.TestCase):
+    """**"清除格式"只限颜色与高亮**（用户 2026-09-30 明确）：
+    正式版不许碰加粗、倾斜等字形 —— 那是用户的排版意图，不是"不合格格式"。
+    """
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="wf_bold_")
+        self.path = os.path.join(self.dir, u"加粗.docx")
+        body = (fixtures.paragraph(
+            fixtures.run(u"重要结论", bold="true", italic="true"),
+            fixtures.run(u"普通尾巴")))
+        fixtures.write_fixture(self.path, body=body)
+        self.out = os.path.join(self.dir, u"正式版.docx")
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_bold_and_italic_survive_formal(self):
+        from wordfactory import fonts as fonts_mod
+        with Document(self.path, writable_parts=fonts_mod.FONT_PARTS) as doc:
+            fonts_mod.normalize(doc, fonts_mod.FontRuleSet(fonts_mod.DEFAULT_FONTS))
+            doc.save(self.out)
+        with zipfile.ZipFile(self.out) as archive:
+            text = archive.read("word/document.xml").decode("utf-8")
+        self.assertIn(u"<w:b ", text, u"加粗必须保留")
+        self.assertIn(u"<w:i ", text, u"倾斜必须保留")
+        self.assertNotIn(u"华文彩云", text)
+
+    def test_bold_italic_reported_honestly_in_the_audit(self):
+        """体检只管颜色/高亮/字体，加粗倾斜不是 FAIL 项。"""
+        from wordfactory import fonts as fonts_mod
+        with Document(self.path, writable_parts=fonts_mod.FONT_PARTS) as doc:
+            fonts_mod.normalize(doc, fonts_mod.FontRuleSet(fonts_mod.DEFAULT_FONTS))
+            doc.save(self.out)
+        from wordfactory.audit import audit as audit_op
+        from wordfactory.fonts import FontRuleSet, DEFAULT_FONTS
+        report = audit_op(self.out, FontRuleSet(DEFAULT_FONTS))
+        self.assertEqual(report["verdict"], u"PASS")

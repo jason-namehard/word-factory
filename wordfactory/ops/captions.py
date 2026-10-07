@@ -282,6 +282,11 @@ def apply(document, options=None, dry_run=False):
     figures = len([item for item in plans if item.kind == FIGURE])
     changed_tables = len([item for item in plans if item.kind == TABLE and item.changed])
     changed_figures = len([item for item in plans if item.kind == FIGURE and item.changed])
+    # **改了就必须 mark_dirty**：容器层只重写"声明过要改"的部件，没声明的按原字节
+    # 复制 —— 漏了这行，内存里改了、落盘什么都没变（2026-09-30 实测踩坑：
+    # 图题 plan 全对、apply 全程没报错，产物却纹丝不动）。
+    if not dry_run and changed:
+        document.mark_dirty()
     if dry_run and opts["center_table"]:
         for item in plans:
             if item.kind != TABLE or item.table is None:
