@@ -48,6 +48,10 @@ from ..pipeline import PipelineError
 HERE = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(HERE, "web", "index.html")
 
+#: 读"第几块在第几页"最多探多少个块（COM 逐段读，块太多会慢）。
+#: 实测那份 26 页报告 288 块，1 秒左右；1500 块够 100 页上下。
+PROBE_BLOCKS_MAX = 1500
+
 #: 本次进程跑出来的文件（下载白名单；重启即失效）
 _DOWNLOADS = {}
 _LOCK = threading.Lock()
@@ -377,27 +381,37 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------- 前置区
     def _frontmatter(self, path, accurate=False):
-        """前置区识别。``accurate=True`` 时用 **Word/WPS 真实页码**（最准，但要起排版引擎）。"""
+        """前置区识别。``accurate=True`` 时用 **Word/WPS 真实页码**（最准，但要起排版引擎）。
+
+        顺带把**整篇的"第几块在第几页"**（``block_pages``）一起回给界面：
+        一键整理要拿它认"自然溢出"造成的空白页（实测：那份报告第 1 页 22 个空段、
+        第 2 页才是封面，两页之间没有分页符；不按真实页码，第 1 页的空白页永远删不掉）。
+        """
         if not path or not os.path.exists(path):
             raise PipelineError(u"文件不存在：%s" % path)
         from .. import frontmatter
         from ..document import Document
         block_pages = None
         probe_info = None
-        if accurate:
-            from .. import pageprobe
-            try:
-                info_probe = pageprobe.probe(path, blocks=70)
-                block_pages = info_probe["block_pages"]
-                probe_info = {u"renderer": info_probe.get("renderer"),
-                              u"pages": info_probe.get("pages")}
-            except pageprobe.PageProbeError as exc:
-                raise PipelineError(u"读真实页码失败：%s（可以先用估算口径）" % exc)
         with Document(path) as doc:
+            if accurate:
+                from .. import pageprobe
+                blocks = list(doc.body())
+                limit = min(len(blocks), PROBE_BLOCKS_MAX)
+                try:
+                    info_probe = pageprobe.probe(
+                        path, blocks=limit + 5,
+                        block_starts=pageprobe.block_start_paragraphs(doc, limit=limit + 5))
+                    block_pages = info_probe["block_pages"]
+                    probe_info = {u"renderer": info_probe.get("renderer"),
+                                  u"pages": info_probe.get("pages")}
+                except pageprobe.PageProbeError as exc:
+                    raise PipelineError(u"读真实页码失败：%s（可以先用估算口径）" % exc)
             info = frontmatter.detect(doc, block_pages=block_pages)
         self._json({"ok": True, "info": info,
                     "text": frontmatter.format_report(info),
                     "accurate": bool(block_pages),
+                    "block_pages": block_pages,
                     "renderer": probe_info or None})
 
     # ------------------------------------------------------------- 文档格式清单
@@ -659,7 +673,8 @@ class Handler(BaseHTTPRequestHandler):
             out = candidate
         report = pipeline_mod.run_pipeline(
             path, data.get("steps") or [], mode=data.get("mode") or "verify",
-            out_path=out or None, dry_run=bool(data.get("dry_run")))
+            out_path=out or None, dry_run=bool(data.get("dry_run")),
+            block_pages=data.get("block_pages") or None)
         download = None
         if report.get("out"):
             download = allow_download(report["out"])

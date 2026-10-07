@@ -272,6 +272,10 @@ def _add_tidy_parser(sub):
                         help=u"去除空格：删掉全部半角/不间断空格（照 Copy++ 的「去除空格」）")
     tidy_p.add_argument("--scope", choices=("body", "all"), default="body",
                         help=u"body=只动正文段落（默认）；all=连表格里的也动")
+    tidy_p.add_argument("--accurate-pages", dest="accurate_pages", action="store_true",
+                        default=False,
+                        help=u"用 Word/WPS 读真实页码再判空白页（认得出「自然溢出」的"
+                             u"空白页，如纯空白首页；不起 Word 就只能按分页符估算）")
     tidy_p.add_argument("--out", default=None, help=u"输出文件")
     tidy_p.add_argument("--outdir", default=None, help=u"输出目录（文件名与输入相同）")
     tidy_p.add_argument("--dry-run", action="store_true", help=u"只报会改多少，不写文件")
@@ -951,6 +955,13 @@ def cmd_tidy(args):
                "caption_skip": not args.include_captions,
                "scope": args.scope}
     with Document(args.path) as doc:
+        if getattr(args, "accurate_pages", False):
+            from .pipeline import _probe_block_pages
+            pages = _probe_block_pages(doc)
+            if pages:
+                options["block_pages"] = pages
+            else:
+                sys.stderr.write(u"⚠ 读不到真实页码（没装 Word/WPS？）—— 改用分页符估算\n")
         report = tidy_op.tidy(doc, options, dry_run=args.dry_run)
         out_path = None
         if not args.dry_run and report["total"]:

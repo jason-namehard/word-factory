@@ -96,13 +96,16 @@ def normalize_recipe(steps):
 
 
 def run_pipeline(source_path, steps, mode="verify", out_path=None, dry_run=False,
-                 progress=None, font_rules=None):
+                 progress=None, font_rules=None, block_pages=None):
     """按配方跑一遍。返回报告 dict。
 
     * ``source_path``：输入的 .docx（**不会被改动**，我们在副本上干活）
     * ``steps``：见 :func:`normalize_recipe`（可以是空列表 —— 那就只做收尾）
     * ``mode``：``verify`` / ``formal``
     * ``progress``：可选回调 ``(步骤序号, 步骤名, 该步报告)``，GUI 用它边跑边显示
+    * ``block_pages``：可选**真实页码**（``pageprobe`` 用 Word/WPS 排版后读的"第几块在第几页"，
+      与 ``list(document.body())`` 一一对应）。给了一键整理的空白页判定才认得出自然
+      溢出的页边界；不给就退回分页记号估算。
     """
     recipe = normalize_recipe(steps)
     if mode not in MODES:
@@ -116,9 +119,10 @@ def run_pipeline(source_path, steps, mode="verify", out_path=None, dry_run=False
               "audit": None, "out": None}
     marked = 0
     with Document(source_path, writable_parts=fonts_mod.FONT_PARTS) as doc:
+        report["accurate_pages"] = bool(block_pages)
         for index, step in enumerate(recipe, start=1):
             name = step["op"]
-            step_report = _run_step(doc, name, step["params"], dry_run)
+            step_report = _run_step(doc, name, step["params"], dry_run, block_pages)
             if not dry_run and mode == "verify" and name in MARKABLE:
                 marked += mark_mod.verify(doc, step_report.get("details") or [])
             report["steps"].append({"step": index, "op": name,
@@ -155,7 +159,31 @@ def run_pipeline(source_path, steps, mode="verify", out_path=None, dry_run=False
     return report
 
 
-def _run_step(doc, name, params, dry_run):
+def _probe_block_pages(document):
+    """用 Word/WPS 排一遍版，读"第几块在第几页"（一键整理识别空白页要用）。
+
+    **读不到不是错误**（没装 Word/WPS、弹窗卡住、超时）—— 返回 None，
+    调用方退回"按分页记号估算"口径。工具的核心承诺是"不依赖 Word 也能跑"，
+    真实页码只是**锦上添花**的那一档精度。
+    """
+    try:
+        from . import pageprobe
+    except Exception:                              # noqa: BLE001 - 缺依赖也不该炸
+        return None
+    path = getattr(document.package, "path", None)
+    if not path or not os.path.exists(path):
+        return None
+    blocks = list(document.body())
+    try:
+        info = pageprobe.probe(path, blocks=len(blocks) + 5,
+                               block_starts=pageprobe.block_start_paragraphs(
+                                   document, limit=len(blocks) + 5))
+    except pageprobe.PageProbeError:
+        return None
+    return info.get("block_pages")
+
+
+def _run_step(doc, name, params, dry_run, block_pages=None):
     """跑一步。每个分支返回一个小报告（含"改了多少"这类数字）。"""
     if name == u"captions":
         return captions_op.apply(doc, params, dry_run=dry_run)
@@ -212,8 +240,11 @@ def _run_step(doc, name, params, dry_run):
                                                 "caption_skip", "merge_lines",
                                                 "remove_spaces", "scope",
                                                 "protect_frontmatter",
-                                                "frontmatter_pages")
+                                                "frontmatter_pages",
+                                                "blank_pages")
                    if key in params}
+        if block_pages:
+            options["block_pages"] = block_pages
         return tidy_op.tidy(doc, options, dry_run=dry_run)
 
     raise PipelineError(u"步骤 %s 没有实现" % name)
@@ -315,7 +346,14 @@ def _summarize(step_report):
     for key in ("changed", "total", "touched", "marked", "chars_removed"):
         if step_report.get(key):
             bits.append(u"%s %d" % (key, step_report[key]))
-    if step_report.get("changes"):
-        bits.append(u"、".join(u"%s %d" % (k, v) for k, v in
-                               sorted(step_report["changes"].items())[:3]))
+    changes = step_report.get("changes") or {}
+    # **空白页的结果优先显示**（用户 2026-10-08 点名要看"空白页检索"的效果；
+    # 按名字排序它们会排在后面被 [:3] 截掉，所以单独拎出来）
+    for key in (u"空白页数", u"空白页删段"):
+        if changes.get(key):
+            bits.append(u"%s %d" % (key, changes[key]))
+    rest = [(key, value) for key, value in sorted(changes.items())
+            if key not in (u"空白页数", u"空白页删段")]
+    if rest:
+        bits.append(u"、".join(u"%s %d" % (key, value) for key, value in rest[:4]))
     return u"、".join(bits) if bits else u"0 处"

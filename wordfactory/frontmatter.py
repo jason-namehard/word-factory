@@ -22,7 +22,7 @@
 
 import re
 
-from .ooxml import qn
+from .ooxml import is_on, qn
 from .text import Paragraph
 
 #: 前置区结束的标志（去空格后整段等于这些词，或该段带 TOC 域）
@@ -50,13 +50,18 @@ def _has_toc_field(paragraph_element):
 
 
 def _page_breaks(paragraph_element):
-    """这一段里带着几处"换页"痕迹。"""
+    """这一段里带着几处"换页"痕迹。
+
+    ⚠️ 2026-10-08 修：``w:pageBreakBefore`` 要看 ``w:val`` —— 写成 0/false/off 是
+    **显式关掉**，不是换页。WPS 导出的报告每个段落都带 ``w:val="0"``，旧代码把整篇
+    都当成换页，前置区页数从 7 页估成 32 页。
+    """
     breaks = 0
     for node in paragraph_element.iter(qn("w:br")):
         if node.get(qn("w:type")) == "page":
             breaks += 1
     if paragraph_element.find(qn("w:pPr")) is not None:
-        if paragraph_element.find(qn("w:pPr")).find(qn("w:pageBreakBefore")) is not None:
+        if is_on(paragraph_element.find(qn("w:pPr")).find(qn("w:pageBreakBefore"))):
             breaks += 1
     breaks += len(list(paragraph_element.iter(qn("w:lastRenderedPageBreak"))))
     return breaks

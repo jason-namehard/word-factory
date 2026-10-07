@@ -136,6 +136,30 @@ def qn(tag):
     return "{%s}%s" % (NAMESPACES[prefix], local)
 
 
+#: OOXML 的 ``ST_OnOff`` 里表示"关"的取值（开关元素上 ``w:val`` 写成这些就是关）
+OFF_VALUES = frozenset((u"0", u"false", u"off", u"none"))
+
+
+def is_on(element, default=True):
+    """开关元素（``w:pageBreakBefore`` / ``w:keepNext`` 这类）到底**开没开**。
+
+    * ``element is None`` → False（元素根本不在）；
+    * 有元素但**没有 ``w:val``** → ``default``（OOXML 里"元素在 = 开"，默认 True）；
+    * ``w:val`` 是 ``0/false/off/none`` → False；``1/true/on`` → True。
+
+    **为什么必须有这个函数**（2026-10-08 实测踩到）：WPS 导出的报告**每个段落**都带
+    ``<w:pageBreakBefore w:val="0"/>``（显式把"段前分页"关掉）。旧代码只看"元素在不在"，
+    把 288 个段落全当成换页 → 页码从 14 页估成 219 页、空白行一个都删不掉（它们全被
+    当成"带换页记号的空段"保护起来了）。
+    """
+    if element is None:
+        return False
+    value = element.get(qn("w:val"))
+    if value is None:
+        return default
+    return value.strip().lower() not in OFF_VALUES
+
+
 #: 主题色系列属性：渲染优先级**高于** ``w:color/w:val``，设色时不清掉就白设
 _THEME_COLOR_ATTRS = ("w:themeColor", "w:themeTint", "w:themeShade")
 

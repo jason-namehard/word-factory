@@ -20,7 +20,7 @@
 import collections
 import re
 
-from ..ooxml import qn
+from ..ooxml import is_on, qn
 from ..text import Paragraph
 
 #: 题注段落的识别（与 `ops/captions` 同一套口径）—— 这类段落的空格是排版用的，不能压
@@ -46,6 +46,11 @@ DEFAULT_TIDY = {
     "scope": "body",               # body = 正文段落；all = 连表格里的段落一起
     "blank_pages": True,           # 空白页删除：整页只有空格/回车/分页符的页（用户
                                    # 2026-09-30 要求；前置区的空白页由前置区保护挡住）
+    # **真实页码**（可选）：``pageprobe`` 用 Word/WPS 排版后读出的"第几块在第几页"，
+    # 与 ``list(document.body())`` 一一对应。给了它空白页判定才认得出"自然溢出"的页边界
+    # （实测：那份报告第 1 页 22 个空段、第 2 页才是封面，两页之间没有分页符；
+    #  不按真实页码，第 1 页的空白页永远删不掉）。由 pipeline/GUI/CLI 探好后传进来。
+    "block_pages": None,
     # **前置区保护**（用户 2026-09-27）：封面/扉页/签字页里的空白行是排版，不许删。
     # 识别口径见 frontmatter.py；识别不出前置区时这条自然不生效（等于没保护）。
     "protect_frontmatter": True,
@@ -103,17 +108,21 @@ def tidy(document, options=None, dry_run=False):
                     if not dry_run:
                         paragraph.replace_regex(u"[ \u00a0\u3000]{2,}", u" ", count=0)
     if opts.get("blank_pages"):
-        _remove_blank_pages(document, report, dry_run, protected)
+        _remove_blank_pages(document, report, dry_run, opts.get("block_pages"))
     # **两种口径互斥**：`merge_lines`（照 Copy++ 删光空行）与 `blank_lines`（保守：连续空段压一个）
     # 是对同一批段落的两种做法；同时开会重复计数、结果也说不清（踩过：43 + 28 两边都在数）。
     if opts.get("merge_lines"):
         _remove_blank_paragraphs(document, report, dry_run, protected)
     elif opts.get("blank_lines"):
         _collapse_blank_paragraphs(document, report, dry_run, protected)
-    total = sum(count for key, count in report.items() if u"跳过" not in key)
+    # ``total`` = **真改了多少处**：跳过类（…跳过）、子计数（其中…）、以及"空白页数"
+    # （那是页数不是改动处数）都不计进来 —— 数字要能对上，别虚报。
+    total = sum(count for key, count in report.items()
+                if u"跳过" not in key and u"其中" not in key and key != u"空白页数")
     if not dry_run and total:
         document.mark_dirty()
-    return {"op": "tidy", "options": opts, "changes": dict(report), "total": total,
+    shown = dict((key, value) for key, value in opts.items() if key != "block_pages")
+    return {"op": "tidy", "options": shown, "changes": dict(report), "total": total,
             "dry_run": bool(dry_run)}
 
 
@@ -142,15 +151,20 @@ def carries_page_break(element):
     像是 tab 的空格不需要你删除，**分页符也不需要**"。
 
     三种记号都算：
-    * ``w:pPr/w:pageBreakBefore`` —— 段前换页（实测这份报告 40 个空段都是这种）；
+    * ``w:pPr/w:pageBreakBefore`` —— 段前换页（**只有"开"才算**：``w:val`` 是
+      0/false/off 时是显式关掉，不是换页）；
     * ``w:r/w:br w:type="page"``  —— 段内插入的分页符；
     * ``w:pPr/w:sectPr``            —— 分节符（下一页），也决定版面。
+
+    ⚠️ 2026-10-08 修：旧代码只看 ``w:pageBreakBefore`` 元素**在不在**，不看 ``w:val``。
+    WPS 导出的报告每个段落都带 ``<w:pageBreakBefore w:val="0"/>``（关），
+    结果 288 段全被当成换页 → 空白行一个都删不掉、页码估成 219 页。
     """
     if element.tag != qn("w:p"):
         return False
     pr = element.find(qn("w:pPr"))
     if pr is not None:
-        if pr.find(qn("w:pageBreakBefore")) is not None:
+        if is_on(pr.find(qn("w:pageBreakBefore"))):
             return True
         if pr.find(qn("w:sectPr")) is not None:
             return True
@@ -160,18 +174,87 @@ def carries_page_break(element):
     return False
 
 
+#: 页面上算"有内容"的东西：图片/图形/对象（空白页判定时不能把它们当空）
+_CONTENT_TAGS = (qn("w:drawing"), qn("w:pict"), qn("w:object"),
+                 qn("w:txbxContent"), qn("w:commentReference"))
+
+
+def block_has_content(element):
+    """这个块**看得到东西吗**（空白页判定用）。
+
+    * 任意后代段落里有非空白文字 → 有内容；
+    * 表格里的文字也算（``iter(w:p)`` 覆盖单元格）；
+    * 图片 / 图形 / 文本框 / 对象 → 有内容（它没文字但绝不是空白页）。
+
+    注意 ``w:sdt``（内容控件，目录就是它）里的段落也算 —— 只看直接 ``w:p``
+    会把整页目录当成空白页。
+    """
+    for paragraph in element.iter(qn("w:p")):
+        if Paragraph(paragraph).text.strip():
+            return True
+    for node in element.iter():
+        if node.tag in _CONTENT_TAGS:
+            return True
+    return False
+
+
+def _page_groups(document, block_pages=None):
+    """把正文块分成"页"：``[(页号, [块, …]), …]``。
+
+    * 给了 ``block_pages``（**真实页码**，由 ``pageprobe`` 用 Word/WPS 排版后读出来，
+      与 ``list(document.body())`` 一一对应）→ 按真实页码分组。**这是唯一能识别
+      "自然溢出"造成的空白页的办法**（实测：那份报告第 1 页 22 个空段、第 2 页才是封面，
+      两页之间**没有分页符**，只靠分页记号根本分不开）；
+    * 没给 → 退回"按换页记号切"（估算法，认不出自然溢出的页边界）。
+    """
+    blocks = list(document.body())
+    groups = []
+    if block_pages:
+        current = None
+        for index, element in enumerate(blocks):
+            number = (block_pages[index] if index < len(block_pages) else None)
+            if number is None:
+                number = current if current is not None else 1
+            if current is None or number != current:
+                groups.append([number, []])
+                current = number
+            groups[-1][1].append(element)
+        return groups
+    bucket = []
+    for element in blocks:
+        bucket.append(element)
+        if element.tag == qn("w:p") and carries_page_break(element):
+            groups.append([len(groups) + 1, bucket])
+            bucket = []
+    if bucket:
+        groups.append([len(groups) + 1, bucket])
+    return groups
+
+
+def is_blank_paragraph(element):
+    """这个段是不是**可以去掉的空白段**（没文字、也没图/对象）。
+
+    ⚠️ 2026-10-08 实测踩到（**图丢了**）：那份报告里"图 6-1 …"这种图题段是空的，
+    图本身挂在**紧跟着的空段**里（``段落文字=''`` 但里面有 ``w:drawing``）。
+    旧代码只看 ``Paragraph.text``，把挂图的空段当成空白行删了 —— **整张图没了**。
+    所以"空段"的判据必须是 :func:`block_has_content`（文字 + 图/对象一起看）。
+    """
+    return element.tag == qn("w:p") and not block_has_content(element)
+
+
 def _remove_blank_paragraphs(document, report, dry_run, protected=frozenset()):
     """**删掉全部空段落**（Copy++ 的「合并换行」：把被空行隔开的行并成连续行）。
 
     与 :func:`_collapse_blank_paragraphs`（保守：连续空段只压成一个）**不同** —— 那个是默认口径，
     这个是"照 Copy++ 的行为"（用户 2026-09-22 给了前后对照样本，见 `tests/test_tidy.py`）。
-    ``protected`` 里的段落（前置区：封面/扉页/签字页）一个都不碰。
+    ``protected`` 里的段落（前置区：封面/扉页/签字页）一个都不碰；**挂图的空段也不碰**
+    （见 :func:`is_blank_paragraph`）。
     """
     body = document.body()
     doomed = [element for element in body
-              if element.tag == qn("w:p") and id(element) not in protected
+              if id(element) not in protected
               and not carries_page_break(element)
-              and not Paragraph(element).text.strip()]
+              and is_blank_paragraph(element)]
     for element in doomed:
         report["删除空行"] += 1
         if not dry_run:
@@ -192,9 +275,9 @@ def _collapse_blank_paragraphs(document, report, dry_run, protected=frozenset())
         return
     # **带换页记号的空段一律不算"空白段"** —— 它是版面撑出来的，删了就塌
     for element in paragraphs:
-        if not Paragraph(element).text.strip() and carries_page_break(element):
-            report["空行里带分页符（保留）"] =                 report.get("空行里带分页符（保留）", 0) + 1
-    blank = [not Paragraph(element).text.strip() and not carries_page_break(element)
+        if is_blank_paragraph(element) and carries_page_break(element):
+            report["空行里带分页符（保留）"] = report.get("空行里带分页符（保留）", 0) + 1
+    blank = [is_blank_paragraph(element) and not carries_page_break(element)
              for element in paragraphs]
     doomed = []
     previous_blank = False
@@ -216,50 +299,55 @@ def _collapse_blank_paragraphs(document, report, dry_run, protected=frozenset())
             body.remove(element)
 
 
-def _remove_blank_pages(document, report, dry_run, protected=frozenset()):
-    """**空白页检索**（用户 2026-09-30 要求加到一键整理里）。
+def _remove_blank_pages(document, report, dry_run, block_pages=None):
+    """**空白页检索**（用户 2026-09-30 要求加到一键整理里，2026-10-08 重写）。
 
-    一页里**一个有内容的块都没有**（只有空段、空格、分页符，页眉页脚不算）→ 空白页。
-    处理：删掉该页里的空段；**分页符段保留**（它决定版面，删了会牵动前后页）——
-    如果整页只剩一个分页符段，那页删不掉，如实报告"保留（含分页符）"。
-    **前置区里的空白页不删**（封面/扉页的排版空段是版面，前置区保护已经挡住了）。
+    一页里**一个看得到的东西都没有**（只有空段、空格、制表符、回车、分页符；
+    页眉页脚不算；**图片/表格/内容控件（目录）都算有内容**）→ 空白页。
 
-    页的划分用 :func:`wordfactory.ops.tidy.carries_page_break` 的分页记号估算
-    （与前置区同一套口径）；**精确页码**由调用方用 ``pageprobe`` 校准后传进来更好。
+    处理：**把这一页里的空段落全删掉**（整页没内容，留着就是给文档多出一张白纸）。
+    两种要**保留**的情形：
+    * 块上带 ``w:sectPr``（分节符属性）—— 那是**结构**，删了页边距/纸张会变，不赌；
+    * 页里有内容（有文字/图/表）—— 不动，那空白段可能是版面。
+
+    **前置区不在此列**：封面/扉页/签字页/前言/目录页都有文字，天然不会被判成空白页
+    （用户 2026-10-08 实测口径："第 1 页明明不是封面却留下空白页及其空白行"）。
+    所以这里**不再套 ``protected``** —— 一个**没有任何文字**的页不可能是那五种页面。
+
+    页的划分：有 ``block_pages``（真实页码）就按它；没有才退回分页记号估算。
     """
     body = document.body()
-    # 按换页记号把块分组（与前置区同一套估算；精确页码由调用方传 pageprobe 结果更准）
-    groups = []
-    bucket = []
-    for element in body:
-        bucket.append(element)
-        if element.tag == qn("w:p") and carries_page_break(element):
-            groups.append(bucket)
-            bucket = []
-    if bucket:
-        groups.append(bucket)
-
+    groups = _page_groups(document, block_pages)
     removed = 0
-    kept_with_break = 0
-    for group in groups:
-        has_text = any(el.tag == qn("w:p") and Paragraph(el).text.strip()
-                       for el in group if el.tag == qn("w:p"))
-        if has_text:
+    kept_section = 0
+    kept_break = 0
+    blank_pages = 0
+    for number, group in groups:
+        if any(block_has_content(el) for el in group):
             continue                              # 有内容的页不动
-        for el in group:
-            if id(el) in protected:
-                continue                          # 前置区保护
-            if el.tag != qn("w:p"):
+        paragraphs = [el for el in group if el.tag == qn("w:p")]
+        if not paragraphs:
+            continue                              # 只有表格/图片的"页"（无段落）不碰
+        blank_pages += 1
+        for el in paragraphs:
+            pr = el.find(qn("w:pPr"))
+            if pr is not None and pr.find(qn("w:sectPr")) is not None:
+                kept_section += 1                 # 分节符属性：结构，保留
                 continue
             if carries_page_break(el):
-                kept_with_break += 1              # 分页符段保留（决定版面）
-                continue
+                kept_break += 1
+                if not block_pages:
+                    continue                      # **估算口径**：认不准页边界，换页段一律不赌
             if not dry_run:
                 body.remove(el)
             removed += 1
     if removed:
-        report["空白页空段删除"] = removed
+        report["空白页删段"] = removed
+        report["空白页数"] = blank_pages
         if not dry_run:
             document.mark_dirty()
-    if kept_with_break:
-        report["空白页保留分页符段"] = kept_with_break
+    if kept_section:
+        report["空白页保留分节符段（跳过）"] = kept_section
+    if kept_break:
+        report["（其中原带分页符）"] = kept_break
+

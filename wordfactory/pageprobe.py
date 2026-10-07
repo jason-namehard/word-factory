@@ -83,6 +83,10 @@ def probe(path, blocks=60, renderer=None, timeout=180, block_starts=None):
         import win32com.client
         pythoncom.CoInitialize()
         app = doc = None
+        #: **这个实例是不是我们起的**。用户自己开着 Word 时 ``Dispatch`` 会**连到他那个实例**上
+        #  （Word 是单实例 COM 服务器）—— 那种情况下我们**绝不能**改它的 Visible、更不能 Quit，
+        #  否则会把用户正在编辑的文档一起关掉。所以：先试 ``GetActiveObject``，连上了就只借不用。
+        ours = False
         try:
             prog_ids = ([renderer] if renderer else
                         [u"Word.Application", u"KWPS.Application"])
@@ -90,14 +94,20 @@ def probe(path, blocks=60, renderer=None, timeout=180, block_starts=None):
             errors = []
             for prog_id in prog_ids:
                 try:
-                    app = win32com.client.Dispatch(prog_id)
+                    app = win32com.client.GetActiveObject(prog_id)   # 已经开着 → 借用
                     break
-                except Exception as exc:              # noqa: BLE001 - 换下一个
-                    errors.append(u"%s: %s" % (prog_id, exc))
+                except Exception:                                    # noqa: BLE001 - 没开就自己起
+                    try:
+                        app = win32com.client.Dispatch(prog_id)
+                        ours = True
+                        break
+                    except Exception as exc:                         # noqa: BLE001 - 换下一个
+                        errors.append(u"%s: %s" % (prog_id, exc))
             if app is None:
                 raise PageProbeError(u"本机没有可用的 Word/WPS（%s）"
                                      % u"；".join(errors))
-            app.Visible = False
+            if ours:
+                app.Visible = False
             doc = app.Documents.Open(path, ReadOnly=True)
             try:
                 doc.Repaginate()                       # 先排版，页码才是准的
@@ -129,8 +139,8 @@ def probe(path, blocks=60, renderer=None, timeout=180, block_starts=None):
             except Exception:                          # noqa: BLE001
                 pass
             try:
-                if app is not None:
-                    app.Quit()
+                if app is not None and ours:
+                    app.Quit()                         # **只关我们自己起的那个实例**
             except Exception:                          # noqa: BLE001
                 pass
             pythoncom.CoUninitialize()

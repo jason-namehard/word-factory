@@ -531,7 +531,7 @@ const state = {files: [], file: null, steps: [], plans: [], planName: '',
                tables: [], picked: new Set(), tableStyle: {}, uniform: false,
                template: null, tempDir: '', tempFiles: [], fmPages: {cover: 0, title: 0, signature: 0},
                extFiles: [], rule: {text: [], font: [], para: []}, docFormats: null,
-               subs: null, tplConfirmFor: null, fmAccurate: {},
+               subs: null, tplConfirmFor: null, fmAccurate: {}, fmBlockPages: {},
                lastOut: null};
 
 /* ---------------------------------------------------------------- 基础 */
@@ -894,9 +894,17 @@ $('plan-import').addEventListener('click', () => {
 
 /* ---------------------------------------------------------------- 运行（临时/预览/正式） */
 function targetFiles() { return state.files.length ? state.files : (state.file ? [state.file] : []); }
+// 真实页码（第几块在第几页）：选文件时用 Word/WPS 探过一次，缓存在这里。
+// 一键整理拿它认「自然溢出」造成的空白页 —— 没有它，第 1 页那种纯空白页删不掉。
+function blockPagesFor(path) {
+  const pages = state.fmBlockPages && state.fmBlockPages[path];
+  return (pages && pages.length) ? pages : null;
+}
 async function runOne(path, mode, outPath, extra) {
   const payload = Object.assign({path: path, steps: chosenSteps(), mode: mode,
                                 out: outPath || null}, extra || {});
+  const bp = blockPagesFor(path);
+  if (bp) payload.block_pages = bp;
   return api('/api/run', {method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload)});
@@ -951,9 +959,12 @@ $('plan-dry').addEventListener('click', async () => {
   const files = targetFiles();
   if (!files.length) { log('先导入报告', 'err'); return; }
   try {
+    const dryPayload = {path: files[0], steps: chosenSteps(), mode: 'verify', dry_run: true};
+    const dryBp = blockPagesFor(files[0]);
+    if (dryBp) dryPayload.block_pages = dryBp;
     const data = await api('/api/run', {method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path: files[0], steps: chosenSteps(), mode: 'verify', dry_run: true})});
+      body: JSON.stringify(dryPayload)});
     $('report').textContent = data.text;
     log('dry-run（第一份）：' + (data.report.out || '没有要改的'));
   } catch (error) { log('出错：' + error.message, 'err'); }
@@ -1046,6 +1057,8 @@ async function loadFrontmatter(accurate) {
     const data = await api(url);
     state.fmInfo = data.info;
     if (data.accurate) state.fmAccurate[state.file] = true;
+    // 真实页码缓存下来，供"一键整理"的空白页判定用（见 blockPagesFor）
+    if (data.accurate && data.block_pages) state.fmBlockPages[state.file] = data.block_pages;
     if (note) {
       const who = (data.renderer && data.renderer.renderer) || 'Word/WPS';
       const total = (data.renderer && data.renderer.pages);
