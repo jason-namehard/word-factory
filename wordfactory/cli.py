@@ -266,7 +266,12 @@ def _add_tidy_parser(sub):
                         help=u"去空格/压空格时**连题注段落一起动**（默认跳过 —— 它们的空格是居中用的）")
     tidy_p.add_argument("--merge-lines", dest="merge_lines", action="store_true",
                         default=False,
-                        help=u"合并换行：**删掉全部空行**（照 Copy++ 的「合并换行」，见样本）")
+                        help=u"合并换行：删掉全部空行（**现在这是默认口径**，保留只为兼容老参数）")
+    tidy_p.add_argument("--collapse-blank-lines", dest="collapse_blank_lines",
+                        action="store_true", default=False,
+                        help=u"旧保守档：连续空段**压成一个**（默认是整段删掉）")
+    tidy_p.add_argument("--no-blank-pages", dest="no_blank_pages", action="store_true",
+                        default=False, help=u"不删空白页（默认：整页没内容就删）")
     tidy_p.add_argument("--remove-spaces", dest="remove_spaces", action="store_true",
                         default=False,
                         help=u"去除空格：删掉全部半角/不间断空格（照 Copy++ 的「去除空格」）")
@@ -947,6 +952,8 @@ def cmd_tidy(args):
         raise RuleError(u"要写结果就得给 --out 文件或 --outdir 目录"
                         u"（本工具**不会**覆盖原文件）")
     options = {"blank_lines": not args.no_blank_lines,
+               "collapse_blank_lines": args.collapse_blank_lines,
+               "blank_pages": not args.no_blank_pages,
                "trailing_spaces": not args.no_spaces,
                "trim_leading": args.trim_leading,
                "collapse_space_runs": args.collapse_space_runs,
@@ -980,8 +987,10 @@ def cmd_tidy(args):
         lines.append(u"    %-22s %d" % (key, report["changes"][key]))
     if not options["trim_leading"]:
         lines.append(u"    （段首空格默认**没动** —— 怕碰到「用空格当缩进」的文档；要动加 --trim-leading）")
-    if options["merge_lines"]:
-        lines.append(u"    （合并换行：空白行**全删**，不是压成一个 —— 与你给的 Copy++ 样本一致）")
+    if options["blank_lines"] and not options["collapse_blank_lines"]:
+        lines.append(u"    （空白行**整段删掉**（默认口径）；要只压成一个加 --collapse-blank-lines）")
+    elif options["collapse_blank_lines"]:
+        lines.append(u"    （空白行：连续空段**压成一个**（旧保守档），首尾空段删掉）")
     if options["remove_spaces"]:
         lines.append(u"    （去除空格：半角与不间断空格全删；**全角空格保留**，它常是段首缩进）")
     if not options["collapse_space_runs"]:

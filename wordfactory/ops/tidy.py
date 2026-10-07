@@ -7,14 +7,16 @@
 1. **不去拆别人的二进制**：`Copy++.exe` 是第三方程序，反编译它的代码拿来用既不合规也不必要 ——
    这里按**行为**实现（这类工具做的就是"去掉多余空行、去掉多余空格"）。它还有哪些具体行为，
    你指出来我照着补。
-2. **默认取保守口径**（与你在表格那件事上的取向一致），只删"明显无意义"的：
-   连续空白段压成一个、文档首尾的空白段删掉、段尾的空格/全角空格删掉。
-   两件**默认不做**、要显式开的事，以及为什么：
+2. **默认口径**（2026-10-08 用户看图定稿）：正文里的**空白行整段删掉**、**空白页删掉**、
+   段尾空格删掉。**不删**的：前置区（封面/扉页/签字页/前言/目录）里的空白、带换页记号的段、
+   挂图的空段。两件要显式开的事，以及为什么：
 
    * `--trim-leading`：删段首空格 —— **危险**，有的文档用两个半角空格当"首行缩进"
      （`docs/REFERENCE-MACROS.md` §一 记过"段首空两格有四种写法"），删了缩进就没了；
    * `--collapse-space-runs`：段内连续空格压成一个 —— **会破坏表题的"空格居中"**，
      所以它**自动跳过题注段落**（`表X-Y` / `图X-Y` 开头那种）。
+
+   想回到"连续空段只压成一个"的旧保守档：``collapse_blank_lines=True``。
 """
 
 import collections
@@ -36,12 +38,16 @@ _TRAIL_RE = re.compile(u"[ \u00a0\u3000]+$")
 _LEAD_RE = re.compile(u"^[ \u00a0\u3000]+")
 
 DEFAULT_TIDY = {
-    "blank_lines": True,           # 连续空白段压成一个 + 首尾空白段删除
+    # **删掉空白行**（用户 2026-10-08 实测定稿：正文里的空段整段删掉）。
+    # 旧的"连续空段压成一个"太保守 —— 用户看图指出"还是有空白行"（一段被空行劈成两半）。
+    # 想回到旧口径用 ``collapse_blank_lines``（两者互斥，见 tidy()）。
+    "blank_lines": True,
+    "collapse_blank_lines": False,  # 旧口径：连续空段压成一个 + 首尾空段删除（保守档）
     "trailing_spaces": True,       # 段尾空格/全角空格
     "trim_leading": False,         # 段首空格（危险：可能是缩进）
     "collapse_space_runs": False,  # 段内连续空格（跳过题注段）
     "caption_skip": True,          # 去空格/压空格时跳过题注段落（它们的空格是排版用的）
-    "merge_lines": False,          # 合并换行：**删掉全部空段落**（Copy++ 的「合并换行」）
+    "merge_lines": False,          # 别名：照 Copy++ 的「合并换行」= 删掉全部空段落
     "remove_spaces": False,        # 去除空格：**删掉全部半角/不间断空格**（Copy++ 的「去除空格」）
     "scope": "body",               # body = 正文段落；all = 连表格里的段落一起
     "blank_pages": True,           # 空白页删除：整页只有空格/回车/分页符的页（用户
@@ -109,12 +115,13 @@ def tidy(document, options=None, dry_run=False):
                         paragraph.replace_regex(u"[ \u00a0\u3000]{2,}", u" ", count=0)
     if opts.get("blank_pages"):
         _remove_blank_pages(document, report, dry_run, opts.get("block_pages"))
-    # **两种口径互斥**：`merge_lines`（照 Copy++ 删光空行）与 `blank_lines`（保守：连续空段压一个）
-    # 是对同一批段落的两种做法；同时开会重复计数、结果也说不清（踩过：43 + 28 两边都在数）。
-    if opts.get("merge_lines"):
-        _remove_blank_paragraphs(document, report, dry_run, protected)
-    elif opts.get("blank_lines"):
+    # **三种口径互斥**（同一批段落的三套做法，同时开会重复计数、结果也说不清）：
+    # * ``collapse_blank_lines`` —— 旧保守档：连续空段压成一个 + 首尾空段删除；
+    # * ``merge_lines`` / ``blank_lines``（**默认**）—— 空行整段删掉（用户 2026-10-08 定稿）。
+    if opts.get("collapse_blank_lines"):
         _collapse_blank_paragraphs(document, report, dry_run, protected)
+    elif opts.get("merge_lines") or opts.get("blank_lines"):
+        _remove_blank_paragraphs(document, report, dry_run, protected)
     # ``total`` = **真改了多少处**：跳过类（…跳过）、子计数（其中…）、以及"空白页数"
     # （那是页数不是改动处数）都不计进来 —— 数字要能对上，别虚报。
     total = sum(count for key, count in report.items()
@@ -243,18 +250,25 @@ def is_blank_paragraph(element):
 
 
 def _remove_blank_paragraphs(document, report, dry_run, protected=frozenset()):
-    """**删掉全部空段落**（Copy++ 的「合并换行」：把被空行隔开的行并成连续行）。
+    """**删掉全部空段落**（= Copy++ 的「合并换行」，也是 `tidy` 的**默认**口径）。
 
-    与 :func:`_collapse_blank_paragraphs`（保守：连续空段只压成一个）**不同** —— 那个是默认口径，
-    这个是"照 Copy++ 的行为"（用户 2026-09-22 给了前后对照样本，见 `tests/test_tidy.py`）。
-    ``protected`` 里的段落（前置区：封面/扉页/签字页）一个都不碰；**挂图的空段也不碰**
-    （见 :func:`is_blank_paragraph`）。
+    用户 2026-10-08 定稿：正文里的空白行整段删掉（旧口径"连续空段压成一个"太保守 ——
+    用户看图指出"还是有空白行"，那是一段话被一个空行劈成两半）。
+
+    三类**不删**（逐条都有实测依据）：
+    * ``protected``（前置区封面/扉页/签字页/前言/目录）—— 那些空白是版面；
+    * 带换页记号的段 —— 删了版面会塌，报告里记进"空行里带分页符（保留）"；
+    * **挂图的空段**（文字为空但里面有 ``w:drawing``）—— 删了图就没了（见 :func:`is_blank_paragraph`）。
     """
     body = document.body()
-    doomed = [element for element in body
-              if id(element) not in protected
-              and not carries_page_break(element)
-              and is_blank_paragraph(element)]
+    doomed = []
+    for element in body:
+        if id(element) in protected or not is_blank_paragraph(element):
+            continue
+        if carries_page_break(element):
+            report["空行里带分页符（保留）"] = report.get("空行里带分页符（保留）", 0) + 1
+            continue
+        doomed.append(element)
     for element in doomed:
         report["删除空行"] += 1
         if not dry_run:

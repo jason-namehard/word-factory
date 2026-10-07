@@ -49,7 +49,7 @@ STEPS = collections.OrderedDict([
     # 命令行 `textfix` 命令仍在；老方案 JSON 里挂着的 textfix 跑的时候会明说。
     (u"replace", (u"替换规则（文本/字体/段落，三段合一）", {"rules": None, "scope": "all"})),
     (u"mdclean", (u"Markdown 标记清理", {})),
-    (u"tidy", (u"一键整理（段尾空格/空白行）", {"blank_lines": True, "trailing_spaces": True})),
+    (u"tidy", (u"一键整理（删空白行 + 空白页 + 段尾空格）", {"blank_lines": True, "trailing_spaces": True})),
 ])
 
 #: 界面上的**中文显示名**（用户 2026-09-27：可选功能要用中文命名 + 中文简介）。

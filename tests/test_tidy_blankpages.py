@@ -86,15 +86,15 @@ class TestPageBreakBeforeValIsHonoured(BreakCase):
             u'<w:p><w:pPr><w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
             u'</w:sectPr></w:pPr></w:p>'), [True, True])
 
-    def test_tab_only_blank_lines_now_get_collapsed(self):
+    def test_tab_only_blank_lines_are_now_deleted(self):
         """制表符空段：``strip()`` 认得它 —— 删不掉是"被误判成换页段"，不是字符问题。"""
         body = (fixtures.paragraph(fixtures.run(u"甲")) + TAB_BLANK * 3
                 + fixtures.paragraph(fixtures.run(u"乙")))
         self.build(body)
         with Document(self.path) as doc:
             report = tidy_op.tidy(doc)
-        self.assertEqual(report["changes"].get(u"空白段压缩", 0), 2,
-                         u"三个带制表符的空段应压成一个（旧代码一个都不动）")
+        self.assertEqual(report["changes"].get(u"删除空行", 0), 3,
+                         u"三个带制表符的空段该整段删掉（旧代码一个都不动）")
 
     def test_frontmatter_page_estimate_not_inflated(self):
         """十个 ``w:val="0"`` 空段全在第 1 页 —— 页数必须还是 1（旧代码算成 11）。"""
@@ -157,11 +157,11 @@ class TestBlankPages(BreakCase):
             report = tidy_op.tidy(doc, {"block_pages": [1, 2]})
         self.assertEqual(report["changes"].get(u"空白页删段", 0), 0, u"有图的页不是空白页")
 
-    def test_paragraph_holding_only_a_drawing_survives_collapse(self):
+    def test_paragraph_holding_only_a_drawing_survives_blank_line_removal(self):
         """**挂图的空段不能被当空白行删掉**（2026-10-08 实测：图 6-1 的图真被删了）。
 
         那份报告里图题段是空的，图挂在紧随其后的空段里（文字为空、里面有 ``w:drawing``）。
-        旧代码只看 ``Paragraph.text`` → 把挂图的段当空白行压缩掉 → **整张图没了**。
+        旧代码只看 ``Paragraph.text`` → 把挂图的段当空白行删 → **整张图没了**。
         """
         image = u'<w:p><w:r><w:drawing/></w:r></w:p>'
         body = (fixtures.paragraph(fixtures.run(u"图 6-1  水位～库容关系图"))
@@ -174,8 +174,8 @@ class TestBlankPages(BreakCase):
         with Document(path + u".out.docx") as doc:
             drawings = len(list(doc.part().iter(qn("w:drawing"))))
         self.assertEqual(drawings, 1, u"挂图的段删了 = 图丢了")
-        self.assertEqual(report["changes"].get(u"空白段压缩", 0), 1,
-                         u"挂图的段不算空白段；后面那两个真空段才该压成一个")
+        self.assertEqual(report["changes"].get(u"删除空行", 0), 2,
+                         u"挂图的段不算空段；后面那两个真空段才该删")
 
     def test_page_with_only_a_table_is_not_blank(self):
         path = self.build(fixtures.table([[u'<w:r><w:t>表内文字</w:t></w:r>',

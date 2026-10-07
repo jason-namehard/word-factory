@@ -93,24 +93,47 @@ class TestSpaces(TidyCase):
 
 
 class TestBlankLines(TidyCase):
-    def test_consecutive_blank_paragraphs_collapse_to_one(self):
+    """空白行口径（**2026-10-08 用户定稿改过一次默认**）。
+
+    旧默认是"连续空段压成一个"（保守）；用户看图指出"还是有空白行"（一段话被一个空行劈成两半）
+    → **现在的默认是整段删掉**。"压成一个"退成显式可选档 ``collapse_blank_lines``，
+    下面每条都分别钉这两种口径。
+    """
+
+    def test_blank_lines_are_deleted_by_default(self):
         body = (fixtures.paragraph(fixtures.run(u"第一段")) + u"<w:p/>" + u"<w:p/>"
                 + u"<w:p/>" + fixtures.paragraph(fixtures.run(u"第二段")))
         report, out = self.run_op(body)
-        self.assertEqual(report["changes"]["空白段压缩"], 2, u"三个空段留一个")
-        self.assertEqual(self.texts(out), [u"第一段", u"", u"第二段"])
+        self.assertEqual(report["changes"]["删除空行"], 3, u"默认：空行整段删掉")
+        self.assertEqual(self.texts(out), [u"第一段", u"第二段"])
 
-    def test_a_single_blank_line_is_a_real_gap_and_stays(self):
+    def test_a_single_blank_line_is_deleted_too(self):
+        """**单个空行也删**（用户 2026-10-08 的截图就是这种情况：一个空行把一段话劈成两半）。"""
         body = (fixtures.paragraph(fixtures.run(u"上")) + u"<w:p/>"
                 + fixtures.paragraph(fixtures.run(u"下")))
         report, out = self.run_op(body)
-        self.assertEqual(report["total"], 0, u"单独一个空行是「想留的」，不动")
+        self.assertEqual(report["changes"]["删除空行"], 1)
+        self.assertEqual(self.texts(out), [u"上", u"下"])
+
+    def test_collapse_mode_is_still_available(self):
+        body = (fixtures.paragraph(fixtures.run(u"第一段")) + u"<w:p/>" + u"<w:p/>"
+                + u"<w:p/>" + fixtures.paragraph(fixtures.run(u"第二段")))
+        report, out = self.run_op(body, collapse_blank_lines=True)
+        self.assertEqual(report["changes"]["空白段压缩"], 2, u"旧档：三个空段留一个")
+        self.assertEqual(self.texts(out), [u"第一段", u"", u"第二段"])
+        self.assertIsNone(report["changes"].get(u"删除空行"), u"两种口径互斥，不能都算")
+
+    def test_collapse_mode_keeps_a_lone_blank_line(self):
+        body = (fixtures.paragraph(fixtures.run(u"上")) + u"<w:p/>"
+                + fixtures.paragraph(fixtures.run(u"下")))
+        report, out = self.run_op(body, collapse_blank_lines=True)
+        self.assertEqual(report["total"], 0, u"旧档：单独一个空行是「想留的」，不动")
 
     def test_blank_paragraphs_at_the_edges_go_away(self):
         body = (u"<w:p/>" + u"<w:p/>" + fixtures.paragraph(fixtures.run(u"正文"))
                 + u"<w:p/>")
         report, out = self.run_op(body)
-        self.assertGreaterEqual(report["changes"]["首尾空白段删除"], 2)
+        self.assertGreaterEqual(report["changes"]["删除空行"], 3)
         self.assertEqual(self.texts(out), [u"正文"])
 
     def test_whitespace_only_paragraphs_count_as_blank(self):
@@ -119,8 +142,8 @@ class TestBlankLines(TidyCase):
                 + fixtures.paragraph(fixtures.run(u"乙")))
         report, out = self.run_op(body)
         self.assertEqual(report["changes"]["段尾空格"], 1, u"全空白段落会被清成真空段")
-        self.assertEqual(self.texts(out), [u"甲", u"", u"乙"],
-                         u"清完它就是一个空行 —— 单个空行是「想留的」，保留")
+        self.assertEqual(report["changes"]["删除空行"], 1, u"清完就是一个空行 → 默认删掉")
+        self.assertEqual(self.texts(out), [u"甲", u"乙"])
 
 
 class TestScopeAndSafety(TidyCase):
@@ -262,6 +285,7 @@ class TestFrontmatterProtection(unittest.TestCase):
 
     def _doc_with_frontmatter(self, path):
         cover = (fixtures.paragraph(fixtures.run(u"某水库工程防洪安全复核报告", sz="72"))
+                 + u"<w:p/>"                      # 封面里的排版空行（**必须保住**）
                  + u"<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>"
                  + fixtures.paragraph(fixtures.run(u"编制：张三"))
                  + fixtures.paragraph(fixtures.run(u"校核：李四"))
@@ -298,6 +322,11 @@ class TestFrontmatterProtection(unittest.TestCase):
             shutil.rmtree(work, ignore_errors=True)
 
     def test_tidy_does_not_touch_frontmatter_blanks(self):
+        """前置区（封面/扉页/签字页/前言）里的空白行**不许删**；正文里的该删就删。
+
+        （2026-10-08：默认口径从"空段压成一个"改成"整段删掉"后重写 —— 夹具里给封面
+        加了一个排版空行，钉住"它在、正文那些不在"。）
+        """
         work = tempfile.mkdtemp(prefix="wf_fm_")
         try:
             path = self._doc_with_frontmatter(os.path.join(work, u"报告.docx"))
@@ -305,10 +334,19 @@ class TestFrontmatterProtection(unittest.TestCase):
             with Document(path) as doc:
                 report = tidy_op.tidy(doc)
                 doc.save(out)
-            # 前置区里的空段一个没动（merge_lines 没开 → 不会有"删除空行"这个键）；正文空段被压掉
-            self.assertIsNone(report["changes"].get(u"删除空行"))
-            self.assertGreaterEqual(report["changes"].get(u"空白段压缩", 0), 1)
+            self.assertGreaterEqual(report["changes"].get(u"删除空行", 0), 1,
+                                    u"正文里的空段要删")
             self.assertGreater(report["changes"].get(u"前置区保护（跳过）", 0), 0)
+            with Document(out) as doc:
+                elements = [el for el in doc.body() if el.tag == qn("w:p")]
+            texts = [Paragraph(el).text for el in elements]
+            self.assertIn(u"", texts, u"封面里的排版空行必须原样保留")
+            # 换页段本身没文字，但它是版面不是空白行 —— 排除掉再数
+            real_blanks = [el for el in elements
+                           if not Paragraph(el).text.strip()
+                           and not tidy_op.carries_page_break(el)]
+            self.assertEqual(len(real_blanks), 1,
+                             u"正文里的空段该删的都删了，只剩封面那一个")
             with zipfile.ZipFile(out) as archive:
                 text = archive.read("word/document.xml").decode("utf-8")
             self.assertEqual(text.count(u"<w:p><w:r><w:br"), 2,
@@ -463,9 +501,12 @@ class TestPageBreaksAreNeverBlankLines(unittest.TestCase):
         with Document(self.path) as doc:
             report = tidy_op.tidy(doc)
         self.assertGreaterEqual(
-            report["changes"].get(u"空白段压缩", 0)
+            report["changes"].get(u"删除空行", 0)
+            + report["changes"].get(u"空白段压缩", 0)
             + report["changes"].get(u"首尾空白段删除", 0), 1,
             u"真正的空白行还是要删的 —— 分页符保护不能变成什么都不删")
+        self.assertGreaterEqual(report["changes"].get(u"空行里带分页符（保留）", 0), 4,
+                                u"留了几条要报出来（用户要能看出「哪些没动、为什么」）")
 
     def test_dry_run_leaves_everything(self):
         with Document(self.path) as doc:

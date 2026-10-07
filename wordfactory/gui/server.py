@@ -674,13 +674,34 @@ class Handler(BaseHTTPRequestHandler):
         report = pipeline_mod.run_pipeline(
             path, data.get("steps") or [], mode=data.get("mode") or "verify",
             out_path=out or None, dry_run=bool(data.get("dry_run")),
-            block_pages=data.get("block_pages") or None)
+            block_pages=_block_pages_for_run(path, data))
         download = None
         if report.get("out"):
             download = allow_download(report["out"])
         self._json({"ok": True, "report": _slim(report),
                     "text": pipeline_mod.format_report(report),
                     "download": download})
+
+
+def _block_pages_for_run(path, data):
+    """跑之前把**真实页码**（第几块在第几页）备好，交给一键整理判空白页。
+
+    优先用界面带来的（选文件校准过的那份，省一次排版）；**没带就服务端自己探** ——
+    2026-10-08 实测踩到：前端页缓存/校准失败时运行请求里没有 ``block_pages``，
+    结果又退回"按分页符估算"，**纯空白首页一个都删不掉**（用户报的就是这个现象）。
+    "一键整理"要判空白页就必须拿到真实页码，这条不能指望界面状态。
+
+    没装 Word/WPS 或探测失败 → 返回 None，退回估算口径（不阻断运行）。
+    """
+    steps = [step.get("op") if isinstance(step, dict) else step
+             for step in (data.get("steps") or [])]
+    if u"tidy" not in steps:
+        return data.get("block_pages") or None
+    from ..document import Document
+    from .. import pipeline as _pipeline
+    with Document(path) as doc:
+        pages = _pipeline._probe_block_pages(doc)
+    return pages or data.get("block_pages") or None
 
 
 def _slim(report):
