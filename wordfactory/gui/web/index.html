@@ -633,7 +633,7 @@ table.grid th { font-size: 11px; }
   <p class="hint" id="pdf-summary"></p>
   <label class="pdf-choice" id="pdf-choice-formal"><input type="radio" name="pdf-edition" value="formal" checked><span><b>正式版 PDF</b><small>把手上的「正式版」文档直接转成 PDF，适合最终交付。</small></span></label>
   <label class="pdf-choice" id="pdf-choice-verify"><input type="radio" name="pdf-edition" value="verify"><span><b>预览版 PDF</b><small>把手上的「预览版」文档直接转成 PDF，保留蓝色改动标记，适合检查核对。</small></span></label>
-  <p class="hint" style="margin:18px 0" id="pdf-note">直接用已经生成的那份文档转换，**不会重跑方案**；原报告与那份文档都不会被动。</p>
+  <p class="hint" style="margin:18px 0" id="pdf-note">直接用已经生成的那份文档转换，不会重跑方案；原报告与那份文档都不会被动。</p>
   <div class="rowline" style="justify-content:flex-end"><button id="pdf-cancel">取消</button><button id="pdf-confirm" class="primary">转成 PDF</button></div>
 </div></div>
 
@@ -905,6 +905,10 @@ function showDoneDialog(downloads, title) {
   $('done-dialog').classList.add('on');
 }
 $('done-close').addEventListener('click', () => $('done-dialog').classList.remove('on'));
+// 点背板 = 什么都不做（关掉就完了）；Esc 走全局那套
+$('done-dialog').addEventListener('click', e => {
+  if (e.target === $('done-dialog')) $('done-dialog').classList.remove('on');
+});
 function downloadsHtml(downloads, hint) {
   const list = (downloads || []).filter(Boolean);
   if (!list.length) return '';
@@ -2082,7 +2086,7 @@ $('add-op').addEventListener('click', async () => {
 $('pdf').addEventListener('click',()=>{
   const files=targetFiles();
   if (!files.length) { log('先导入需要转换的文档','err'); return; }
-  $('pdf-summary').textContent='将处理当前 '+files.length+' 份工作文档，用的是你**已经导出**的那一版文档。';
+  $('pdf-summary').textContent='将处理当前 '+files.length+' 份工作文档，用的是你已经导出的那一版文档。';
   refreshPdfChoices();
   $('pdf-dialog').classList.add('on');
 });
@@ -2138,7 +2142,7 @@ $('pdf-confirm').addEventListener('click',async()=>{
     return;
   }
   $('pdf-note').style.color = '';
-  $('pdf-note').textContent = '直接用已经生成的那份文档转换，**不会重跑方案**；原报告与那份文档都不会被动。';
+  $('pdf-note').textContent = '直接用已经生成的那份文档转换，不会重跑方案；原报告与那份文档都不会被动。';
   const names=files.map(path=>state.outputs[path][mode]);
   $('pdf-dialog').classList.remove('on');
   state.busy=true; syncWorkspace();
