@@ -33,8 +33,14 @@ class PdfError(Exception):
 
 
 def _word_prog_ids():
-    """可能的 Word/WPS COM  ProgID（按优先级）。"""
-    return [("word", "Word.Application"), ("wps", "KWPS.Application")]
+    """可能的 Word/WPS COM ProgID（按优先级）。
+
+    * ``Word.Application`` —— 装了 MS Word 是它；**WPS 设成 Word 默认打开程序时也会占这个名字**；
+    * ``KWPS.Application`` —— WPS Office 注册的名字（本机实测 12.0 就是它）；
+    * ``WPS.Application``  —— 另一些 WPS 版本/个人版注册的名字（多写一个候选，代价为零）。
+    """
+    return [("word", "Word.Application"), ("wps", "KWPS.Application"),
+            ("wps", "WPS.Application")]
 
 
 def _in_com_thread(func, timeout=60):
@@ -104,9 +110,11 @@ def detect_renderers():
             version = _probe_com_renderer(prog_id)
         except Exception as exc:                  # noqa: BLE001 - 探测失败就是没有
             found.append({"name": name, "kind": "com", "available": False,
+                          "prog_id": prog_id,
                           "detail": u"%s 起不来：%s" % (prog_id, exc)})
             continue
         found.append({"name": name, "kind": "com", "available": True,
+                      "prog_id": prog_id,
                       "detail": u"%s（版本 %s）" % (prog_id, version)})
     soffice = shutil.which("soffice") or shutil.which("soffice.bin")
     found.append({"name": "libreoffice", "kind": "cli",
@@ -131,7 +139,8 @@ def plan(docx_path, out_pdf, prefer=None):
                            % (prefer, u"、".join(item["name"] for item in renderers)))
     chosen = chosen or renderers[0]
     return {"file": docx_path, "out": os.path.abspath(out_pdf),
-            "renderer": chosen["name"], "kind": chosen["kind"], "detail": chosen["detail"],
+            "renderer": chosen["name"], "kind": chosen["kind"],
+            "prog_id": chosen.get("prog_id"), "detail": chosen["detail"],
             "command": _describe(chosen, docx_path, out_pdf)}
 
 
@@ -199,7 +208,10 @@ def _export_with_com(plan_info, timeout, visible):
         except Exception:
             pass
         try:
-            prog_id = dict((name, prog) for name, prog in _word_prog_ids())[plan_info["renderer"]]
+            # **用探测时那个 ProgID**（不是按名字回查）—— `_word_prog_ids()` 里
+            # "wps" 有两个候选（KWPS.Application / WPS.Application），按名字回查会
+            # 拿到最后一个、把能用的那个覆盖掉（2026-10-08 加候选时踩到）。
+            prog_id = plan_info.get("prog_id") or plan_info["renderer"]
             app = win32com.client.Dispatch(prog_id)
             app.Visible = bool(visible)
             # **必须给绝对路径**：Word 的 COM 会话有自己的工作目录（实测解析成

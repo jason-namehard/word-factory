@@ -33,18 +33,53 @@ def app_dir():
     return SOURCE_ROOT
 
 
+#: 记着这次进程用的是哪个数据目录（打包版可能"exe 旁边写不进 → 退回用户目录"）
+_chosen_data_dir = None
+
+
+def _writable(path):
+    """这个目录能不能写（不存在就顺手建）。写不进去 = U 盘写保护 / 装在了 Program Files。"""
+    try:
+        if not os.path.isdir(path):
+            os.makedirs(path)
+        probe = os.path.join(path, u".wf-write-test")
+        with open(probe, "wb") as handle:
+            handle.write(b"x")
+        os.remove(probe)
+        return True
+    except OSError:
+        return False
+
+
 def data_dir():
-    """用户数据根目录（规则、方案、临时文件都放这儿）。"""
-    if is_frozen():
-        path = os.path.join(app_dir(), DATA_DIR_NAME)
-    else:
+    """用户数据根目录（规则、方案、临时文件都放这儿）。
+
+    打包版优先放**exe 旁边**（跟着 U 盘走，换机器不用重配）；**写不进去就退回
+    ``%LOCALAPPDATA%\\word工厂``** —— 用户 2026-10-08 要的是"拷到 U 盘谁都能用"，
+    真碰上写保护的 U 盘、或装在 Program Files 里，宁可规则落用户目录，
+    也不能整个程序起不来（写不进去时 `*_dir()` 全是空目录/异常）。
+    """
+    global _chosen_data_dir
+    if not is_frozen():
         path = SOURCE_ROOT
+    else:
+        path = _chosen_data_dir or os.path.join(app_dir(), DATA_DIR_NAME)
+        if not _writable(path):
+            base = os.environ.get("LOCALAPPDATA") or os.path.expanduser(u"~")
+            path = os.path.join(base, u"word工厂", DATA_DIR_NAME)
+            _writable(path)
+        _chosen_data_dir = path
     if not os.path.isdir(path):
         try:
             os.makedirs(path)
         except OSError:
             pass
     return path
+
+
+def data_dir_is_portable():
+    """数据目录是不是就在程序旁边（打包版的正常情形）。"""
+    return (not is_frozen()) or (data_dir() == os.path.join(app_dir(), DATA_DIR_NAME))
 
 
 def rules_dir():

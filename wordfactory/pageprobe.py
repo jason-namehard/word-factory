@@ -89,7 +89,7 @@ def probe(path, blocks=60, renderer=None, timeout=180, block_starts=None):
         ours = False
         try:
             prog_ids = ([renderer] if renderer else
-                        [u"Word.Application", u"KWPS.Application"])
+                        [u"Word.Application", u"KWPS.Application", u"WPS.Application"])
             app = None
             errors = []
             for prog_id in prog_ids:

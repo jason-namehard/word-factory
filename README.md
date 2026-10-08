@@ -476,6 +476,31 @@ python -m venv .buildenv && .buildenv\Scripts\python.exe -m pip install pywebvie
   依赖 Word/WPS 的功能（真实页码、导 PDF）在**目标机器上也得装 Office/WPS**，其余纯 XML 功能不需要；
 * 窗口关掉 = 进程退出；页面上的「退出」按钮走 `/api/shutdown`，窗口会自动跟着关（`desktop.py` 里盯着）。
 
+### 拷到别的电脑还能用吗（2026-10-08 用户问的，逐条实测）
+
+**结论：装了 Word 或 WPS 的 Windows 10/11 机器，拷过去就能用；不装 Office 也能用，只是少了"真实页码"和"导出 PDF"两项。**
+
+| 依赖 | 谁提供 | 没有会怎样 |
+|---|---|---|
+| Python / pywin32 / pywebview | **exe 里自带**（PyInstaller 打进去了） | —— |
+| Edge WebView2 运行时 | 系统自带（Win10 1803+ / Win11） | 窗口起不来 → **自动退回浏览器**打开同一个界面（不报错了事） |
+| **Word 或 WPS** | 目标机器上装的 | 「读真实页码」退回**估算口径**（空白页判定变弱）；「导出 PDF」报"本机没有可用的渲染器"。其余纯 XML 功能照样跑 |
+| 可写的目录 | U 盘 / 硬盘 | exe 旁边写不进（写保护 U 盘、装在 `Program Files`）→ 数据自动落 `%LOCALAPPDATA%\word工厂\`（`paths._writable`） |
+
+实测（本机，客户端是 **64 位** Python/exe）：
+
+* **Word 64 位**（Office16）与 **WPS 32 位**（KWPS 12.0）都能读真实页码 —— 各 31 页、逐块页码一致。
+  **跨位数没问题**：`Word.Application` / `KWPS.Application` 是**进程外** COM 服务器，
+  64 位客户端照样驱动 32 位 WPS（进程内的 DLL 服务器才卡位数）。
+* PDF 导出两种渲染器都通：WPS 4~6 秒 / Word 7~12 秒，同一份 27 页。
+* ProgID 三个候选都试：`Word.Application` → `KWPS.Application` → `WPS.Application`
+  （`WPS.Application` 本机没有，但别的 WPS 版本会注册它）。
+  ⚠️ 这里踩过：两个候选**同名**（都叫 `wps`）时，按名字回查 ProgID 会拿到最后一个、
+  把能用的那个覆盖掉 —— 现在 `plan()` 直接把探测到的 `prog_id` 带下去用。
+
+其余注意：exe **没有数字签名**，360/杀软可能拦一次（放行即可）；文件在 U 盘上打开时
+若被安全策略划进"受保护视图"，Word/WPS 可能拒绝自动化 —— 那是 Office 的策略，不是工具的问题。
+
 **源码/命令行仍在**（引擎 + REST + 静态页三层没动，桌面窗口只是最外面那层壳）：
 
 ```bash

@@ -59,6 +59,27 @@ def run_window(server, url, title=u"word工厂"):
     return window
 
 
+def _browser_fallback(url, thread):
+    """原生窗口起不来时的退路：**用浏览器打开同一个界面**（功能一样，只是不像桌面软件）。
+
+    什么时候会走到这儿：目标机器上**没有 Edge WebView2 运行时**（老系统、或被精简过的系统）、
+    或者 pywebview 没装。用户要的是"拷到别的电脑双击就能用"，所以**宁可退回浏览器，
+    也不能只弹一句"启动失败"就完事**（2026-10-08 补）。
+    """
+    import webbrowser
+    try:
+        webbrowser.open(url)
+        print(u"（原生窗口起不来，已改用浏览器打开：%s）" % url)
+    except Exception as exc:                   # noqa: BLE001
+        print(u"打开浏览器也失败了：%s" % exc)
+    try:
+        while thread.is_alive():
+            time.sleep(0.3)
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
 def main(argv=None):
     from . import paths
     from .gui import server as gui_server
@@ -75,20 +96,10 @@ def main(argv=None):
     try:
         run_window(server, url)
         return 0
-    except ImportError:
-        # 没装 pywebview：退回"浏览器"，功能一样（源码运行时常见）
-        import webbrowser
-        print(u"（没装 pywebview，改用浏览器打开：%s）" % url)
-        try:
-            webbrowser.open(url)
-        except Exception:                  # noqa: BLE001
-            pass
-        try:
-            while thread.is_alive():
-                time.sleep(0.3)
-        except KeyboardInterrupt:
-            pass
-        return 0
+    except (ImportError, OSError, RuntimeError, AttributeError) as exc:
+        # 没装 pywebview / 没有 WebView2 / 窗口起不来 —— 退回浏览器，保证"还能用"
+        print(u"（原生窗口没起来：%s）" % exc)
+        return _browser_fallback(url, thread)
     except Exception as exc:               # noqa: BLE001 - 窗口里要给人话
         print(u"\n启动失败：%s" % exc)
         return 1

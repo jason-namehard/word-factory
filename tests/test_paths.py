@@ -9,6 +9,7 @@
 import json
 import os
 import shutil
+import sys
 import tempfile
 import unittest
 
@@ -70,20 +71,62 @@ class EnsureDefaultsCase(unittest.TestCase):
 
 
 class FrozenPathsCase(unittest.TestCase):
+    """打包版（exe）路径口径。
+
+    ⚠️ 2026-10-08 修：原来这个测试拿 ``C:\\Tools`` 当"exe 所在目录"，
+    跑一次就在 **C 盘根上真建** ``C:\\Tools\\word工厂数据``（改工作区外留垃圾）。
+    现在改成临时目录 —— 测试不许有这种副作用。
+    """
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="wf_frozen_")
+        self.exe_dir = os.path.join(self.dir, u"程序")
+        os.makedirs(self.exe_dir)
+        self.original_frozen = paths.is_frozen
+        self.original_exec = sys.executable
+        self.original_chosen = paths._chosen_data_dir
+        paths._chosen_data_dir = None
+        paths.is_frozen = lambda: True
+        sys.executable = os.path.join(self.exe_dir, u"word工厂.exe")
+
+    def tearDown(self):
+        paths.is_frozen = self.original_frozen
+        sys.executable = self.original_exec
+        paths._chosen_data_dir = self.original_chosen
+        shutil.rmtree(self.dir, ignore_errors=True)
+
     def test_frozen_app_uses_the_folder_next_to_the_exe(self):
-        original_frozen = paths.is_frozen
-        original_exec = None
-        import sys
-        original_exec = sys.executable
+        self.assertEqual(paths.app_dir(), self.exe_dir)
+        self.assertEqual(paths.data_dir(), os.path.join(self.exe_dir, u"word工厂数据"))
+        self.assertEqual(paths.temp_dir(),
+                         os.path.join(self.exe_dir, u"word工厂数据", u"临时文件"))
+        self.assertTrue(paths.data_dir_is_portable())
+
+    def test_unwritable_exe_folder_falls_back_to_localappdata(self):
+        """U 盘写保护 / 装在 Program Files → 数据落 %LOCALAPPDATA%，别让程序起不来。"""
+        blocker = os.path.join(self.dir, u"只读位置")
+        with open(blocker, "w", encoding="utf-8") as handle:      # 拿"文件"当目录用
+            handle.write(u"x")
+        sys.executable = os.path.join(blocker, u"子目录", u"word工厂.exe")
+        fallback = os.path.join(self.dir, u"localappdata")
+        original_env = os.environ.get("LOCALAPPDATA")
+        os.environ["LOCALAPPDATA"] = fallback
+        paths._chosen_data_dir = None
         try:
-            paths.is_frozen = lambda: True
-            sys.executable = os.path.join(u"C:\Tools", u"word工厂.exe")
-            self.assertEqual(paths.app_dir(), u"C:\Tools", )
-            self.assertEqual(paths.data_dir(), os.path.join(u"C:\Tools", u"word工厂数据"))
-            self.assertEqual(paths.temp_dir(), os.path.join(u"C:\Tools", u"word工厂数据", u"临时文件"))
+            self.assertFalse(paths._writable(os.path.join(blocker, u"子目录", u"word工厂数据")))
+            data = paths.data_dir()
+            self.assertEqual(data, os.path.join(fallback, u"word工厂", u"word工厂数据"))
+            self.assertFalse(paths.data_dir_is_portable(), u"已经不在程序旁边了")
         finally:
-            paths.is_frozen = original_frozen
-            sys.executable = original_exec
+            if original_env is None:
+                os.environ.pop("LOCALAPPDATA", None)
+            else:
+                os.environ["LOCALAPPDATA"] = original_env
+
+    def test_writable_check_is_true_for_a_normal_folder(self):
+        self.assertTrue(paths._writable(os.path.join(self.dir, u"能写")))
+        self.assertFalse(os.path.exists(os.path.join(self.dir, u"能写", u".wf-write-test")),
+                         u"探针文件用完要删掉，别留垃圾")
 
 
 if __name__ == "__main__":

@@ -59,3 +59,29 @@ class TestDesktopGlue(unittest.TestCase):
 
     def test_desktop_main_exists(self):
         self.assertTrue(callable(desktop.main))
+
+    def test_window_failure_falls_back_to_the_browser(self):
+        """目标机器上没有 WebView2 / pywebview 起不来 → **退回浏览器**，不能只报"启动失败"。
+
+        用户 2026-10-08 要"拷到别的电脑谁都能用" —— 窗口起不来也得能用。
+        """
+        called = {}
+        original_window = desktop.run_window
+        original_fallback = desktop._browser_fallback
+
+        def boom(*args, **kwargs):
+            raise RuntimeError(u"没有 WebView2")
+
+        def fake_fallback(url, thread):
+            called["url"] = url
+            return 0
+
+        desktop.run_window = boom
+        desktop._browser_fallback = fake_fallback
+        try:
+            code = desktop.main()
+        finally:
+            desktop.run_window = original_window
+            desktop._browser_fallback = original_fallback
+        self.assertEqual(code, 0, u"退回浏览器算正常启动")
+        self.assertTrue(called.get("url", "").startswith("http://127.0.0.1:"))
