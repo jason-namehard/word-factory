@@ -147,7 +147,8 @@ def probe(path, blocks=60, renderer=None, timeout=60, block_starts=None, force=F
         target = temp_path or path
         for candidate in candidates:
             try:
-                result = officecom.run(make_read(target), [candidate], timeout=timeout)
+                result = officecom.run(make_read(target), [candidate], timeout=timeout,
+                                       stats=officecom.new_stats())
             except officecom.OfficeError as error:
                 errors.append(u"%s: %s" % (candidate, error))
                 continue

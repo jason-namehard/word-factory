@@ -39,6 +39,8 @@
 对外接口：``Session(prog_id) / .open(path) / .close()`` 和 ``run(callback, prog_ids, timeout)``。
 """
 
+import collections
+import io
 import os
 import threading
 import time
@@ -54,11 +56,16 @@ _LOCK = threading.RLock()
 _OFFICE_EXES = frozenset((u"winword.exe", u"wps.exe", u"et.exe", u"wpp.exe",
                           u"wpspdf.exe", u"excel.exe"))
 
-#: 本次会话"期望的映像名"：起 Word 就只认 winword.exe，起 WPS 就只认 wps.exe。
+#: 本次会话"**允许的映像名**"：起某个 ProgID 时，产品上可能落到哪个可执行文件。
+#:
+#: 为什么是**集合**而不是单个名字：WPS 被设为"Word 默认打开程序"的那些机器上，
+#: `Word.Application` 实际起出来的是 `wps.exe`（`ops/pdf.py` 的注释里也记着这条）。
+#: 早先写成单个 `winword.exe` 就会把自家实例锁在门外 → 清不掉 → 残留重新堆积 →
+#: 又走回"卡 60 秒 + 页码全错"。
 _EXPECTED_IMAGE = {
-    u"Word.Application": u"winword.exe",
-    u"KWPS.Application": u"wps.exe",
-    u"WPS.Application": u"wps.exe",
+    u"Word.Application": frozenset((u"winword.exe", u"wps.exe")),
+    u"KWPS.Application": frozenset((u"wps.exe",)),
+    u"WPS.Application": frozenset((u"wps.exe",)),
 }
 
 #: 关进程前的三道闸 + "没有可见窗口"，逐条写清楚（出问题时要能对着日志说出为什么放过/为什么杀）
@@ -181,9 +188,11 @@ def _gate_reason(pid, prog_id, started_at, expected_dir):
         return u"读不到映像名（多半是系统/受保护进程）"
     if name not in _OFFICE_EXES:
         return u"映像名 %s 不在白名单" % name
-    expected_name = _EXPECTED_IMAGE.get(prog_id)
-    if expected_name and name != expected_name:
-        return u"映像名 %s 与本次启动的 %s 不符" % (name, expected_name)
+    allowed = _EXPECTED_IMAGE.get(prog_id)
+    if not allowed:
+        return u"程序名 %s 没有配「允许的映像名」（宁可不杀）" % prog_id
+    if name not in allowed:
+        return u"映像名 %s 不在本次允许的集合（%s）里" % (name, u"/".join(sorted(allowed)))
     if not path:
         return u"读不到完整路径"
     if not expected_dir:
@@ -199,18 +208,23 @@ def _gate_reason(pid, prog_id, started_at, expected_dir):
     return None
 
 
-def _verified_pids(candidates, prog_id, started_at):
+def _verified_pids(candidates, prog_id, started_at, expected_dir=None):
     """从候选里挑出**全过闸**的 pid；返回 ``(verified, expected_dir, skipped)``。
 
-    ``candidates`` **只允许**是 DispatchEx 前后 diff 出来的集合。
+    ``candidates`` **只允许**是 DispatchEx 前后 diff（或 ``close()`` 里那个窄窗口 diff）
+    出来的集合，**永远不许**是"全机进程"或"从端口/名字反查"来的东西。
+
+    ``expected_dir``：给了就直接用（**窄窗口清理必须复用本次会话定好的那个** ——
+    窄窗口候选里通常没有主进程，重新推算只会得到空目录，于是又变成一次静默全跳过）。
     """
-    expected_name = _EXPECTED_IMAGE.get(prog_id)
-    expected_dir = u""
-    for pid in sorted(candidates):
-        name, path, _created = _process_info(pid)
-        if name == expected_name and path:
-            expected_dir = os.path.dirname(os.path.normcase(path))
-            break
+    allowed = _EXPECTED_IMAGE.get(prog_id) or frozenset()
+    if expected_dir is None:
+        expected_dir = u""
+        for pid in sorted(candidates):
+            name, path, _created = _process_info(pid)
+            if name in allowed and path:
+                expected_dir = os.path.dirname(os.path.normcase(path))
+                break
     verified = set()
     skipped = []
     for pid in sorted(candidates):
@@ -222,26 +236,34 @@ def _verified_pids(candidates, prog_id, started_at):
     return verified, expected_dir, skipped
 
 
-def _terminate(pid, prog_id, started_at, expected_dir):
-    """结束**已经验证过**的 pid。杀之前**再核一遍**三道闸，并打印详情供人工核对。"""
+def _terminate(pid, prog_id, started_at, expected_dir, stats=None):
+    """结束**已经验证过**的 pid。杀之前**再核一遍**三道闸，并把详情落到 cleanup.log。
+
+    落盘而不是只 print：桌面版是 ``console=False``，`sys.stdout is None` 时 CPython 把 print
+    静默丢掉 —— 承诺的"打印详情供人工核对"在 exe 里等于没做（2026-10-09 用户指出）。
+    """
     from . import subproc
     reason = _gate_reason(pid, prog_id, started_at, expected_dir)
     if reason:
-        print(u"[word工厂] 清理跳过 pid=%s：%s" % (pid, reason))
+        _log_cleanup(u"清理跳过 pid=%s：%s" % (pid, reason))
+        _record(stats, "skipped", {"pid": pid, "reason": reason})
         return False
     name, path, created = _process_info(pid)
-    print(u"[word工厂] 结束自己起的 Office 进程：pid=%s 映像=%s 路径=%s 创建时间=%s"
-          % (pid, name, path, time.strftime(u"%Y-%m-%d %H:%M:%S", time.localtime(created))))
+    _log_cleanup(u"结束自己起的 Office 进程：pid=%s 映像=%s 路径=%s 创建时间=%s"
+                 % (pid, name, path,
+                    time.strftime(u"%Y-%m-%d %H:%M:%S", time.localtime(created))))
     try:
-        # 走 subproc：exe（无控制台）里裸 subprocess 起 taskkill 会弹一个终端窗口
+        # 走 subproc：exe（无控制台）里裸 subprocess 起 taskkill 会弹一个终端窗口。
+        # **绝不加 /T**：连子孙整棵树一起杀，就是 2026-10-09 事故端掉会话宿主的方式。
         subproc.run(["taskkill", "/PID", str(int(pid)), "/F"],
                     capture_output=True, timeout=30)
     except Exception:                          # noqa: BLE001 - 收尾失败不该再抛
         return False
+    _record(stats, "killed", {"pid": pid, "image": name, "path": path, "created": created})
     return True
 
 
-def kill_registered(registry):
+def kill_registered(registry, stats=None):
     """结束登记表里**仍然全过闸**的进程（超时兜底的唯一入口）；返回被杀 pid 列表。
 
     ``registry``：``{pid: (prog_id, started_at, expected_dir)}`` —— **按轮**存在，
@@ -249,10 +271,63 @@ def kill_registered(registry):
     """
     killed = []
     for pid, context in sorted(registry.items()):
-        if _terminate(pid, *context):
+        if _terminate(pid, context[0], context[1], context[2], stats):
             killed.append(pid)
     registry.clear()
     return killed
+
+
+# --------------------------------------------------------------------------- 统计与审计
+def new_stats():
+    """一轮的统计盒子：起了几个 Office 实例、清掉几个、跳过几个（带原因）。"""
+    return {"sessions": 0, "killed": [], "skipped": []}
+
+
+def _record(stats, key, item):
+    if stats is not None:
+        stats.setdefault(key, []).append(item)
+
+
+def cleanup_log_path():
+    """清理审计日志（数据目录下的 ``cleanup.log``）；拿不到返回 None。"""
+    try:
+        from . import paths
+        return os.path.join(paths.data_dir(), u"cleanup.log")
+    except Exception:                          # noqa: BLE001
+        return None
+
+
+def _log_cleanup(line):
+    """一条清理记录：**同时**打 stdout 与写 cleanup.log（exe 里 print 没人看得见）。"""
+    text = u"%s [word工厂] %s" % (time.strftime(u"%Y-%m-%d %H:%M:%S"), line)
+    print(text)
+    path = cleanup_log_path()
+    if not path:
+        return
+    try:
+        with io.open(path, "a", encoding="utf-8") as handle:
+            handle.write(text + u"\n")
+    except OSError:
+        pass                                   # 日志写不进去也绝不打断主流程
+
+
+def format_stats(stats):
+    """一行统计（给界面/日志用）：起了几个、清掉几个、跳过几个、跳过什么原因。"""
+    if not stats:
+        return u""
+    killed = stats.get("killed") or []
+    skipped = stats.get("skipped") or []
+    counted = collections.Counter(item.get("reason", u"") for item in skipped)
+    line = u"Office 实例：起 %d 个 · 清掉 %d 个 · 跳过 %d 个" % (
+        stats.get("sessions", 0), len(killed), len(skipped))
+    if counted:
+        line += u"（跳过原因：%s）" % u"、".join(
+            u"%s×%d" % (reason, count) for reason, count in counted.most_common())
+    if killed:
+        line += u"；清掉：%s" % u"、".join(
+            u"pid %s %s" % (item.get("pid"), item.get("image")) for item in killed)
+    return line
+
 
 
 def _create_app(prog_id):
@@ -264,37 +339,87 @@ def _create_app(prog_id):
 class Session:
     """一个私有 Office 实例的生命周期。用 ``with`` 或者记得 ``close()``。"""
 
-    def __init__(self, prog_id, registry=None):
+    def __init__(self, prog_id, registry=None, stats=None):
         self.prog_id = prog_id
         self.started_at = time.time()
         self.registry = registry if registry is not None else {}
+        self.stats = stats
         self.expected_dir = u""
         self.pids = set()                      # **只装"三道闸全过"的 pid**
         self.cleanup_log = []
         self._killed = set()
         self.documents = []
+        if stats is not None:
+            stats["sessions"] = int(stats.get("sessions") or 0) + 1
         before = _process_ids()
         if before is None:
             self.cleanup_log.append(u"起会话时拿不到进程快照 → 本轮不做任何清理")
         try:
             self.app = _create_app(prog_id)
-            after = _process_ids()
-            if before is not None and after is not None:
-                verified, expected_dir, skipped = _verified_pids(
-                    after - before, prog_id, self.started_at)
-                self.pids = verified
-                self.expected_dir = expected_dir
-                for pid in verified:
-                    self.registry[pid] = (prog_id, self.started_at, expected_dir)
-                for pid, reason in skipped:
-                    self.cleanup_log.append(u"不处理 pid=%s：%s" % (pid, reason))
-            elif before is not None:
-                self.cleanup_log.append(u"起完拿不到进程快照 → 本轮不做任何清理")
+            self._collect(before, u"起实例后的差集")
             self._configure_private()
             self._health_check()
         except Exception:
-            self._kill_verified()              # 起坏了也别留残留（同样三道闸）
+            # **起实例这一步自己炸了也要收干净**：DispatchEx 可能已经把进程拉起来才抛的，
+            # 那一拨不在上面的名单里（2026-10-09 用户指出的盲区）→ 再拍一次快照补收。
+            self._collect(before, u"起实例报错后补收")
+            self._kill_verified()
             raise
+
+    # ------------------------------------------------------------------ 收自己人
+    def _collect(self, before, why):
+        """把 ``before`` 到现在这段时间里**新出现、且全过三道闸**的 pid 收进名单。"""
+        if before is None:
+            return
+        after = _process_ids()
+        if after is None:
+            self.cleanup_log.append(u"%s：拿不到进程快照 → 不做任何清理" % why)
+            return
+        verified, expected_dir, skipped = _verified_pids(
+            after - before, self.prog_id, self.started_at,
+            expected_dir=(self.expected_dir or None))
+        self.pids |= verified
+        if expected_dir:
+            self.expected_dir = expected_dir
+        for pid in verified:
+            self.registry[pid] = (self.prog_id, self.started_at, self.expected_dir)
+        for pid, reason in skipped:
+            self.cleanup_log.append(u"不处理 pid=%s：%s" % (pid, reason))
+            _record(self.stats, "skipped", {"pid": pid, "reason": reason})
+
+    def _collect_late_strays(self, before_quit):
+        """**窄窗口 diff**：``Quit`` 前后这一个小窗口里新冒出来的 pid 里找候选。
+
+        为什么需要它：WPS 有时"慢半拍"再起一个子孙进程，起会话那一刻的 diff 抓不到，
+        它就会变成清不掉的残留（长期又走回"越攒越慢"）。**绝不恢复全机差集**：
+        窗口只从"Quit 之前"到"Quit + 等待之后"，候选照样要过全部闸门。
+
+        ⚠️ **``expected_dir`` 一律复用本次会话定好的那个**，绝不在窄窗口候选里重推 ——
+        候选里通常没有主进程，重推只会得到空目录，于是又变成一次静默全跳过。
+        ``expected_dir`` 为空时**直接放弃**这次清理（不退化成"无目录校验"）。
+        """
+        if not self.expected_dir:
+            self.cleanup_log.append(u"期望目录未知 → 放弃窄窗口清理（宁可不杀）")
+            return
+        if before_quit is None:
+            self.cleanup_log.append(u"Quit 前拿不到进程快照 → 放弃窄窗口清理")
+            return
+        after = _process_ids()
+        if after is None:
+            self.cleanup_log.append(u"Quit 后拿不到进程快照 → 放弃窄窗口清理")
+            return
+        verified, _expected, skipped = _verified_pids(
+            after - before_quit, self.prog_id, self.started_at,
+            expected_dir=self.expected_dir)
+        for pid, reason in skipped:
+            self.cleanup_log.append(u"窄窗口不处理 pid=%s：%s" % (pid, reason))
+            _record(self.stats, "skipped", {"pid": pid, "reason": reason})
+        for pid in sorted(verified):
+            self.cleanup_log.append(u"窄窗口抓到慢半拍的自家进程 pid=%s" % pid)
+            self.pids.add(pid)
+            self.registry[pid] = (self.prog_id, self.started_at, self.expected_dir)
+        if verified:
+            self._kill_verified()
 
     # ------------------------------------------------------------------ 配置
     def _configure_private(self):
@@ -341,7 +466,8 @@ class Session:
             if pid in self._killed:
                 continue
             self._killed.add(pid)
-            if _terminate(pid, self.prog_id, self.started_at, self.expected_dir):
+            if _terminate(pid, self.prog_id, self.started_at, self.expected_dir,
+                          self.stats):
                 self.registry.pop(pid, None)
         self.pids = set()
 
@@ -358,7 +484,8 @@ class Session:
     def close(self):
         """关掉我们打开的文档 → ``Quit`` 我们起的实例 → **确认它真没了**。
 
-        清理**只**处理 :attr:`pids` 里那些"diff 出来且三道闸全过"的 pid。
+        清理**只**处理 :attr:`pids` 里那些"diff 出来且三道闸全过"的 pid，外加一次
+        **窄窗口 diff**（``Quit`` 前后）抓"慢半拍的子孙"（见 :meth:`_collect_late_strays`）。
         这里**没有**任何"扫全机新进程"的兜底 —— 那种兜底会误伤系统进程（2026-10-09 事故）。
         """
         for document in reversed(self.documents):
@@ -367,12 +494,14 @@ class Session:
             except Exception:                # noqa: BLE001
                 pass
         self.documents = []
+        before_quit = _process_ids()         # 窄窗口的左边界（此刻还没 Quit）
         try:
             self.app.Quit(0)
         except Exception:                    # noqa: BLE001
             pass
         self._wait_gone(QUIT_GRACE)
         self._kill_verified()
+        self._collect_late_strays(before_quit)
 
     def __enter__(self):
         return self
@@ -382,7 +511,7 @@ class Session:
         return False
 
 
-def run(callback, prog_ids, timeout=DEFAULT_TIMEOUT, per_candidate=None):
+def run(callback, prog_ids, timeout=DEFAULT_TIMEOUT, per_candidate=None, stats=None):
     """串行地用 Office 干一件事：依次试每个 ProgID，失败换下一个，错误原样带出来。
 
     ``callback(session)`` 里想干什么都行（读页码、导 PDF）。预算有两层：
@@ -393,12 +522,19 @@ def run(callback, prog_ids, timeout=DEFAULT_TIMEOUT, per_candidate=None):
 
     超时兜底：结束**本**轮登记表里、仍全过三道闸的进程（进程一死，卡住的调用立刻以
     RPC 错误返回）。登记表只在这一轮里存在，用完即清。
+
+    ``stats``：给了就往里累计“起了几个实例 / 清掉几个 / 跳过几个（什么原因）”，
+    并在收尾时把这一行写进 cleanup.log —— 残留要能在发生的**那一次**就暴露。
     """
     prog_ids = list(prog_ids)
     if per_candidate is None:
         per_candidate = max(15.0, float(timeout) / max(1, len(prog_ids)))
     result = {}
     registry = {}                          # **按轮**的登记表：{pid: (prog_id, started_at, dir)}
+    if stats is not None:
+        stats.setdefault("sessions", 0)
+        stats.setdefault("killed", [])
+        stats.setdefault("skipped", [])
 
     def attempt(prog_id, budget):
         """试一个候选；返回 (成功?, 错误文本)。"""
@@ -412,7 +548,7 @@ def run(callback, prog_ids, timeout=DEFAULT_TIMEOUT, per_candidate=None):
                 pythoncom.CoInitialize()     # COM 必须在自己这个线程里初始化
                 initialized = True
                 with _LOCK:                  # 锁只保护"起会话"那一小段，干活时不占锁
-                    session = Session(prog_id, registry)
+                    session = Session(prog_id, registry, stats)
                 box["value"] = callback(session)
             except Exception as error:       # noqa: BLE001 - 换下一个候选
                 box["error"] = u"%s: %s: %s" % (prog_id, type(error).__name__, error)
@@ -433,7 +569,7 @@ def run(callback, prog_ids, timeout=DEFAULT_TIMEOUT, per_candidate=None):
         thread.start()
         thread.join(budget)
         if thread.is_alive():
-            killed = kill_registered(registry)     # 只动登记表里全过闸的那些
+            killed = kill_registered(registry, stats)   # 只动登记表里全过闸的那些
             return False, u"%s: 超过 %.0f 秒没完成（已结束自己起的实例 %s）" % (
                 prog_id, budget, killed or u"（无）")
         if "error" in box:
@@ -458,3 +594,6 @@ def run(callback, prog_ids, timeout=DEFAULT_TIMEOUT, per_candidate=None):
         raise OfficeError(u"；".join(errors))
     finally:
         registry.clear()                     # 登记表不跨轮存活
+        summary = format_stats(stats)         # 一行统计：起几个 / 清几个 / 跳几个+原因
+        if summary:
+            _log_cleanup(summary)

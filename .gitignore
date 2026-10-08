@@ -25,3 +25,6 @@ dist/
 dist_onefile/
 .buildenv/
 *.spec.bak
+
+# 清理审计日志（源码运行时落在项目根；exe 运行时落在「word工厂数据」里）
+cleanup.log

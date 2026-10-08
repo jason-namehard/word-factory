@@ -184,6 +184,9 @@ def _export_with_com(plan_info, timeout, visible):
     # 换成"外链改指向本地空文件"的**临时副本**再转（版式一样，图是缓存数据画的），用完即删。
     temp_path = doclinks.neutralized_copy(plan_info['file'])
     target = temp_path or plan_info['file']
+    # 一轮的 Office 会话统计：起了几个实例 / 清掉几个 / 跳过几个（什么原因）。
+    # 不只为好看 —— "残留"要能在**发生的那一次**就暴露，而不是等下次卡 60 秒才发现。
+    stats = officecom.new_stats()
 
     def convert(session):
         document = session.open(target)
@@ -196,11 +199,14 @@ def _export_with_com(plan_info, timeout, visible):
                 'links_neutralized': bool(temp_path)}
 
     try:
-        return officecom.run(convert, candidates, timeout=timeout)
+        result = officecom.run(convert, candidates, timeout=timeout, stats=stats)
     except officecom.OfficeError as error:
+        # 失败时统计行由 officecom.run 的收尾写进 cleanup.log，这里只把原因抛出去
         raise PdfError(u'PDF 导出失败：%s' % error) from error
     finally:
         doclinks.discard(temp_path)
+    result['office_stats'] = officecom.format_stats(stats)
+    return result
 
 
 def _export_with_soffice(plan_info, timeout):

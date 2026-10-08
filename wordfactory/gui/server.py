@@ -543,9 +543,14 @@ class Handler(BaseHTTPRequestHandler):
                        'edition': edition, 'mode': mode, 'from_existing': True,
                        'bytes': os.path.getsize(out)})
         download = allow_download(out)
-        text = (u'已把%s文档直接转成 PDF（**没有重跑方案**）：\n%s\n\n'
+        text = (u'已把%s文档直接转成 PDF（没有重跑方案）：\n%s\n\n'
                 u'原报告与此前的 %s 文档都没被动。'
                 % (edition, pdf_op.format_report(report), edition))
+        # 一行 Office 收尾统计（用户 2026-10-09 要的）：起了几个实例 / 清掉几个 / 跳过几个+原因。
+        # 残留要能在**发生的那一次**就暴露，而不是等下次卡 60 秒才发现。
+        office_stats = report.get('office_stats')
+        if office_stats:
+            text += u'\n\n' + office_stats
         self._json({'ok': True, 'report': report, 'download': download, 'text': text})
 
     def _pdf(self):

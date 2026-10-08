@@ -39,8 +39,21 @@
 ### 落地位置（改代码时对照）
 
 * `wordfactory/officecom.py`：`_is_office_app`（严格白名单）、`_gate_reason`（三道闸）、
-  `_verified_pids`（候选只来自 diff）、`_terminate`（杀前复核 + 打印）、`kill_registered`
+  `_verified_pids`（候选只来自 diff）、`_terminate`（杀前复核 + 落日志）、`kill_registered`
   （按轮登记表，用完即清）；**没有**任何"扫全机"的兜底函数。
+* **`Session.close()` 里那次"窄窗口 diff"不算扫全机**（2026-10-09 第二轮加固）：
+  窗口只有"`Quit` 之前"到"`Quit` + 等待之后"这么一小段，候选照样要过全部闸门；
+  它存在的理由是 WPS 有时"慢半拍"再起一个子孙进程，起会话那一刻的 diff 抓不到。
+  两个死规矩：① **`expected_dir` 一律复用本次会话定下来的那个**，绝不在窄窗口候选里重推
+  （候选里通常没有主进程，重推只会得到空目录 → 静默全跳过）；② `expected_dir` 为空就**整轮放弃**。
+* **闸② 认的是"允许的映像名集合"**（`Word.Application → {winword.exe, wps.exe}`）：
+  WPS 当 Word 默认打开程序的机器上，`Word.Application` 起出来的就是 `wps.exe`，
+  写成单个名字会把自家实例锁在门外 → 清不掉 → 残留堆积（静默退化）。
+  新增候选时必须同步 `_EXPECTED_IMAGE`，`tests/test_officecom_cleanup.py` 里有测试当场钉死。
+* **清理详情落 `word工厂数据\cleanup.log`**（源码运行时落在项目根，已 gitignore）：
+  桌面版是 `console=False`，print 出去谁都看不见 —— 承诺的"打印详情供人工核对"必须落盘。
+  每轮还会记一行统计（起了几个实例 / 清掉几个 / 跳过几个+原因），导 PDF 时那行也会回给界面。
+
 * `wordfactory/subproc.py`：所有外部命令（含 `taskkill`）都走它，带 `CREATE_NO_WINDOW`
   （exe 无控制台时裸 `subprocess` 会弹终端窗口，用户 2026-10-08 报过）。
 * 单测 `tests/test_officecom.py`：钉住"读不到名字不杀 / 白名单外不杀 / 路径不符不杀 /

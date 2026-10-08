@@ -36,7 +36,9 @@ class SubprocCase(unittest.TestCase):
             return "ok"
 
         with patch.object(subprocess, "run", fake_run):
-            subproc.run(["taskkill", "/PID", "1", "/T", "/F"], capture_output=True)
+            # 样例命令里**不带 /T**：连子孙整棵树一起杀是 2026-10-09 事故端掉会话宿主的方式，
+            # 别让人照抄（这个测试只是验 subproc 有没有加 CREATE_NO_WINDOW）
+            subproc.run(["taskkill", "/PID", "1", "/F"], capture_output=True)
         self.assertEqual(calls["command"][0], "taskkill")
         self.assertTrue(calls["kwargs"].get("creationflags"),
                         u"必须带 CREATE_NO_WINDOW，否则 exe 里会闪黑窗口")

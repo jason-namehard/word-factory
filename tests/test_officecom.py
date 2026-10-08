@@ -96,10 +96,16 @@ class ProcessInfoCase(unittest.TestCase):
         self.assertIsNone(self.reason(10))
 
     def test_wrong_office_binary_for_this_session_is_skipped(self):
-        """本次起的是 Word，就不要去动 wps.exe（名字在白名单里也不能杀）。"""
-        reason = self.reason(11, prog_id=u"Word.Application", name=u"wps.exe",
-                             path=r"D:\wps\WPS Office\12.1\office6\wps.exe")
-        self.assertIn(u"不符", reason)
+        """本次起的是 **KWPS.Application**，就不要去动 winword.exe。
+
+        （闸② 从"单个映像名"改成"允许的集合"之后，正确语义是这条 —— 因为
+        `Word.Application` 在有些机器上起出来的**就是** `wps.exe`，那是自家的，
+        见 `test_word_prog_id_may_start_wps`。）
+        """
+        reason = self.reason(11, prog_id=u"KWPS.Application", name=u"winword.exe",
+                             path=WINWORD)
+        self.assertIsNotNone(reason)
+        self.assertIn(u"不在本次允许的集合", reason)
 
 
 class VerifiedCandidateCase(unittest.TestCase):
@@ -287,7 +293,7 @@ class RunCase(unittest.TestCase):
         closed = []
 
         class Session(object):
-            def __init__(self, prog_id, registry=None):
+            def __init__(self, prog_id, registry=None, stats=None):
                 self.prog_id = prog_id
 
             def close(self):
