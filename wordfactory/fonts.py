@@ -184,25 +184,27 @@ def normalize(document, rule_set=None, dry_run=False, parts=None):
                 % (part_name, sorted(document.writable_parts), list(FONT_PARTS)))
         root = document.part(part_name)
         is_main = part_name == document.package.MAIN
-        for element in root.iter():
-            if element.tag == qn("w:rFonts"):
-                # 正文的 run、段落标记（w:pPr/w:rPr）、样式定义都从这里过 —— 一处覆盖三处
-                if _normalize_rfonts(element, rule_set, font_changes, dry_run):
-                    touched.add(part_name)
-                continue
-            if not is_main or element.tag != qn("w:r"):
-                continue
-            text = "".join((node.text or "") for node in element.findall(qn("w:t")))
-            if not text:
-                continue
-            text_runs += 1
-            pr = _run_properties(element, dry_run)
-            if rule_set.black_all and _set_color(pr, BLACK, dry_run):
-                color_changes += 1
+        for element in root.iter(qn('w:rFonts')):
+            if _normalize_rfonts(element,rule_set,font_changes,dry_run):
                 touched.add(part_name)
-            if rule_set.remove_highlight and _drop_highlight(pr, dry_run):
-                highlight_removed += 1
-                touched.add(part_name)
+        missing=[]
+        text_properties=set()
+        if is_main:
+            for element in root.iter(qn('w:r')):
+                text=''.join(node.text or '' for node in element.findall(qn('w:t')))
+                if not text: continue
+                text_runs+=1
+                pr=_run_properties(element,dry_run)
+                if pr is None: missing.append(pr)
+                else: text_properties.add(id(pr))
+        # Paragraph marks and empty runs also carry character colors. Leaving
+        # them red makes formal audit fail and newly typed text inherit red.
+        for pr in list(root.iter(qn('w:rPr')))+missing:
+            needs_color = pr is None or id(pr) in text_properties or pr.find(qn('w:color')) is not None
+            if rule_set.black_all and needs_color and _set_color(pr,BLACK,dry_run):
+                color_changes+=1; touched.add(part_name)
+            if rule_set.remove_highlight and _drop_highlight(pr,dry_run):
+                highlight_removed+=1; touched.add(part_name)
     if not dry_run:
         for name in sorted(touched):
             document.mark_dirty(name)

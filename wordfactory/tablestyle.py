@@ -498,7 +498,7 @@ def _DEFAULT_STYLES_PATH():
     return paths.rules_path("tablestyle.json")
 
 
-def apply_plan(document, spec, dry_run=False, styles_path=None):
+def apply_plan(document, spec, dry_run=False, styles_path=None, styles_data=None):
     """按"表格模板"执行方案步跑 —— 支持**映射**与**通篇一致**（用户 2026-09-27 定的两条路）。
 
     ``spec``（来自执行方案的 params）：
@@ -514,7 +514,7 @@ def apply_plan(document, spec, dry_run=False, styles_path=None):
 
     映射按"先命中先用"；都没命中就用兜底。返回报告（每张表用了哪款）。
     """
-    styles = StyleSet.load(styles_path or _DEFAULT_STYLES_PATH())
+    styles = StyleSet(styles_data) if styles_data is not None else StyleSet.load(styles_path or _DEFAULT_STYLES_PATH())
     fallback_name = spec.get("style") or u"通用款·外粗内细"
     fallback = styles.styles.get(fallback_name)
     if fallback is None:

@@ -25,7 +25,7 @@ import time
 WD_EXPORT_FORMAT_PDF = 17
 WD_STATISTIC_PAGES = 2
 #: 默认超时（秒）
-DEFAULT_TIMEOUT = 300
+DEFAULT_TIMEOUT = 90
 
 
 class PdfError(Exception):
@@ -84,42 +84,24 @@ def _in_com_thread(func, timeout=60):
 
 
 def _probe_com_renderer(prog_id):
-    """探某个 ProgID 起不起来（在自己的 COM 线程里），返回版本号；起不来就抛。"""
-    def work():
-        import win32com.client
-        app = win32com.client.Dispatch(prog_id)
-        try:
-            try:
-                version = app.Version
-            except Exception:
-                version = u"?"
-            return u"%s" % version
-        finally:
-            try:
-                app.Quit()
-            except Exception:
-                pass
-    return _in_com_thread(work)
+    """Check registration without starting and quitting an Office session."""
+    import pywintypes
+    pywintypes.IID(prog_id)
+    return '已注册'
 
 
 def detect_renderers():
-    """本机有哪些渲染器可用。返回 ``[{name, kind, detail}, …]``。"""
     found = []
-    for name, prog_id in _word_prog_ids():
+    for name,prog_id in _word_prog_ids():
         try:
-            version = _probe_com_renderer(prog_id)
-        except Exception as exc:                  # noqa: BLE001 - 探测失败就是没有
-            found.append({"name": name, "kind": "com", "available": False,
-                          "prog_id": prog_id,
-                          "detail": u"%s 起不来：%s" % (prog_id, exc)})
-            continue
-        found.append({"name": name, "kind": "com", "available": True,
-                      "prog_id": prog_id,
-                      "detail": u"%s（版本 %s）" % (prog_id, version)})
-    soffice = shutil.which("soffice") or shutil.which("soffice.bin")
-    found.append({"name": "libreoffice", "kind": "cli",
-                  "available": bool(soffice),
-                  "detail": soffice or u"PATH 里没有 soffice"})
+            detail = _probe_com_renderer(prog_id)
+            available = True
+        except Exception as error:
+            detail,available = str(error),False
+        found.append({'name':name,'kind':'com','available':available,
+                      'prog_id':prog_id,'detail':detail})
+    soffice = shutil.which('soffice') or shutil.which('soffice.bin')
+    found.append({'name':'libreoffice','kind':'cli','available':bool(soffice),'detail':soffice or '未安装'})
     return found
 
 
@@ -164,6 +146,9 @@ def export(docx_path, out_pdf, prefer=None, timeout=DEFAULT_TIMEOUT, visible=Tru
     report["seconds"] = round(time.time() - started, 1)
     if not os.path.exists(plan_info["out"]):
         raise PdfError(u"渲染器说成功，但没有看到文件：%s" % plan_info["out"])
+    with open(plan_info["out"],"rb") as handle:
+        if not handle.read(5).startswith(b"%PDF-"):
+            raise PdfError("导出的文件不是有效 PDF")
     report["bytes"] = os.path.getsize(plan_info["out"])
     report["out"] = plan_info["out"]
     report["pages"] = _pdf_page_count(plan_info["out"]) or report.get("pages")
@@ -192,69 +177,23 @@ def _pdf_page_count(path):
 
 
 def _export_with_com(plan_info, timeout, visible):
-    """用 Word/WPS 的 COM 导出。"""
-    import win32com.client
+    from .. import officecom
+    first = plan_info.get('prog_id') or 'Word.Application'
+    candidates = [first] + [prog_id for _name, prog_id in _word_prog_ids() if prog_id != first]
 
-    result = {}
+    def convert(session):
+        document = session.open(plan_info['file'])
+        document.Repaginate()                    # 先重排，页数才准
+        pages = int(document.ComputeStatistics(WD_STATISTIC_PAGES))
+        document.ExportAsFixedFormat(os.path.abspath(plan_info['out']), WD_EXPORT_FORMAT_PDF)
+        actual = 'wps' if session.prog_id != 'Word.Application' else 'word'
+        return {'renderer': actual, 'prog_id': session.prog_id, 'kind': 'com',
+                'pages': pages, 'pages_pdf': pages}
 
-    def worker():
-        app = None
-        doc = None
-        try:
-            import pythoncom
-            # **COM 必须在自己的线程里初始化单元**（`CoInitialize`）—— 不调就是
-            # "尚未调用 CoInitialize"（实测踩过；上一轮 MacroToolbox 也是这个坑）。
-            pythoncom.CoInitialize()
-        except Exception:
-            pass
-        try:
-            # **用探测时那个 ProgID**（不是按名字回查）—— `_word_prog_ids()` 里
-            # "wps" 有两个候选（KWPS.Application / WPS.Application），按名字回查会
-            # 拿到最后一个、把能用的那个覆盖掉（2026-10-08 加候选时踩到）。
-            prog_id = plan_info.get("prog_id") or plan_info["renderer"]
-            app = win32com.client.Dispatch(prog_id)
-            app.Visible = bool(visible)
-            # **必须给绝对路径**：Word 的 COM 会话有自己的工作目录（实测解析成
-            # C:\Windows\system32	mp.docx → "找不到您的文件"）。
-            doc = app.Documents.Open(os.path.abspath(plan_info["file"]), ReadOnly=True)
-            try:
-                # **先重排再统计**：实测直接 ComputeStatistics 会返回 1（Word 还没分页），
-                # 而同一份文档 WPS 给的是 26 —— 真实页数 26（PDF 里 /Count 也是 26）。
-                doc.Repaginate()
-                result["pages"] = int(doc.ComputeStatistics(WD_STATISTIC_PAGES))
-            except Exception:
-                result["pages"] = None
-            doc.ExportAsFixedFormat(plan_info["out"], WD_EXPORT_FORMAT_PDF)
-        except Exception as exc:                        # noqa: BLE001 - 原样带回
-            result["error"] = u"%s: %s" % (type(exc).__name__, exc)
-        finally:
-            try:
-                if doc is not None:
-                    doc.Close(SaveChanges=False)
-            except Exception:
-                pass
-            try:
-                if app is not None:
-                    app.Quit()
-            except Exception:
-                pass
-            try:
-                import pythoncom
-                pythoncom.CoUninitialize()
-            except Exception:
-                pass
-
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
-    thread.join(timeout)
-    if thread.is_alive():
-        raise PdfError(u"导出超过 %d 秒还没结束，已放弃等待（可能有个 %s 窗口还开着，"
-                       u"请手工关掉；文档是只读打开的，不会被改）"
-                       % (timeout, plan_info["renderer"]))
-    if "error" in result:
-        raise PdfError(u"导出失败：%s" % result["error"])
-    return {"renderer": plan_info["renderer"], "kind": "com",
-            "pages": result.get("pages"), "pages_pdf": result.get("pages")}
+    try:
+        return officecom.run(convert, candidates, timeout=timeout)
+    except officecom.OfficeError as error:
+        raise PdfError(u'PDF 导出失败：%s' % error) from error
 
 
 def _export_with_soffice(plan_info, timeout):

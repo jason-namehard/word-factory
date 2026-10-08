@@ -197,3 +197,62 @@ class TestBlankPages(BreakCase):
             report = tidy_op.tidy(doc, {"block_pages": [1, 1, 1, 2]})
         self.assertEqual(report["changes"].get(u"空白页删段", 0), 0,
                          u"sdt（目录）里的文字算内容，目录页不能当空白页")
+
+
+class TestBlankPageBeatsFrontmatterProtection(BreakCase):
+    """用户 2026-10-08 的**新口径**：空白页优先于前置页保护。
+
+    用户原话："我们确实制定了规则约束前置页保护，但它约束的是**不能轻易删除空白行**；
+    但是当空白行与空白页重叠，比如说前置页里有一页只有空白行，那就放心大胆的删 ——
+    也就是空白页、空白行、前置页这三个冲突了，**优先满足剔除空白页**这个选项。"
+
+    实测对应的是那份报告第 4 页（扉页与目录之间）：整页只有一个分页符段。
+    """
+
+    def _fixture(self):
+        return (fixtures.paragraph(fixtures.run(u"某某水库工程防洪安全复核报告", sz="72"))
+                + PAGE_BREAK                                   # 第 1 页：封面
+                + fixtures.paragraph(fixtures.run(u"编制：张三"))
+                + PAGE_BREAK                                   # 第 2 页：签字页
+                + u"<w:p/>"                                    # 第 3 页：**整页只有空白行**
+                + PAGE_BREAK
+                + fixtures.paragraph(fixtures.run(u"目 录"))    # 第 4 页：目录
+                + fixtures.paragraph(fixtures.run(u"正文。")))
+
+    def test_a_page_with_only_blank_lines_inside_front_matter_is_removed(self):
+        path = self.build(self._fixture())
+        out = path + u".out.docx"
+        # 块序号：0 封面 | 1 分页 | 2 签字 | 3 分页 | 4 空段 | 5 分页 | 6 目录 | 7 正文
+        pages = [1, 1, 2, 2, 3, 3, 4, 4]
+        with Document(path) as doc:
+            report = tidy_op.tidy(doc, {"block_pages": pages})
+            doc.save(out)
+        self.assertEqual(report["changes"].get(u"空白页数"), 1, u"该认出那一页是空白页")
+        self.assertGreaterEqual(report["changes"].get(u"空白页删段", 0), 1,
+                                u"空白页优先于前置页保护：整页只有空白行就删")
+        with Document(out) as doc:
+            elements = [el for el in doc.body() if el.tag == qn("w:p")]
+            # 换页段本身也没文字，但它是**版面**不是空白行 —— 数"空白行"时要排除
+            blanks = [el for el in elements if tidy_op.is_blank_paragraph(el)
+                      and not tidy_op.carries_page_break(el)]
+            texts = [Paragraph(el).text for el in elements if Paragraph(el).text.strip()]
+        self.assertEqual(blanks, [], u"前置区里那页「只有空白行」的空白页该被删干净")
+        self.assertIn(u"目 录", texts, u"目录本身不能被误删")
+        self.assertIn(u"正文。", texts)
+        self.assertIn(u"编制：张三", texts, u"签字页内容不能被误删")
+
+    def test_protection_still_keeps_blank_lines_on_pages_with_content(self):
+        """**反过来也要成立**：有内容的页面（封面/签字页）里的排版空白行仍然不许删。"""
+        path = self.build(fixtures.paragraph(fixtures.run(u"某某水库工程防洪安全复核报告", sz="72"))
+                          + u"<w:p/>" + fixtures.paragraph(fixtures.run(u"编制：张三"))
+                          + PAGE_BREAK
+                          + fixtures.paragraph(fixtures.run(u"目 录"))
+                          + fixtures.paragraph(fixtures.run(u"正文。")))
+        pages = [1, 1, 1, 1, 2, 2]
+        with Document(path) as doc:
+            report = tidy_op.tidy(doc, {"block_pages": pages})
+            elements = [el for el in doc.body() if el.tag == qn("w:p")]
+            blanks = [el for el in elements if tidy_op.is_blank_paragraph(el)
+                      and not tidy_op.carries_page_break(el)]
+        self.assertEqual(len(blanks), 1, u"封面里那个排版空行要留着")
+        self.assertEqual(report["changes"].get(u"空白页数", 0), 0, u"封面页有内容，不是空白页")

@@ -317,37 +317,18 @@ def _page_groups(document):
     return groups
 
 
-def protected_elements(document, pages=None):
-    """前置区里的**段落元素集合**（按 id），清理类算子用它跳过。
-
-    * 自动识别：从头走到「目录/目次/前言」，前面全是前置区；**没遍历到标志 =
-      没有可靠边界 = 一个都不保护**（绝不能把整篇当前置区）。
-    * 手动页数 ``pages=N``：**与自动识别取并集**，不是替代（用户 2026-09-30 实测：
-      真实报告封面在第 4–5 页，手动填"1 页"时若替代掉自动识别，封面那些排版空段
-      会被清理掉 10 个 —— 页面直接垮掉）。手动数字的语义是"**至少**保护到第 N 页"。
-
-    所以：**自动识别的永远都保护**，手动只能加不能减。
-    """
-    protected = set()
+def protected_elements(document, pages=None, block_pages=None):
+    """Protect the entire detected front matter; manual pages only extend it."""
+    blocks = list(document.body())
+    end = _front_matter_end(blocks)
+    protected = {id(node) for element in blocks[:end] for node in element.iter(qn('w:p'))} if end is not None else set()
     if pages:
-        for number, blocks in _page_groups(document):
-            if number > int(pages):
-                break
-            for element in blocks:
-                if element.tag == qn("w:p"):
-                    protected.add(id(element))
-    body = document.body()
-    blocks = list(body)[:MAX_BLOCKS]
-    seen = []
-    for element in blocks:
-        if element.tag != qn("w:p"):
-            seen.append(element)
-            continue
-        text = _normalized(Paragraph(element).text)
-        if text in MARKERS or _has_toc_field(element):
-            protected.update(id(item) for item in seen)
-            return protected
-        seen.append(element)
+        if block_pages:
+            selected = [element for index,element in enumerate(blocks)
+                        if index < len(block_pages) and block_pages[index] is not None and block_pages[index] <= int(pages)]
+        else:
+            selected = [element for number,items in _page_groups(document) if number <= int(pages) for element in items]
+        protected.update(id(node) for element in selected for node in element.iter(qn('w:p')))
     return protected
 
 

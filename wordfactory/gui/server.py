@@ -159,7 +159,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, "data": _read_json(_rules_path(u"subscripts.json"))})
             elif path == "/api/frontmatter":
                 self._frontmatter(_query(query).get("path", u""),
-                                  _query(query).get("accurate") == "1")
+                                  _query(query).get("accurate") == "1",
+                                  force=_query(query).get("force") == "1")
             elif path == "/api/doc-formats":
                 self._doc_formats(_query(query).get("path", u""))
             elif path == "/api/read":
@@ -188,6 +189,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._pdf()
             elif path == "/api/extdata":
                 self._extdata()
+            elif path == "/api/plans/export":
+                self._plan_export()
+            elif path == "/api/plans/import":
+                self._plan_import()
             elif path == "/api/plans/save":
                 self._plan_save()
             elif path == "/api/plans/delete":
@@ -265,14 +270,16 @@ class Handler(BaseHTTPRequestHandler):
                     saved.append({u"name": data.get("name") or name[:-5],
                                   u"steps": data.get("steps") or [],
                                   u"note": data.get("note") or u"",
-                                  u"builtin": False})
+                                  u"builtin": False,
+                                  "font_rules_data": data.get("font_rules_data"),
+                                  "schema":data.get("schema",1)})
                 except (ValueError, OSError):
                     continue                     # 读不动的文件不往清单里露底
         self._json({"ok": True, "dir": directory,
                     "plans": [dict(plan, builtin=True) for plan in BUILTIN_PLANS] + saved})
 
-    def _plan_save(self):
-        data = self._body_json()
+    def _plan_save(self, data=None):
+        if data is None: data = self._body_json()
         name = (data.get("name") or u"").strip()
         steps = data.get("steps") or []
         if not _PLAN_NAME_OK.match(name):
@@ -299,10 +306,36 @@ class Handler(BaseHTTPRequestHandler):
             raise PipelineError(u"方案名不太好：%s" % name)
         payload = {"name": name, "steps": normalized,
                    "note": (data.get("note") or u"").strip()}
+        for field in ("font_rules_data","schema","format"):
+            if field in data: payload[field]=data[field]
         with io.open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
         log_note = u"已存执行方案：%s（%d 步）→ %s" % (name, len(normalized), path)
         self._json({"ok": True, "name": name, "path": path, "text": log_note})
+
+    def _plan_export(self):
+        from .. import planbundle
+        import hashlib
+        data = self._body_json()
+        data['name'] = (data.get('name') or '执行方案').strip()
+        if not _PLAN_NAME_OK.match(data['name']):
+            raise PipelineError('方案名包含不支持的字符')
+        bundle = planbundle.export(data,self.rules_base())
+        body = json.dumps(bundle,ensure_ascii=False,indent=2).encode('utf-8')
+        directory = os.path.join(TEMP_DIR,'导出的方案')
+        os.makedirs(directory,exist_ok=True)
+        name = bundle['name']+'·'+hashlib.sha256(body).hexdigest()[:8]+'.json'
+        path = os.path.join(directory,name)
+        with open(path,'wb') as handle: handle.write(body)
+        download = allow_download(path)
+        self._json({'ok':True,'download':download,'bundle':bundle,
+                    'text':'方案已导出：已包含功能顺序、参数、替换规则、上下标字典与表格款式'})
+
+    def _plan_import(self):
+        from .. import planbundle
+        data = self._body_json()
+        bundle = planbundle.import_plan(data.get('data',data))
+        self._plan_save(bundle)
 
     def _plan_delete(self):
         data = self._body_json()
@@ -380,7 +413,7 @@ class Handler(BaseHTTPRequestHandler):
                     "text": u"已保存上下标规则（%d 条）→ %s" % (count, path)})
 
     # ------------------------------------------------------------- 前置区
-    def _frontmatter(self, path, accurate=False):
+    def _frontmatter(self, path, accurate=False, force=False):
         """前置区识别。``accurate=True`` 时用 **Word/WPS 真实页码**（最准，但要起排版引擎）。
 
         顺带把**整篇的"第几块在第几页"**（``block_pages``）一起回给界面：
@@ -393,6 +426,7 @@ class Handler(BaseHTTPRequestHandler):
         from ..document import Document
         block_pages = None
         probe_info = None
+        warning = None
         with Document(path) as doc:
             if accurate:
                 from .. import pageprobe
@@ -401,18 +435,20 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     info_probe = pageprobe.probe(
                         path, blocks=limit + 5,
-                        block_starts=pageprobe.block_start_paragraphs(doc, limit=limit + 5))
+                        block_starts=pageprobe.block_start_paragraphs(doc, limit=limit + 5),force=force)
                     block_pages = info_probe["block_pages"]
                     probe_info = {u"renderer": info_probe.get("renderer"),
                                   u"pages": info_probe.get("pages")}
+                    digest = info_probe.get("fingerprint")
                 except pageprobe.PageProbeError as exc:
-                    raise PipelineError(u"读真实页码失败：%s（可以先用估算口径）" % exc)
+                    warning = "真实页码暂未取得，已按文档结构识别前置区：%s" % exc
             info = frontmatter.detect(doc, block_pages=block_pages)
         self._json({"ok": True, "info": info,
                     "text": frontmatter.format_report(info),
                     "accurate": bool(block_pages),
                     "block_pages": block_pages,
-                    "renderer": probe_info or None})
+                    "renderer": probe_info or None,"warning":warning,
+                    "fingerprint":info_probe.get("fingerprint") if block_pages else None})
 
     # ------------------------------------------------------------- 文档格式清单
     def _doc_formats(self, path):
@@ -450,24 +486,58 @@ class Handler(BaseHTTPRequestHandler):
                     "aligns": sorted(aligns), "colors": sorted(colors)})
 
     def _pdf(self):
-        """导出 PDF：编排本机装着的渲染器（Word/WPS/LibreOffice）。"""
+        """Apply the chosen plan and edition before rendering, never the original."""
         from ..ops import pdf as pdf_op
+        from .. import fonts
+        import tempfile
         data = self._body_json()
-        path = data.get("path") or u""
-        if not path or not os.path.exists(path):
-            raise PipelineError(u"文件不存在：%s" % path)
-        out = data.get("out") or os.path.splitext(path)[0] + u".pdf"
-        if os.path.abspath(out) == os.path.abspath(path):
-            raise PipelineError(u"输出不能跟输入同一个文件")
-        report = pdf_op.export(path, out, prefer=data.get("renderer") or None,
-                               timeout=int(data.get("timeout") or 300),
-                               visible=not data.get("hidden"))
-        download = allow_download(report["out"])
-        text = (u"文件：%s\n渲染器：%s（%s）\n已写出：%s（%d 字节，%s 页，耗时 %.1f 秒）"
-                % (path, report.get("kind"), report.get("renderer"), report["out"],
-                   report.get("bytes") or 0, report.get("pages") or u"?",
-                   report.get("seconds") or 0))
-        self._json({"ok": True, "report": report, "text": text, "download": download})
+        path = data.get('path') or ''
+        if not os.path.isfile(path): raise PipelineError('文件不存在：%s' % path)
+        mode = data.get('mode') or 'formal'
+        if mode not in ('formal','verify'): raise PipelineError('PDF 版本只能是预览版或正式版')
+        stem = re.sub(r'（(?:临时|预览版|正式版)）$', '', os.path.splitext(path)[0])
+        edition = '正式版' if mode == 'formal' else '预览版'
+        requested = data.get('out') or stem+'（'+edition+'）.pdf'
+        if os.path.abspath(requested)==os.path.abspath(path): raise PipelineError('输出不能与输入相同')
+        out = requested
+        if not data.get('allow_overwrite'):
+            index=2
+            while os.path.exists(out):
+                out=os.path.splitext(requested)[0]+'-'+str(index)+'.pdf'; index+=1
+        os.makedirs(TEMP_DIR,exist_ok=True)
+        os.makedirs(os.path.dirname(os.path.abspath(out)),exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='pdf-',dir=TEMP_DIR,ignore_cleanup_errors=True) as directory:
+            prepared=os.path.join(directory,'报告（'+edition+'）.docx')
+            prepared_pdf=os.path.join(directory,'报告（'+edition+'）.pdf')
+            document_report=pipeline_mod.run_pipeline(path,data.get('steps') or [],mode=mode,
+                out_path=prepared,block_pages=_block_pages_for_run(path,data),
+                font_rules=_font_rules_for_run(data),force_write=True)
+            if mode=='formal' and (document_report.get('audit') or {}).get('verdict')!='PASS':
+                raise PipelineError('正式版字体/颜色体检未通过，请先检查改动报告')
+            report=pdf_op.export(prepared,prepared_pdf,prefer=data.get('renderer') or None,
+                                 timeout=int(data.get('timeout') or 90),visible=False)
+            if os.path.exists(out) and not data.get('allow_overwrite'):
+                raise PipelineError('导出时目标文件已存在，请重试以另存新文件')
+            import shutil
+            # Stage the commit on the destination drive, including when the exe
+            # is on E: and the report lives on C: or a removable drive.
+            with tempfile.NamedTemporaryFile(prefix='.wordfactory-pdf-',suffix='.pdf',
+                    dir=os.path.dirname(os.path.abspath(out)),delete=False) as handle:
+                commit_path=handle.name
+            try:
+                shutil.copyfile(prepared_pdf,commit_path)
+                if os.path.exists(out) and not data.get('allow_overwrite'):
+                    raise PipelineError('目标 PDF 已存在，请重试以另存新文件')
+                os.replace(commit_path,out)
+            finally:
+                if os.path.exists(commit_path): os.unlink(commit_path)
+        report.update({'file':path,'out':out,'edition':edition,'mode':mode,
+                       'document_report':_slim(document_report),'bytes':os.path.getsize(out)})
+        download=allow_download(out)
+        document_text='\n'.join(line for line in pipeline_mod.format_report(document_report).splitlines() if not line.startswith('已写出：'))
+        text='已按当前方案生成%s，再转换为 PDF。\n原始报告保持不变。\n\n%s\n\n文档处理：\n%s' % (
+            edition,pdf_op.format_report(report),document_text)
+        self._json({'ok':True,'report':report,'download':download,'text':text})
 
     def _extdata(self):
         """文档数据外置更新：``gen`` 生成外置数据表 + 配方，``rebuild`` 按数据表重建，
@@ -623,13 +693,14 @@ class Handler(BaseHTTPRequestHandler):
         elif lower.endswith(u".xlsx"):
             content_type = (u"application/vnd.openxmlformats-officedocument"
                             u".spreadsheetml.sheet")
+        elif lower.endswith(u".json"):
+            content_type = "application/json; charset=utf-8"
         else:
             content_type = (u"application/vnd.openxmlformats-officedocument"
                             u".wordprocessingml.document")
         # Content-Disposition 必须**在正文之前**发（原来写在 _send 之后，
         # 头已经出去了 → 浏览器拿不到附件名，只能靠 <a download> 兜）
-        self._send(200, body,
-                   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        self._send(200, body,content_type,
                    extra={"Content-Disposition":
                           u"attachment; filename*=UTF-8''%s" % _quote(name)})
 
@@ -674,13 +745,21 @@ class Handler(BaseHTTPRequestHandler):
         report = pipeline_mod.run_pipeline(
             path, data.get("steps") or [], mode=data.get("mode") or "verify",
             out_path=out or None, dry_run=bool(data.get("dry_run")),
-            block_pages=_block_pages_for_run(path, data))
+            block_pages=_block_pages_for_run(path, data),font_rules=_font_rules_for_run(data))
         download = None
         if report.get("out"):
             download = allow_download(report["out"])
         self._json({"ok": True, "report": _slim(report),
                     "text": pipeline_mod.format_report(report),
                     "download": download})
+
+
+def _font_rules_for_run(data):
+    from .. import fonts
+    raw=data.get('font_rules_data')
+    if raw is not None: return fonts.FontRuleSet(raw)
+    path=paths_mod.rules_path('fonts.json')
+    return fonts.FontRuleSet.load(path) if os.path.isfile(path) else fonts.FontRuleSet(fonts.DEFAULT_FONTS)
 
 
 def _block_pages_for_run(path, data):

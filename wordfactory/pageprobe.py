@@ -24,6 +24,7 @@
 """
 
 import os
+import re
 import threading
 
 #: wdActiveEndPageNumber —— Range 在哪一页
@@ -60,99 +61,190 @@ def block_start_paragraphs(document, limit=None):
     return starts
 
 
-def probe(path, blocks=60, renderer=None, timeout=180, block_starts=None):
-    """…（docstring 不动，只加参数说明）…
+_PROBE_CACHE = {}
+_CACHE_LOCK = threading.Lock()
 
-    ``block_starts``：每个 body 块的**起始段落序号**（1-based，由
-    :func:`block_start_paragraphs` 算出）。给了就按段落序号读页码 ——
-    **必须给**，否则 sdt（目录）之后的块页码全部错位
-    （2026-09-30 实测：sdt 里 20 个段落没算进 Paragraphs 序号，
-    目录之后的块页码整体偏小）。"""
-    """返回 ``{"pages": 总页数, "block_pages": [每个块的页码, …]}``。
+#: 上次成功的渲染器（进程内记着）—— 下次先试它，别每次都拿 Word 去撞墙
+_PREFERRED = []
 
-    ``blocks`` 只探测正文开头这么多个块（前置区判断足够；全文扫慢且没必要）。
-    ``renderer`` 可指定 ``"word"`` / ``"wps"``；不给就按 Word → WPS 顺序找第一个能用的。
+#: 外链指向"网络位置"的样子：UNC（\\机器\共享）或 http(s)。这类链接会让 Word 干等
+#: SMB/HTTP 超时（2026-10-08 实测那份报告 >40 秒没返回，而 WPS 3 秒就开好了）。
+_NETWORK_TARGET = re.compile(r'^\s*(?:file:///)?(?:\\\\|//|https?://)', re.I)
+
+
+def fingerprint(path):
+    import hashlib
+    with open(path, 'rb') as handle:
+        return hashlib.sha256(handle.read()).hexdigest()
+
+
+def _network_ole_links(path):
+    """文档里指向**网络位置**的 oleObject 外链有几个。
+
+    为什么只认 ``oleObject``：那是"图表数据来自外部 xlsm"这类链接，**不影响版式**
+    （图用的是缓存数据画出来的）；而外链的图片（image）动不得 —— 换了会让版面变。
     """
-    path = os.path.abspath(path)
-    if not os.path.exists(path):
-        raise PageProbeError(u"文件不存在：%s" % path)
-    result = {}
+    import zipfile
+    count = 0
+    try:
+        with zipfile.ZipFile(path) as archive:
+            for name in archive.namelist():
+                if not name.endswith(u".rels"):
+                    continue
+                text = archive.read(name).decode(u"utf-8", u"replace")
+                for tag in re.findall(r'<Relationship[^>]*>', text):
+                    if u'TargetMode="External"' not in tag or u"oleObject" not in tag:
+                        continue
+                    target = re.search(r'Target="([^"]*)"', tag)
+                    if target and _NETWORK_TARGET.match(target.group(1)):
+                        count += 1
+    except Exception:                      # noqa: BLE001 - 读不动就当没有，别拖累主流程
+        return 0
+    return count
 
-    def worker():
-        import pythoncom
-        import win32com.client
-        pythoncom.CoInitialize()
-        app = doc = None
-        #: **这个实例是不是我们起的**。用户自己开着 Word 时 ``Dispatch`` 会**连到他那个实例**上
-        #  （Word 是单实例 COM 服务器）—— 那种情况下我们**绝不能**改它的 Visible、更不能 Quit，
-        #  否则会把用户正在编辑的文档一起关掉。所以：先试 ``GetActiveObject``，连上了就只借不用。
-        ours = False
+
+def _neutralized_copy(path):
+    """给排版引擎一份"网络外链改指向本地不存在文件"的**临时副本**；没有网络外链就返回 None。
+
+    为什么要这样：实测那份报告的图表链到 ``\\\\Bf-230206\\…\\欧峪水库.xlsm``（别人机器上的共享），
+    Word 打开时会一直等 SMB 超时 —— **40 秒都回不来**，于是"读不到真实页码 → 退回估算口径
+    → 空白页删不掉"。把外链指向本地不存在的文件之后，Word **7.9 秒**就开好了，
+    页码与 WPS（本来不受影响）**完全一致**（都是 31 页）—— 因为图是从缓存数据画的，版式没变。
+
+    副本落在数据目录的「临时文件」里（系统 Temp 会被 Office 当成"不安全位置"进受保护视图），
+    用完即删。
+    """
+    if not _network_ole_links(path):
+        return None
+    import shutil
+    import tempfile
+    import zipfile
+    from . import paths
+    dead = u"file:///C:/__wordfactory_no_such_file__.xlsm"
+    folder = paths.temp_dir()
+    handle, temp_path = tempfile.mkstemp(prefix=u"页码探测-", suffix=u".docx", dir=folder)
+    os.close(handle)
+    try:
+        with zipfile.ZipFile(path) as source, \
+                zipfile.ZipFile(temp_path, u"w", zipfile.ZIP_DEFLATED) as target:
+            for item in source.infolist():
+                data = source.read(item.filename)
+                if item.filename.endswith(u".rels"):
+                    text = data.decode(u"utf-8", u"replace")
+                    text = re.sub(
+                        r'(<Relationship[^>]*TargetMode="External"[^>]*oleObject[^>]*Target=")[^"]*(")',
+                        lambda m: m.group(1) + dead + m.group(2), text)
+                    text = re.sub(
+                        r'(<Relationship[^>]*oleObject[^>]*Target=")[^"]*("[^>]*TargetMode="External")',
+                        lambda m: m.group(1) + dead + m.group(2), text)
+                    data = text.encode(u"utf-8")
+                target.writestr(item, data)
+    except Exception:                      # noqa: BLE001 - 复制失败就退回用原件
         try:
-            prog_ids = ([renderer] if renderer else
-                        [u"Word.Application", u"KWPS.Application", u"WPS.Application"])
-            app = None
-            errors = []
-            for prog_id in prog_ids:
-                try:
-                    app = win32com.client.GetActiveObject(prog_id)   # 已经开着 → 借用
-                    break
-                except Exception:                                    # noqa: BLE001 - 没开就自己起
-                    try:
-                        app = win32com.client.Dispatch(prog_id)
-                        ours = True
-                        break
-                    except Exception as exc:                         # noqa: BLE001 - 换下一个
-                        errors.append(u"%s: %s" % (prog_id, exc))
-            if app is None:
-                raise PageProbeError(u"本机没有可用的 Word/WPS（%s）"
-                                     % u"；".join(errors))
-            if ours:
-                app.Visible = False
-            doc = app.Documents.Open(path, ReadOnly=True)
-            try:
-                doc.Repaginate()                       # 先排版，页码才是准的
-            except Exception:                          # noqa: BLE001 - 老版本没这方法
-                pass
-            result["pages"] = doc.ComputeStatistics(WD_STATISTIC_PAGES)
-            pages = []
-            total = doc.Paragraphs.Count
-            if block_starts:
-                for start in block_starts:
-                    try:
-                        pages.append(int(doc.Paragraphs(int(start)).Range.Information(
-                            WD_ACTIVE_END_PAGE)))
-                    except Exception:                  # noqa: BLE001 - 拿不到沿用上一个
-                        pages.append(pages[-1] if pages else 1)
-            else:
-                for index in range(1, min(int(blocks), total) + 1):
-                    try:
-                        pages.append(int(doc.Paragraphs(index).Range.Information(
-                            WD_ACTIVE_END_PAGE)))
-                    except Exception:                  # noqa: BLE001 - 拿不到就沿用上一个
-                        pages.append(pages[-1] if pages else 1)
-            result["block_pages"] = pages
-            result["renderer"] = prog_id
-        finally:
-            try:
-                if doc is not None:
-                    doc.Close(SaveChanges=False)
-            except Exception:                          # noqa: BLE001
-                pass
-            try:
-                if app is not None and ours:
-                    app.Quit()                         # **只关我们自己起的那个实例**
-            except Exception:                          # noqa: BLE001
-                pass
-            pythoncom.CoUninitialize()
+            os.remove(temp_path)
+        except OSError:
+            pass
+        return None
+    if _network_ole_links(temp_path):
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+        return None                        # 没改干净就别用它，免得白等
+    return temp_path
 
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
-    thread.join(timeout)
-    if thread.is_alive():
-        raise PageProbeError(u"读页码超过 %d 秒没回来（Word/WPS 可能卡在弹窗上）" % timeout)
-    if "block_pages" not in result:
-        raise PageProbeError(u"没读到页码：%s" % result.get("error", u"未知原因"))
-    return result
+
+def _candidates(renderer, network_links):
+    """先试谁：显式指定 > 上次成功的 > （有网络外链就先 WPS）> 默认 Word→WPS。"""
+    if renderer:
+        return [renderer]
+    order = [u"Word.Application", u"KWPS.Application", u"WPS.Application"]
+    if network_links:
+        order = [u"KWPS.Application", u"WPS.Application", u"Word.Application"]
+    for preferred in reversed(_PREFERRED):
+        if preferred in order:
+            order.remove(preferred)
+            order.insert(0, preferred)
+    return order
+
+
+def probe(path, blocks=60, renderer=None, timeout=60, block_starts=None, force=False):
+    """用 Word/WPS 排一遍版，读"每个正文块落在第几页"。
+
+    ``block_starts``：每个 body 块的**起始段落序号**（1-based）—— **必须给**，
+    否则 sdt（目录）之后的块页码全部错位（2026-09-30 实测）。
+
+    ``timeout``：**整件事**的预算（秒）；单个候选的预算是它的均分（见
+    :func:`wordfactory.officecom.run`）。超时/起不来就抛 ``PageProbeError``，
+    调用方退回"按分页符估算"。实测正常一次 1~3 秒。
+
+    结果按"文件内容指纹"缓存（``force=True`` 强制重探）：同一份文件在一轮里
+    会被问好几次（前置区、运行前、导 PDF），没必要每次都起一遍 Office。
+    """
+    from . import officecom
+    import copy
+    path = os.path.abspath(path)
+    if not os.path.isfile(path):
+        raise PageProbeError(u"文件不存在：%s" % path)
+    digest = fingerprint(path)
+    key = (os.path.normcase(path), digest, int(blocks), tuple(block_starts or ()), renderer)
+    with _CACHE_LOCK:
+        cached = _PROBE_CACHE.get(key)
+    if cached is not None and not force:
+        return copy.deepcopy(cached)
+    network_links = _network_ole_links(path)
+    candidates = _candidates(renderer, network_links)
+
+    def make_read(target):
+        """造一个"用这个排版引擎打开 ``target`` 并读页码"的回调。"""
+        def read(session):
+            document = session.open(target)
+            document.Repaginate()                   # 先排版，页码才是准的
+            count = int(document.ComputeStatistics(WD_STATISTIC_PAGES))
+            paragraphs = document.Paragraphs
+            total = int(paragraphs.Count)
+            starts = (list(block_starts) if block_starts
+                      else list(range(1, min(int(blocks), total) + 1)))
+            pages = []
+            for start in starts:
+                start = int(start)
+                if not 1 <= start <= total:
+                    raise PageProbeError(u"正文块的段落序号超出 Word/WPS 文档范围：%s / %s"
+                                         % (start, total))
+                # wdActiveEndPageNumber —— Word 状态栏那个口径
+                page = int(paragraphs(start).Range.Information(WD_ACTIVE_END_PAGE))
+                if not 1 <= page <= count:
+                    raise PageProbeError(u"Word/WPS 返回了无效物理页码：%s / %s" % (page, count))
+                pages.append(page)
+            return {"pages": count, "block_pages": pages,
+                    "renderer": session.prog_id, "fingerprint": digest,
+                    "network_links": network_links}
+        return read
+
+    temp_path = _neutralized_copy(path)
+    errors = []
+    try:
+        # 有网络外链时**用那份改过链接的副本**排版（版式一样，但 Word 不会再去等网络）
+        target = temp_path or path
+        for candidate in candidates:
+            try:
+                result = officecom.run(make_read(target), [candidate], timeout=timeout)
+            except officecom.OfficeError as error:
+                errors.append(u"%s: %s" % (candidate, error))
+                continue
+            with _CACHE_LOCK:
+                if len(_PROBE_CACHE) > 32:
+                    _PROBE_CACHE.clear()
+                _PROBE_CACHE[key] = copy.deepcopy(result)
+            _PREFERRED[:] = [result["renderer"]]
+            return result
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+    raise PageProbeError(u"读取真实页码失败：%s" % u"；".join(errors))
 
 
 def block_pages_for(document, limit=120, renderer=None):

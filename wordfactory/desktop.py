@@ -9,10 +9,10 @@ r"""桌面版入口：**一个原生窗口**（不是浏览器标签页），双
 
     pywebview 原生窗口（Edge WebView2 内核）
         └─ http://127.0.0.1:<随机空闲端口>/   ← 本机服务，只监听 127.0.0.1
-             └─ wordfactory/gui/web/index.html（界面**一个字没改**）
+             └─ wordfactory/gui/web/index.html（浅色文档工作台）
                   └─ wordfactory 引擎
 
-* **界面沿用原样**：窗口里的按钮/五页布局就是原来那套（用户："按钮和布局就沿用"）；
+* **界面布局**：左侧功能导航、中间方案配置、右侧处理结果；运行日志可展开；
 * **不再弹浏览器**：pywebview 用系统自带的 Edge WebView2 渲染，没有标签页/地址栏；
 * **换机器能用**：规则/方案/临时文件都在 exe 旁边的 ``word工厂数据\``（`paths.py` 管），
   整个文件夹拷到 U 盘再拷出来照样跑；
@@ -52,10 +52,12 @@ def _watch_shutdown(server, window, delay=1.2):
 def run_window(server, url, title=u"word工厂"):
     """开原生窗口指着 ``url``，窗口关掉就返回（并把服务停掉）。"""
     import webview
-    window = webview.create_window(title, url, width=1180, height=820,
-                                   min_size=(900, 620))
+    webview.settings["ALLOW_DOWNLOADS"] = True
+    window = webview.create_window(title, url, width=1320, height=880,
+                                   min_size=(1024, 680), background_color="#fafaf7")
     threading.Thread(target=_watch_shutdown, args=(server, window), daemon=True).start()
-    webview.start()                       # 阻塞到窗口关闭
+    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gui", "web", "wordfactory.ico")
+    webview.start(icon=icon_path if os.path.isfile(icon_path) else None)  # 阻塞到窗口关闭
     return window
 
 

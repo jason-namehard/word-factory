@@ -24,6 +24,8 @@ a = Analysis(
     datas=[
         (os.path.join(ROOT, "wordfactory", "gui", "web", "index.html"),
          "wordfactory/gui/web"),
+        (os.path.join(ROOT, "wordfactory", "gui", "web", "wordfactory.ico"),
+         "wordfactory/gui/web"),
     ],
     hiddenimports=[
         "webview.platforms.edgechromium",
@@ -36,6 +38,10 @@ a = Analysis(
         "win32com",
         "win32com.client",
         "win32com.client.dynamic",
+        # 这两个是**函数里 import** 的（pageprobe/pdf 里 、
+        # 方案导入导出里 ）—— 显式点名，别让静态分析漏掉
+        "wordfactory.officecom",
+        "wordfactory.planbundle",
     ],
     hookspath=[],
     runtime_hooks=[],
@@ -58,5 +64,5 @@ exe = EXE(
     upx=False,
     runtime_tmpdir=None,
     console=False,
-    icon=None,
+    icon=os.path.join(ROOT, "wordfactory", "gui", "web", "wordfactory.ico"),
 )

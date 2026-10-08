@@ -22,6 +22,8 @@ a = Analysis(
         # 界面（静态页）—— 引擎只需要这一个数据文件，规则都是代码内置生成的
         (os.path.join(ROOT, "wordfactory", "gui", "web", "index.html"),
          "wordfactory/gui/web"),
+        (os.path.join(ROOT, "wordfactory", "gui", "web", "wordfactory.ico"),
+         "wordfactory/gui/web"),
     ],
     hiddenimports=[
         # pywebview 在 Windows 上走 Edge WebView2，这几层是运行时才 import 的，静态分析看不到
@@ -35,6 +37,10 @@ a = Analysis(
         "win32com",
         "win32com.client",
         "win32com.client.dynamic",
+        # 这两个是**函数里 import** 的（pageprobe/pdf 里 、
+        # 方案导入导出里 ）—— 显式点名，别让静态分析漏掉
+        "wordfactory.officecom",
+        "wordfactory.planbundle",
     ],
     hookspath=[],
     runtime_hooks=[],
@@ -55,7 +61,7 @@ exe = EXE(
     strip=False,
     upx=False,                 # 不用 upx：把 WebView2 的 .NET 依赖压了容易起不来
     console=False,             # GUI 程序，无控制台黑窗
-    icon=None,
+    icon=os.path.join(ROOT, "wordfactory", "gui", "web", "wordfactory.ico"),
 )
 
 coll = COLLECT(

@@ -96,7 +96,7 @@ def normalize_recipe(steps):
 
 
 def run_pipeline(source_path, steps, mode="verify", out_path=None, dry_run=False,
-                 progress=None, font_rules=None, block_pages=None):
+                 progress=None, font_rules=None, block_pages=None, force_write=False):
     """按配方跑一遍。返回报告 dict。
 
     * ``source_path``：输入的 .docx（**不会被改动**，我们在副本上干活）
@@ -120,9 +120,12 @@ def run_pipeline(source_path, steps, mode="verify", out_path=None, dry_run=False
     marked = 0
     with Document(source_path, writable_parts=fonts_mod.FONT_PARTS) as doc:
         report["accurate_pages"] = bool(block_pages)
+        original_blocks = list(doc.body())
+        page_map = {id(element): block_pages[index] for index,element in enumerate(original_blocks) if block_pages and index < len(block_pages)}
         for index, step in enumerate(recipe, start=1):
             name = step["op"]
-            step_report = _run_step(doc, name, step["params"], dry_run, block_pages)
+            current_pages = [page_map.get(id(element)) for element in doc.body()] if page_map else None
+            step_report = _run_step(doc, name, step["params"], dry_run, current_pages)
             if not dry_run and mode == "verify" and name in MARKABLE:
                 marked += mark_mod.verify(doc, step_report.get("details") or [])
             report["steps"].append({"step": index, "op": name,
@@ -146,7 +149,7 @@ def run_pipeline(source_path, steps, mode="verify", out_path=None, dry_run=False
         # **收尾本身也算改动**：不然"配方是空、只收尾"时会因为 changed=False 而不写文件
         finished = bool(finish_report.get("fonts") or finish_report.get("colors")
                         or finish_report.get("highlights") or marked)
-        if not changed and not finished:
+        if not changed and not finished and not force_write:
             report["finish"] = u"没有需要改的地方"
             return report
         if not out_path:
@@ -193,7 +196,7 @@ def _run_step(doc, name, params, dry_run, block_pages=None):
         if dry_run:
             import copy
             root = copy.deepcopy(root)     # dry-run 不许动真树（apply_to_part 只有"直接改"一条路）
-        result = rules_mod.apply_to_part(root, _rules(params.get("rules")), limit=10)
+        result = rules_mod.apply_to_part(root, rules_mod.RuleSet(params["rules_data"]) if params.get("rules_data") is not None else _rules(params.get("rules")), limit=10)
         result["changed"] = result["total"]
         return result
 
@@ -210,15 +213,16 @@ def _run_step(doc, name, params, dry_run, block_pages=None):
                 if params.get(key) not in (None, False)}
         if "uniform" in params:
             spec["uniform"] = bool(params.get("uniform"))
-        return tablestyle_mod.apply_plan(doc, spec, dry_run=dry_run)
+        return tablestyle_mod.apply_plan(doc, spec, dry_run=dry_run, styles_data=params.get("styles_data"))
 
     if name == u"replace":
         from . import replace_rules as replace_rules_mod
-        if not params.get("rules"):
+        if not params.get("rules") and params.get("rules_data") is None:
             return {"op": "replace", "name": u"", "text": 0, "font": 0, "para": 0,
                     "total": 0, "dry_run": bool(dry_run),
                     "note": u"没指定替换规则 —— 在「替换规则」页做好、在执行方案里选中"}
-        rules = replace_rules_mod.load(_replace_rules_path(params["rules"]))
+        rules = params.get("rules_data")
+        if rules is None: rules = replace_rules_mod.load(_replace_rules_path(params["rules"]))
         return replace_rules_mod.apply(doc, rules, dry_run=dry_run,
                                        scope=params.get("scope") or "all")
 
@@ -267,8 +271,10 @@ def _replace_rules_path(name_or_path):
 
 
 def _rules(path):
-    if not path or not os.path.exists(path):
-        return rules_mod.default_ruleset()
+    from . import paths
+    path = path or paths.rules_path("subscripts.json")
+    if not os.path.isabs(path): path = os.path.join(paths.rules_dir(),path)
+    if not os.path.isfile(path): return rules_mod.default_ruleset()
     return rules_mod.RuleSet.load(path)
 
 

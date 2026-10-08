@@ -2,223 +2,429 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
 <title>word工厂</title>
 <style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
-  body { font: 14px/1.6 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
-         color: #1f2933; background: #eef1f5; display: flex; flex-direction: column; }
-  button, select, input { font: inherit; }
-  button { padding: 6px 12px; border-radius: 6px; cursor: pointer;
-           border: 1px solid #c7d0dd; background: #fff; color: #1f2933; }
-  button:hover { background: #f4f7fb; }
-  button.primary { background: #2f6fed; border-color: #2f6fed; color: #fff; }
-  button.primary:hover { background: #2a62d4; }
-  button.danger { color: #b42318; border-color: #e3b9b4; }
-  button.ghost { border-style: dashed; color: #64748b; }
-  button[disabled] { opacity: .5; cursor: default; }
+:root {
+  --paper: #fafaf7;
+  --surface: #ffffff;
+  --ink: #253044;
+  --muted: #758091;
+  --line: #e8eae8;
+  --blue: #3469df;
+  --blue-soft: #eef3fd;
+  --green: #38806c;
+  --radius: 12px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font: 13px/1.65 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; color: var(--ink); background: var(--paper); display: flex; flex-direction: column; overflow: hidden; }
+button, select, input { font: inherit; }
+button { min-height: 34px; padding: 6px 12px; border: 1px solid #dfe3e8; border-radius: 7px; background: #fff; color: #4b576a; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; transition: background .15s, border-color .15s, box-shadow .15s; }
+button:hover { background: #f7f9fc; border-color: #bbc8df; }
+button:active { background: #edf2fa; }
+button.primary { background: var(--blue); color: #fff; border-color: var(--blue); box-shadow: 0 2px 4px #3469df16; font-weight: 600; }
+button.primary:hover { background: #285acb; border-color: #285acb; }
+button.danger { color: #ad514c; background: #fff; }
+button.danger:hover { border-color: #dfa6a1; background: #fff7f6; }
+button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+button.ghost:hover { background: #eff2f6; color: var(--ink); }
+button[disabled] { opacity: .42; cursor: default; box-shadow: none; }
+button[disabled]:hover { border-color: #dfe3e8; background: #fff; }
+button.primary[disabled]:hover { background: var(--blue); border-color: var(--blue); }
+button:focus-visible, a:focus-visible, summary:focus-visible, .tplcard:focus-visible { outline: 3px solid #3469df46; outline-offset: 3px; }
+input, select { min-height: 34px; max-width: 100%; padding: 6px 10px; border: 1px solid #dfe3e8; border-radius: 7px; background: #fff; color: var(--ink); outline: none; }
+input:focus, select:focus { border-color: #7b9be4; box-shadow: 0 0 0 3px #3469df0d; }
+input::placeholder { color: #a0a8b4; }
+input[type=checkbox] { min-height: 0; width: 15px; height: 15px; padding: 0; margin: 0 6px 0 0; accent-color: var(--blue); cursor: pointer; vertical-align: -2px; }
+svg.ico { width: 17px; height: 17px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+button.icon-only { width: 34px; padding: 7px; }
+code { font: 12px Consolas, monospace; background: #f0f3f7; border-radius: 4px; padding: 2px 5px; }
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
 
-  /* ---------- 顶部工具条 ---------- */
-  #toolbar { background: #fff; border-bottom: 1px solid #d7dee8; padding: 8px 14px;
-             display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  #toolbar .title { font-weight: 600; margin-right: 6px; }
-  #files { display: flex; gap: 6px; flex-wrap: wrap; max-width: 46vw; }
-  .filechip { display: inline-flex; align-items: center; gap: 6px; color: #475569;
-              background: #f6f8fc; border: 1px solid #e2e8f2; border-radius: 6px;
-              padding: 4px 8px; font-size: 12px; cursor: pointer; }
-  .filechip.on { border-color: #2f6fed; background: #eef4ff; color: #1d4fd7; }
-  .filechip .x { color: #94a3b8; cursor: pointer; }
-  .filechip .x:hover { color: #b42318; }
-  #toolbar .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+/* Application shell */
+#toolbar { min-height: 74px; flex-shrink: 0; padding: 14px 24px; display: flex; align-items: center; gap: 16px; background: #fff; border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 11px; }
+.brand-mark { display: grid; place-items: center; width: 37px; height: 40px; border-radius: 10px; background: var(--blue); color: #fff; }
+.brand-mark svg { width: 26px; height: 28px; }
+.brand .title { display: block; font-size: 19px; font-weight: 700; letter-spacing: -.5px; line-height: 1.25; }
+.brand small { display: block; font-size: 9px; letter-spacing: 1.7px; color: #929aab; margin-top: 3px; }
+.toolbar-divider { height: 27px; width: 1px; background: var(--line); margin: 0 3px; }
+.app-subtitle { font-size: 12px; color: #87909d; }
+#toolbar .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+#toolbar .right .export-label { color: var(--muted); font-size: 11px; margin-right: 3px; }
+#toolbar #preview-btn { color: var(--blue); border-color: #cfdbf4; background: #fff; }
+#documentbar { flex-shrink: 0; min-height: 59px; padding: 11px 24px; display: flex; align-items: center; gap: 14px; background: #fff; border-bottom: 1px solid var(--line); }
+.docbar-label { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.docbar-empty { font-size: 12px; color: #a1a8b3; }
+#files { display: flex; align-items: center; gap: 7px; overflow-x: auto; flex: 1; min-width: 0; scrollbar-width: thin; }
+.filechip { display: inline-flex; flex-shrink: 0; align-items: center; gap: 8px; max-width: 250px; color: #59677c; background: #f7f8fa; border: 1px solid #e5e8ed; border-radius: 6px; padding: 4px 9px; font-size: 11px; cursor: pointer; line-height: 1.7; }
+.filechip .file-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.filechip.on { border-color: #c5d4f3; background: var(--blue-soft); color: #3466cb; }
+.filechip .x { color: #929cac; font-size: 16px; cursor: pointer; line-height: 1; }
+.filechip .x:hover { color: #bc5555; }
+.doc-count { color: #8490a3; background: #f4f5f7; font-size: 10px; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
+main { flex: 1; display: flex; min-height: 0; }
+#sidebar { width: 184px; flex-shrink: 0; display: flex; flex-direction: column; padding: 24px 12px 17px; background: #f5f6f3; border-right: 1px solid var(--line); }
+.nav-label { color: #9ca2ab; font-size: 10px; letter-spacing: 1.3px; padding: 0 15px; margin: 0 0 12px; }
+#tabs { display: flex; flex-direction: column; gap: 6px; }
+#tabs button { display: flex; align-items: center; justify-content: flex-start; gap: 11px; position: relative; padding: 10px 13px; min-height: 43px; width: 100%; border: 1px solid transparent; background: transparent; color: #768091; font-size: 12px; text-align: left; border-radius: 8px; }
+#tabs button:hover { color: #3b4b62; background: #eeefec; }
+#tabs button.on { background: #e8eefb; color: #2f61cb; font-weight: 600; border-color: #e2e9f6; }
+#tabs button.on::before { content: ""; position: absolute; left: -13px; top: 13px; bottom: 13px; width: 3px; background: var(--blue); border-radius: 0 3px 3px 0; }
+#tabs button[data-tab=replacer] { margin-top: 19px; }
+.sidebar-bottom { margin-top: auto; padding: 22px 13px 0; }
+.sidebar-note { border-top: 1px solid #e2e5e0; padding-top: 16px; font-size: 10px; line-height: 1.9; color: #9aa2ad; }
+.sidebar-note .local { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #677b73; margin-bottom: 5px; }
+.local-dot { display: inline-block; width: 6px; height: 6px; background: #6a9c83; border-radius: 50%; }
+#work { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#workspace-head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 26px 28px 15px; }
+.eyebrow { display: block; color: #9ba3af; font-size: 9px; letter-spacing: 2px; margin-bottom: 5px; }
+#workspace-title { font-size: 24px; letter-spacing: -.6px; line-height: 1.35; margin: 0 0 5px; font-weight: 650; }
+#workspace-desc { color: #8992a0; font-size: 11px; margin: 0; }
+.workspace-tag { color: #8e97a5; font-size: 10px; padding: 4px 8px; border: 1px solid #e7e9e5; border-radius: 5px; white-space: nowrap; }
+#panels { flex: 1; overflow: auto; padding: 0 28px 28px; scrollbar-width: thin; scrollbar-color: #d7dce2 transparent; }
+.panel { display: none; }
+.panel.on { display: block; }
+#panel-plan.on { display: grid; grid-template-columns: minmax(255px, .92fr) minmax(270px, 1.08fr); gap: 16px; align-items: start; }
+#panel-plan > .empty-start, #panel-plan > .workflow { grid-column: 1 / -1; margin-bottom: 0; }
+#panel-plan > .protection-card { grid-column: 1; margin-bottom: 0; }
+#panel-plan > .steps-card { grid-column: 2; }
+.plan-column { grid-column: 1; min-width: 0; }
+.plan-column .protection-card { margin-bottom: 0; }
+#empty-start[hidden] { display: none; }
+#panel-plan > .plan-config, #panel-plan > .steps-card { margin-bottom: 0; min-width: 0; }
+.plan-config .action-note { display: none; }
+.plan-config .save-plan > .save-fields { grid-template-columns: 1fr; }
+.card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 21px 22px; margin-bottom: 16px; box-shadow: 0 2px 3px #25304402; }
+.card h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13px; font-weight: 650; }
+.card h4 .section-num { font: 10px "Segoe UI", sans-serif; color: #a2aec1; margin-right: 2px; }
+.card .hint, .hint { color: #8b95a4; font-size: 11px; line-height: 1.85; margin-bottom: 14px; }
+.hint b { color: #66768c; font-weight: 600; }
+.rowline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rowline input[type=text] { min-width: 160px; }
+.field-label { display: block; color: #8893a3; font-size: 10px; margin: 0 0 6px; }
+.field { min-width: 0; }
+.field input, .field select { width: 100%; }
+.plan-selection { display: flex; gap: 7px; align-items: center; }
+#plan-select { flex: 1; min-width: 0 !important; }
+#plan-desc { margin: 12px 0 15px !important; padding: 9px 11px; border: 1px solid #e8edf6; background: #f7f9fc; border-radius: 7px; font-size: 11px; color: #7b8aa0; }
+#plan-desc:empty { display: none; }
+.plan-actions { margin-top: 15px; display: flex; align-items: center; gap: 9px; }
+#plan-run { padding-left: 17px; padding-right: 17px; min-height: 37px; }
+.action-note { font-size: 10px; color: #9ca5b2; margin-left: auto; }
+.save-plan { margin-top: 17px; padding-top: 13px; border-top: 1px solid #eef0f3; }
+summary { cursor: pointer; list-style: none; color: #8190a3; font-size: 11px; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "⌄"; float: right; font-size: 14px; color: #a6b0bd; }
+details[open] > summary::after { content: "⌃"; }
+.save-plan > summary { display: flex; align-items: center; gap: 8px; }
+.save-plan > summary::after { margin-left: auto; }
+.save-plan > .save-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 12px; }
+.save-plan .rowline { margin-bottom: 12px; }
+.manage-actions { border-top: 1px dashed var(--line); padding-top: 12px; }
+.manage-actions button { min-height: 29px; padding: 3px 9px; font-size: 11px; }
+#temp-note { word-break: break-all; }
+.card-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+.card-heading h4 { margin: 0; }
+.count-pill { font-size: 10px; color: #5e7bb5; background: #f0f4fc; padding: 3px 7px; border-radius: 5px; }
+.step-tools { gap: 6px; }
+.step-tools button { min-height: 27px; font-size: 10px; padding: 3px 8px; background: #fff; }
+#steps { margin-top: 12px; }
+.step { display: flex; align-items: flex-start; gap: 10px; padding: 13px 11px; border: 1px solid #ebedf1; border-radius: 8px; margin-bottom: 8px; background: #fff; cursor: grab; transition: border-color .15s, background .15s; }
+.step:hover { border-color: #d2dcef; background: #fbfcff; }
+.step.selected { background: #f7f9fe; border-color: #dbe5f9; }
+.step.dragging { opacity: .4; }
+.step.over { border-color: var(--blue); background: var(--blue-soft); }
+.step .grip { color: #c5ccd6; font-size: 15px; line-height: 1.5; cursor: grab; }
+.step .name { display: block; font-size: 12px; font-weight: 600; color: #576478; }
+.step .note { display: block; font-size: 10px; color: #9aa3b0; margin-top: 3px; line-height: 1.75; }
+.step input { margin-top: 4px; flex-shrink: 0; }
+.protection-card { padding: 15px 19px; }
+.protection-card > summary { display: flex; align-items: center; gap: 9px; color: #758498; }
+.protection-card > summary::after { margin-left: auto; }
+.protection-card > summary .protection-caption { color: #a2aab5; font-size: 10px; margin-left: auto; }
+.protection-content { margin-top: 15px; }
+#fm-accurate-note { display: block; flex-basis: 100%; }
+.empty-start { position: relative; background: #f0f4fb; border: 1px solid #e4ebf7; border-radius: 12px; padding: 21px 22px; margin-bottom: 16px; overflow: hidden; }
+.empty-start .start-content { position: relative; z-index: 1; padding-right: 65px; }
+.empty-start h3 { font-size: 17px; font-weight: 600; letter-spacing: -.3px; margin: 0 0 5px; color: #455d84; }
+.empty-start p { font-size: 11px; color: #8b9ab0; margin: 0 0 12px; }
+.empty-start button { min-height: 29px; font-size: 11px; border-color: #ccdaf1; background: #fff; color: #5677b2; }
+.paper-decoration { position: absolute; right: 24px; top: 24px; width: 56px; height: 73px; border-radius: 6px; border: 1px solid #d4e0f3; background: #fff9; transform: rotate(8deg); box-shadow: -9px 6px 0 #e0e9f86e; }
+.paper-decoration::before { content: ""; position: absolute; left: 11px; right: 11px; top: 24px; height: 1px; background: #cfdaec; box-shadow: 0 9px 0 #cfdaec, 0 18px 0 #cfdaec; }
+.workflow { display: flex; align-items: center; gap: 0; padding: 0 4px; margin: 0 0 17px; }
+.workflow .flow { flex: 1; position: relative; display: flex; align-items: center; gap: 7px; color: #a7afba; font-size: 10px; }
+.workflow .flow:not(:last-child)::after { content: ""; height: 1px; background: #e0e5eb; flex: 1; margin: 0 13px 0 3px; }
+.flow .flow-n { flex-shrink: 0; display: grid; place-items: center; width: 18px; height: 18px; border: 1px solid #e0e5ec; border-radius: 50%; font-size: 9px; }
+.flow.current { color: #5c7aad; }
+.flow.current .flow-n { color: #fff; background: #6c8ac1; border-color: #6c8ac1; }
+.flow.done { color: #7d958b; }
 
-  main { flex: 1; display: flex; min-height: 0; }
+/* Inspector and output */
+#right { width: 276px; flex-shrink: 0; display: flex; flex-direction: column; background: #fff; border-left: 1px solid var(--line); padding: 25px 19px 17px; overflow: hidden; }
+.inspector-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
+.inspector-heading h2 { font-size: 12px; font-weight: 650; margin: 0; }
+#activity { display: inline-flex; gap: 5px; align-items: center; color: #9ba6b3; font-size: 9px; }
+#activity::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #b3bdc8; }
+#activity[data-state=busy] { color: #5275b5; }
+#activity[data-state=busy]::before { background: #5275b5; animation: breathe 1.2s infinite; }
+#activity[data-state=done] { color: #51816e; }
+#activity[data-state=done]::before { background: #6b9c84; }
+#activity[data-state=error] { color: #b95f54; }
+#activity[data-state=error]::before { background: #c7786e; }
+@keyframes breathe { 50% { opacity: .3; } }
+.inspector-stats { display: flex; gap: 9px; padding-bottom: 19px; margin-bottom: 16px; border-bottom: 1px solid #edf0f2; }
+.inspector-stats > div { flex: 1; background: #f7f8fa; padding: 10px 12px; border: 1px solid #eff1f3; border-radius: 8px; }
+.inspector-stats small { font-size: 9px; color: #9ba4b1; display: block; }
+.inspector-stats strong { font-size: 21px; color: #5d6b7f; font-weight: 600; margin-right: 5px; }
+.inspector-stats span { font-size: 9px; color: #a1aab7; }
+#right h3 { margin: 0 0 9px; font-size: 10px; font-weight: 600; color: #9ba4b1; letter-spacing: .2px; }
+#preview { padding: 14px; border: 1px solid #e6eaf0; border-radius: 9px; color: #7f8ca1; font-size: 11px; line-height: 1.8; min-height: 137px; max-height: 37vh; overflow: auto; margin-bottom: 19px; overflow-wrap: anywhere; background: #fcfdff; }
+#preview b { font-size: 12px; color: #5c6f8b; font-weight: 600; }
+#preview a { display: block; text-decoration: none; }
+#preview a button { width: 100%; text-align: left; justify-content: flex-start; font-size: 10px; white-space: normal; word-break: break-all; border-color: #d9e3f6; color: #5071ad; padding: 7px 10px; }
+.output-success { display: flex; align-items: center; gap: 7px; color: #6d9481; font-size: 11px; margin-bottom: 6px; }
+.output-success .ico { width: 15px; height: 15px; }
+.output-kind { color: #9aa7ba; font-size: 10px; margin: 0 0 13px; }
+#preview a.result-file { display: flex; align-items: center; gap: 8px; padding: 10px 9px; border: 1px solid #dce5f5; border-radius: 7px; color: #627eab; background: #fff; font-size: 10px; line-height: 1.7; margin-top: 6px; }
+#preview a.result-file:hover { background: #f4f7fd; border-color: #b8cdee; }
+.result-file .ico { width: 16px; height: 16px; }
+.output-location { margin: 12px 0 0; color: #a1adbd; font-size: 9px; }
+.output-location summary { font-size: 9px; color: #9caabc; }
+.output-location p { margin: 8px 0 0; overflow-wrap: anywhere; }
+.output-empty { text-align: center; padding: 6px 0; }
+.output-empty .output-icon { display: grid; place-items: center; width: 39px; height: 39px; border-radius: 10px; background: #f1f4f9; color: #a9b8ce; margin: 0 auto 9px; }
+.output-empty b { display: block; font-size: 11px !important; font-weight: 500 !important; color: #8493a8 !important; }
+.output-empty p { font-size: 10px; line-height: 1.8; color: #a6afbc; margin: 5px 0 0; }
+.report-heading { display: flex; align-items: center; justify-content: space-between; }
+.report-heading button { min-height: 23px; font-size: 9px; padding: 2px 5px; }
+#report { flex: 1; min-height: 80px; overflow: auto; padding: 13px; background: #f6f8fa; color: #6e7b8f; border: 1px solid #edf0f3; border-radius: 9px; font: 10px/1.9 Consolas, "Microsoft YaHei", monospace; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; }
+#report.report-empty { background: #fff; border-style: dashed; color: #b0b8c3; text-align: center; display: grid; place-items: center; }
+.inspector-footnote { display: flex; gap: 7px; font-size: 9px; line-height: 1.85; color: #a2acb9; padding-top: 14px; }
+.inspector-footnote svg { width: 13px; height: 13px; margin-top: 3px; color: #8daa9e; }
 
-  /* ---------- 中间：主工作区 ---------- */
-  #work { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  #tabs { display: flex; gap: 4px; padding: 8px 12px 0; background: #fff;
-          border-bottom: 1px solid #d7dee8; }
-  #tabs button { border: 1px solid #d7dee8; border-bottom: none; border-radius: 8px 8px 0 0;
-                 background: #f6f8fc; color: #64748b; }
-  #tabs button.on { background: #fff; color: #1f2933; font-weight: 600; }
-  #panels { flex: 1; overflow: auto; padding: 14px; }
-  .panel { display: none; }
-  .panel.on { display: block; }
-  .card { background: #fff; border: 1px solid #d7dee8; border-radius: 10px;
-          padding: 14px; margin-bottom: 12px; }
-  .card h4 { margin: 0 0 10px; font-size: 13px; }
-  .card .hint { font-size: 12px; color: #8a97a8; margin-bottom: 10px; }
-  .rowline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .rowline input[type=text], .rowline select { padding: 6px 10px; border: 1px solid #c7d0dd;
-                                               border-radius: 6px; }
-  .rowline input[type=text] { min-width: 200px; }
-  table.grid { width: 100%; border-collapse: collapse; font-size: 12px; }
-  table.grid th, table.grid td { border: 1px solid #e5eaf2; padding: 6px 8px; text-align: left; }
-  table.grid th { background: #f6f8fc; font-weight: 600; }
-  table.grid td.center { text-align: center; }
-  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px;
-          background: #eef4ff; color: #1d4fd7; font-size: 11px; }
-  .pill.grey { background: #f1f5f9; color: #64748b; }
+/* Tables, templates and editors */
+table.grid { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11px; border: 1px solid #e8edf2; border-radius: 8px; overflow: hidden; }
+table.grid th, table.grid td { border: none; border-bottom: 1px solid #edf0f4; padding: 10px 11px; text-align: left; vertical-align: middle; }
+table.grid th { background: #f6f8fb; color: #8b97a8; font-size: 10px; font-weight: 500; }
+table.grid tr:last-child td { border-bottom: none; }
+table.grid td.center { text-align: center; }
+table.grid td button { min-height: 26px; font-size: 10px; padding: 3px 7px; }
+table.grid td select { font-size: 10px; min-height: 28px; padding: 4px 5px; }
+.pill, .chip { display: inline-block; padding: 2px 7px; border-radius: 5px; background: #f0f4fb; color: #6b83b0; font-size: 10px; }
+.pill.grey { background: #f3f5f7; color: #9aa4b2; }
+#previews { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 13px; }
+.tplcard { position: relative; border: 1px solid #e5e9ef; border-radius: 9px; padding: 15px 13px 11px; background: #fff; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.tplcard:hover { border-color: #b9cbea; box-shadow: 0 2px 8px #3b65a909; }
+.tplcard.on { border-color: #88a5df; box-shadow: 0 0 0 2px #3469df0a; }
+.tplcard.on::after { content: "✓"; position: absolute; right: 10px; top: 10px; color: var(--blue); font-size: 12px; }
+.tplcard b { display: block; font-size: 11px; font-weight: 600; color: #64738a; padding-right: 15px; }
+.tplcard small { display: block; min-height: 34px; margin: 5px 0 12px; color: #a0a9b6; font-size: 9px; line-height: 1.8; }
+.tplcard svg { background: #fff; border-radius: 5px; width: 100%; height: auto; border: 1px solid #f0f2f5; }
+#tables { overflow-x: auto; }
+#tables .grid { min-width: 510px; }
+#style-current, #tpl-plan { background: #f6f8fc !important; border: 1px solid #e9edf5; padding: 10px 12px; border-radius: 7px; font-size: 10px; line-height: 1.9; }
+.plan { display: flex; align-items: center; gap: 10px; padding: 13px; border: 1px solid #e9edf3; border-radius: 8px; margin-bottom: 9px; background: #fff; }
+.plan .who { flex: 1; min-width: 0; }
+.plan .who b { display: block; font-size: 12px; }
+.plan .who small { color: #98a3b3; font-size: 10px; }
+.plan.builtin { background: #f8fafc; }
+.chiprow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.fmtbox { padding: 14px; border: 1px solid #e5eaf2; border-radius: 9px; margin-bottom: 12px; background: #fafbfd; }
+.fmtbox .fmt-title { font-size: 11px; font-weight: 600; color: #7890b1; margin-bottom: 10px; }
+.fmtbox .fmt-title .fld { font-size: 10px; color: #a3adbb; font-weight: 400; margin-left: 12px; }
+.fmtbox.to { background: #f4f7fd; border-color: #e0e8f7; }
+.ruleline { display: flex; align-items: center; gap: 8px; padding: 9px 8px; border-bottom: 1px dashed #e7ecf4; font-size: 11px; }
+.ruleline span { flex: 1; }
+.ruleline button { min-height: 26px; font-size: 10px; }
+.subtabs { display: flex; gap: 4px; padding: 4px; background: #f4f6f9; border-radius: 8px; margin: 15px 0; }
+.subtabs button { flex: 1; border-color: transparent; background: transparent; font-size: 11px; }
+.subtabs button.on { background: #fff; border-color: #e7ebf3; color: #5875aa; }
+.subpanel { display: none; }
+.subpanel.on { display: block; }
+#subs-table td:first-child { max-width: 230px; overflow-wrap: anywhere; }
+#panel-about p { font-size: 12px; color: #7d889a; line-height: 2; }
+#panel-about b { font-weight: 600; color: #5a6b83; }
+.help-hero { padding: 26px 0 17px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+.help-hero h3 { font-size: 21px; color: #536985; margin: 0 0 9px; }
+.help-hero p { margin: 0; }
+.help-step { display: flex; gap: 13px; padding: 14px 0; }
+.help-step > span { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; background: #f0f4fb; color: #859ac0; font-size: 11px; flex-shrink: 0; }
+.help-step h4 { margin: 0 0 5px; font-size: 12px; }
+.help-step p { margin: 0; font-size: 11px !important; }
 
-  /* ---------- 左侧：功能清单（执行方案页内） ---------- */
-  #steps { border: 1px solid #e5eaf2; border-radius: 8px; padding: 8px; background: #fbfcfe; }
-  .step { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px;
-          border: 1px solid #e2e8f2; border-radius: 8px; margin-bottom: 6px;
-          background: #fff; cursor: grab; }
-  .step.dragging { opacity: .45; }
-  .step.over { border-color: #2f6fed; }
-  .step .grip { color: #b6c2d2; font-size: 12px; line-height: 1.4; }
-  .step .name { font-weight: 600; }
-  .step .note { font-size: 11px; color: #8a97a8; }
-  .step input { margin-top: 3px; }
+/* Local file picker and dialogs */
+.modal, #picker { position: fixed; inset: 0; z-index: 30; background: #25304436; backdrop-filter: blur(3px); display: none; align-items: center; justify-content: center; padding: 24px; }
+.modal.on, #picker.on { display: flex; }
+.modal .box, #picker .box { width: 750px; max-width: 100%; max-height: 84vh; overflow: auto; background: #fff; border-radius: 14px; padding: 24px; box-shadow: 0 18px 80px #1c2d4430; }
+.modal h4 { margin: 0 0 12px; font-size: 15px; color: #536782; }
+#picker .box { width: 690px; }
+#picker .row { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-bottom: 1px solid #f0f2f6; cursor: pointer; font-size: 12px; border-radius: 5px; }
+#picker .row:hover { background: #f5f8fd; }
+#picker .dir { color: #6684b6; font-weight: 500; }
+#picker .drives { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0 9px; }
+#picker .drives button { min-height: 29px; font-size: 11px; padding: 3px 12px; }
+#picker .row .size { margin-left: auto; font-size: 10px; color: #a2acbb; }
+#picker .tip { border-top: 1px solid var(--line); padding-top: 11px; margin-top: 13px; color: #a0aaba; font-size: 10px; line-height: 1.8; }
+#picker-path { padding: 8px 10px; background: #f7f9fc; border: 1px solid #e8edf4; border-radius: 6px; font-size: 10px !important; word-break: break-all; }
+#picker-list { max-height: 46vh; overflow: auto; }
+#out-confirm, #tpl-confirm { border-color: #ead5ad !important; background: #fffcf5 !important; padding: 14px !important; margin-top: 15px !important; }
 
-  /* ---------- 表格款式预览 ---------- */
-  #previews { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-              gap: 10px; }
-  .tplcard { border: 1px solid #d7dee8; border-radius: 8px; padding: 10px; cursor: pointer;
-             background: #fbfcfe; }
-  .tplcard:hover { border-color: #b9cdf5; }
-  .tplcard.on { border-color: #2f6fed; background: #eef4ff; }
-  .tplcard b { font-size: 13px; }
-  .tplcard small { display: block; color: #8a97a8; font-size: 11px; margin: 4px 0; }
-  .tplcard svg { background: #fff; border-radius: 6px; width: 100%; height: auto; }
+/* Small, expandable activity drawer */
+#logbar { min-height: 34px; display: flex; align-items: center; gap: 11px; background: #fff; border-top: 1px solid var(--line); padding: 0 20px; flex-shrink: 0; }
+#log-toggle { font-size: 10px; min-height: 28px; padding: 2px 3px; color: #8592a6; gap: 6px; }
+#log-toggle svg { width: 13px; height: 13px; }
+#log-toggle[aria-expanded=true] { color: var(--blue); }
+#log-latest { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #acb4bf; font-size: 10px; flex: 1; }
+#log-count { color: #adb5c1; font-size: 9px; }
+#log { height: 0; overflow: hidden; background: #fcfdff; padding: 0 21px; font: 10px/1.9 Consolas, "Microsoft YaHei", monospace; color: #8b98aa; transition: height .15s; flex-shrink: 0; }
+body.log-open #log { height: 125px; overflow: auto; border-top: 1px solid #edf0f4; padding-top: 9px; padding-bottom: 9px; }
+#log .err { color: #b77b6e; }
+#status { min-height: 27px; display: flex; align-items: center; gap: 19px; padding: 4px 21px; background: #f6f7f4; border-top: 1px solid #ebeeea; color: #a2aab4; font-size: 9px; flex-shrink: 0; }
+#st-file { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
+#st-recipe { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 48%; }
+#st-last { margin-left: auto; flex-shrink: 0; }
+#toast { position: fixed; right: 25px; bottom: 75px; max-width: 350px; padding: 13px 17px; border: 1px solid #ecd8d0; border-radius: 10px; color: #ad7868; background: #fffaf7; font-size: 12px; box-shadow: 0 5px 25px #5d382b12; opacity: 0; pointer-events: none; transform: translateY(8px); transition: opacity .15s, transform .15s; z-index: 50; }
+#toast.on { opacity: 1; transform: translateY(0); }
 
-  /* ---------- 右侧：预览 / 报告 ---------- */
-  #right { width: 340px; background: #fff; border-left: 1px solid #d7dee8;
-           display: flex; flex-direction: column; }
-  #right h3 { font-size: 12px; color: #64748b; margin: 12px 12px 6px; font-weight: 600; }
-  #preview { margin: 0 12px 10px; padding: 14px; border: 1px dashed #cbd5e1;
-             border-radius: 8px; color: #64748b; font-size: 12px; min-height: 90px; }
-  #report { flex: 1; overflow: auto; margin: 0 12px 12px; padding: 12px;
-            background: #0f172a; color: #e2e8f0; border-radius: 8px;
-            font: 12px/1.7 Consolas, "Microsoft YaHei", monospace; white-space: pre-wrap; }
+@media (max-width: 1200px) {
+  #sidebar { width: 164px; padding-left: 9px; padding-right: 9px; }
+  #tabs button { font-size: 11px; padding-left: 11px; gap: 8px; }
+  #right { width: 248px; padding-left: 15px; padding-right: 15px; }
+  #workspace-head { padding: 22px 21px 15px; }
+  #panels { padding: 0 21px 24px; }
+  .card { padding: 19px 18px; }
+  .action-note { display: none; }
+  .app-subtitle, .toolbar-divider, .export-label { display: none; }
+  .protection-caption { display: none; }
+}
+@media (max-width: 1000px) {
+  #sidebar { width: 144px; }
+  #right { width: 221px; padding-left: 12px; padding-right: 12px; }
+  #workspace-head { padding: 18px 17px 13px; }
+  #panels { padding: 0 17px 22px; }
+  #workspace-title { font-size: 21px; }
+  .workspace-tag { display: none; }
+  #toolbar { padding: 12px 18px; }
+  #documentbar { padding-left: 18px; padding-right: 18px; gap: 10px; }
+  #toolbar .right button { padding-left: 9px; padding-right: 9px; font-size: 11px; }
+  .step-tools { flex-wrap: wrap; }
+  .card-heading { align-items: flex-start; }
+  .save-plan > .save-fields { grid-template-columns: 1fr; }
+  .flow { gap: 4px !important; font-size: 9px !important; }
+  .workflow .flow:not(:last-child)::after { margin: 0 5px; }
+}
+@media (max-width: 800px) {
+  #right { display: none; }
+  #sidebar { width: 140px; }
+  .docbar-label { display: none; }
+  .brand small { display: none; }
+  .brand .title { font-size: 17px; }
+  #toolbar .right { gap: 3px; }
+  #panel-plan.on { grid-template-columns: 1fr; }
+  #panel-plan > .steps-card { grid-column: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
 
-  /* ---------- 底部：日志 + 状态条 ---------- */
-  #log { height: 118px; overflow: auto; background: #fff; border-top: 1px solid #d7dee8;
-         padding: 8px 14px; font: 12px/1.7 Consolas, monospace; color: #475569; }
-  #status { background: #fff; border-top: 1px solid #eef1f6; padding: 6px 14px;
-            font-size: 12px; color: #64748b; display: flex; gap: 16px; }
+/* Keep working text readable; quieter labels only frame the document workspace. */
+.card h4 { font-size: 14px; }
+.card .hint, .hint { font-size: 12px; color: #7e8c9e; }
+summary { font-size: 12px; }
+.field-label { font-size: 11px; }
+#tabs button { font-size: 13px; }
+#workspace-desc { font-size: 12px; }
+.step .name { font-size: 13px; }
+.step .note { font-size: 11px; color: #8d99ab; }
+.step { padding-top: 10px; padding-bottom: 10px; }
+#plan-desc { font-size: 12px; }
+#right h3 { font-size: 11px; }
+#report { font-size: 11px; }
+#preview a.result-file, .output-kind { font-size: 11px; }
+.tplcard b { font-size: 12px; }
+.tplcard small { font-size: 11px; color: #8f9daf; }
+table.grid { font-size: 12px; }
+table.grid th { font-size: 11px; }
+.protection-caption { display: none; }
+@media(max-width:1200px) { #tabs button { font-size: 12px; } }
 
-  /* ---------- 选文件对话框 ---------- */
-  #picker { position: fixed; inset: 0; background: rgba(15,23,42,.35);
-            display: none; align-items: center; justify-content: center; }
-  #picker.on, .modal.on { display: flex; }
-  #picker .box { width: 680px; max-height: 74vh; overflow: auto; background: #fff;
-                 border-radius: 10px; padding: 14px; }
-  #picker .row { display: flex; align-items: center; gap: 8px; padding: 5px 8px;
-                 border-radius: 6px; cursor: pointer; }
-  #picker .row:hover { background: #f4f7fb; }
-  #picker .dir { color: #2f6fed; font-weight: 600; }
-  #picker .drives { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-  #picker .drives button { padding: 4px 12px; }
-  #picker .row .size { margin-left: auto; color: #94a3b8; font-size: 11px; }
-  #picker .tip { font-size: 11px; color: #94a3b8; margin-top: 8px; }
+.dictionary-help { padding: 10px 0 17px; } .dictionary-help .hint { padding: 15px 0 0; }
+#inspector-toggle { display: none; } body.report-collapsed #report { display: none; }
+@media(max-width:800px) { #inspector-toggle { display: inline-flex; } body.show-inspector #right { display: flex; position: fixed; top:133px; right:0; bottom:61px; width:276px; z-index:20; box-shadow:-10px 0 40px #25304415; } }
 
-  /* ---------- 通用弹窗 ---------- */
-  .modal { position: fixed; inset: 0; background: rgba(15,23,42,.35);
-           display: none; align-items: center; justify-content: center; }
-  .modal .box { width: 760px; max-height: 80vh; overflow: auto; background: #fff;
-                border-radius: 10px; padding: 16px; }
-  .modal h4 { margin: 0 0 10px; }
-  .subtabs { display: flex; gap: 4px; margin-bottom: 10px; }
-  .subtabs button { border-radius: 6px 6px 0 0; border-bottom: none; }
-  .subtabs button.on { font-weight: 600; background: #eef4ff; border-color: #b9cdf5; }
-  .subpanel { display: none; border: 1px solid #e5eaf2; border-radius: 0 8px 8px 8px;
-              padding: 12px; background: #fbfcfe; }
-  .subpanel.on { display: block; }
-  /* 来源 / 换成 两块，一眼分清哪些是报告的、哪些是要替换成的 */
-  .fmtbox { border: 1px solid #e2e8f2; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
-  .fmtbox .fmt-title { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
-  .fmtbox .fmt-title .fld { color: #94a3b8; font-weight: 400; margin: 0 8px 0 14px; }
-  .fmtbox.from { background: #f6f8fc; }
-  .fmtbox.from .fmt-title { color: #475569; }
-  .fmtbox.to { background: #eef4ff; border-color: #b9cdf5; }
-  .fmtbox.to .fmt-title { color: #1d4fd7; }
-  .ruleline { display: flex; gap: 6px; align-items: center; padding: 5px 6px;
-              border-bottom: 1px dashed #e5eaf2; font-size: 12px; }
-  .plan { display: flex; align-items: center; gap: 10px; padding: 9px 10px;
-          border: 1px solid #e2e8f2; border-radius: 8px; margin-bottom: 6px;
-          background: #fbfcfe; }
-  .plan .who { flex: 1; min-width: 0; }
-  .plan .who b { display: block; }
-  .plan .who small { color: #8a97a8; font-size: 11px; }
-  .plan.builtin { background: #f6f8fc; }
-  .chiprow { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-  .chip { background: #eef4ff; color: #1d4fd7; border-radius: 999px;
-          padding: 1px 8px; font-size: 11px; }
+
+.pdf-choice { display:flex; gap:12px; padding:16px; margin:10px 0; border:1px solid #e1e7f1; border-radius:9px; cursor:pointer; }
+.pdf-choice:has(input:checked) { background:#f4f7fd; border-color:#b6c9ef; }
+.pdf-choice input { flex-shrink:0; margin-top:4px; }
+.pdf-choice b { display:block; font-size:13px; color:#536d93; }
+.pdf-choice small { display:block; font-size:12px; color:#8e9aac; margin-top:5px; line-height:1.8; }
+
 </style>
 </head>
 <body>
 
-<div id="toolbar">
-  <span class="title">word工厂</span>
-  <button id="import-files">导入报告（可多选）…</button>
-  <div id="files"></div>
-  <span class="right">
-    <button id="preview-btn" class="primary">出预览版</button>
-    <button id="formal" class="primary">出正式版</button>
-    <button id="pdf" class="ghost">导出 PDF</button>
-    <button id="quit" class="ghost">退出</button>
-  </span>
+<header id="toolbar">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 30 32" fill="none"><path d="M8 5h12l5 5v17H8z" fill="white" opacity=".22"/><path d="M5 3h12l5 5v17H5z" fill="white"/><path d="M17 3v6h5" fill="#cbd9f8"/><path d="m8 13 2 8 3-6 3 6 2-8" stroke="#3469df" stroke-width="1.7" stroke-linejoin="round"/></svg></span><div><span class="title">word工厂</span><small>WORD FACTORY</small></div></div>
+  <span class="toolbar-divider"></span><span class="app-subtitle">让每一份文档，整齐地交付。</span>
+  <div class="right"><span class="export-label">导出文档</span>
+    <button id="preview-btn" title="生成改动标蓝的预览版"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>预览版</button>
+    <button id="formal" class="primary" title="生成正式版并检查字体与颜色"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m-4 4 4-4 4 4M5 14v6h14v-6"/></svg>正式版</button>
+    <button id="pdf" class="ghost" title="通过本机 Word / WPS 导出 PDF"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6v18h12V7zM14 3v5h4M7 14h10"/></svg>PDF</button>
+    <button id="inspector-toggle" class="ghost icon-only" title="显示或收起处理结果" aria-label="显示或收起处理结果" aria-expanded="false"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></button>
+    <button id="quit" class="ghost icon-only" title="退出 word工厂" aria-label="退出 word工厂"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button>
+  </div>
+</header>
+<div id="documentbar">
+  <button id="import-files" title="导入一份或多份 .docx 报告（Ctrl+O）"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5"/></svg>导入文档</button>
+  <span class="docbar-label">工作文档</span><div id="files"><span class="docbar-empty">还没有导入文档，先选择一份 .docx 报告</span></div>
+  <span class="doc-count" id="document-count">0 份文档</span>
 </div>
 
 <main>
+  <aside id="sidebar" aria-label="功能导航">
+    <div class="nav-label">文档工作台</div>
+    <nav id="tabs" aria-label="工作区">
+      <button data-tab="plan" class="on" aria-current="page"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 9 1 1 2-2m-3 7 1 1 2-2m3-5h2m-2 6h2"/></svg>执行方案</button>
+      <button data-tab="style"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16M15 10v10M3 15h18"/></svg>表格款式</button>
+      <button data-tab="extdata"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h9v14H4zM8 9h5M8 13h5m4-5 3 3-3 3m-2-3h5M8 17h5"/></svg>文档数据外置</button>
+      <button data-tab="replacer"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14l-3-3m3 3-3 3M19 17H5l3 3m-3-3 3-3"/></svg>替换规则</button>
+      <button data-tab="subs"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 5 9 12M13 5 4 17M17 13h2a2 2 0 0 1 1 4l-3 3h4"/></svg>上下标字典</button>
+      <button data-tab="about"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4m0 3h.01"/></svg>使用指南</button>
+    </nav>
+    <div class="sidebar-bottom"><div class="sidebar-note"><div class="local"><i class="local-dot"></i>本地文档处理</div>处理结果另存为新文件<br>原始文档始终保留</div></div>
+  </aside>
   <section id="work">
-    <div id="tabs">
-      <button data-tab="plan" class="on">执行方案</button>
-      <button data-tab="style">表格款式</button>
-      <button data-tab="extdata">文档数据外置</button>
-      <button data-tab="replacer">替换规则</button>
-      <button data-tab="subs">上下标字典</button>
-      <button data-tab="about">这是什么</button>
-    </div>
+    <header id="workspace-head"><div><span class="eyebrow" id="workspace-eyebrow">DOCUMENT WORKSPACE</span><h1 id="workspace-title">执行方案</h1><p id="workspace-desc">选好处理步骤，检查改动，再生成交付文档。</p></div><span class="workspace-tag">.docx 工作台</span></header>
     <div id="panels">
 
       <!-- ==================== 页面一：执行方案 ==================== -->
       <div class="panel on" id="panel-plan">
-        <div class="card">
-          <h4>执行方案</h4>
-          <div class="hint">左边勾好功能、排好序（可以加表格模板、替换规则、上下标字典），在这里
-             <b>起名 + 写备注</b>存下来；下拉框里选一套，下一行会显示它具体跑什么。
-             「运行此方案」只出临时版（标蓝），满意了再去顶栏出预览版 / 正式版。</div>
-          <div class="rowline">
-            <select id="plan-select" style="min-width:220px"></select>
-            <button id="plan-refresh">刷新</button>
-            <button id="plan-delete" class="danger">删除</button>
-            <button id="plan-run" class="primary">运行此方案（临时版）</button>
-            <button id="plan-dry">先看会改多少</button>
-          </div>
-          <div class="hint" id="plan-desc" style="margin:8px 0"></div>
-          <div class="rowline">
-            <input type="text" id="plan-name" placeholder="方案名（如：报告规范化）">
-            <input type="text" id="plan-note" placeholder="备注：这套方案跑什么、什么时候用（可选）"
-                   style="min-width:280px">
-            <button id="plan-save" class="primary">保存这套</button>
-            <button id="plan-export">导出到文件…</button>
-            <button id="plan-import">从文件导入…</button>
-          </div>
-          <div class="rowline" style="margin-top:6px">
-            <button id="temp-clean">清理临时文件</button>
-            <span class="hint" id="temp-note" style="margin:0"></span>
-          </div>
-          <div id="out-confirm" style="display:none;margin-top:10px;padding:10px 12px;
-               border:1px solid #f0c9a0;background:#fff8ef;border-radius:8px">
-            <div id="out-confirm-text" style="font-size:12px;color:#7a4b12"></div>
-            <div class="rowline" style="margin-top:8px">
-              <input type="text" id="out-suffix" placeholder="新后缀，如（预览版-定稿）"
-                     style="min-width:220px">
-              <button id="out-overwrite" class="danger">覆盖原文件</button>
-              <button id="out-rename" class="primary">用这个后缀另存</button>
-              <button id="out-cancel">取消</button>
-            </div>
-          </div>
-        </div>
 
-        <div class="card">
-          <h4>前置区（封面 / 扉页 / 签字页）—— 这几页的空白行不许清理</h4>
-          <div class="hint">自动识别：封面、扉页、签字页、前言、目录<b>都算前置区</b>，到目录后面那个分页符为止（之后是正文）。识别不对就点各行的「手动调整」，
-             告诉工具它**到第几页**（第几页 = 整份报告的物理页序，不看页脚页码）。</div>
+        <div class="empty-start" id="empty-start"><div class="start-content"><h3>从一份文档，开始整理。</h3><p>导入报告，选一套方案。复杂的排版工作，一步一步做好。</p><button id="start-import"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5"/></svg>选择 .docx 文档</button></div><span class="paper-decoration" aria-hidden="true"></span></div>
+        <div class="workflow" aria-label="文档处理流程"><div class="flow current" id="flow-import"><span class="flow-n">1</span>导入文档</div><div class="flow" id="flow-plan"><span class="flow-n">2</span>配置方案</div><div class="flow" id="flow-check"><span class="flow-n">3</span>检查改动</div><div class="flow" id="flow-export"><span class="flow-n">4</span>导出文档</div></div>
+        <div class="plan-column"><div class="card plan-config">
+          <h4><span class="section-num">01</span>选择执行方案</h4>
+          <div class="hint">使用已有方案，或在下方按需组合处理步骤。</div>
+          <label class="field-label" for="plan-select">已保存的方案</label>
+          <div class="plan-selection"><select id="plan-select"></select><button id="plan-refresh" class="icon-only" title="刷新方案清单" aria-label="刷新方案清单"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7a8 8 0 1 0 1 8M20 3v5h-5"/></svg></button><button id="plan-delete" class="icon-only danger" title="删除选中的自定义方案" aria-label="删除选中的自定义方案"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg></button></div>
+          <div class="hint" id="plan-desc"></div>
+          <div class="plan-actions"><button id="plan-run" class="primary" title="生成改动标蓝的临时版（Ctrl+Enter）"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 4 12 8-12 8z"/></svg>运行方案</button><button id="plan-dry"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>检查改动</button><span class="action-note">先生成临时版，再确认交付</span></div>
+          <details class="save-plan"><summary><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h12l4 4v14H3V3zM7 3v7h10V3M7 21v-7h10v7"/></svg>保存与管理方案</summary>
+            <div class="save-fields"><label class="field"><span class="field-label">方案名称</span><input type="text" id="plan-name" placeholder="例如：报告规范化"></label><label class="field"><span class="field-label">使用备注</span><input type="text" id="plan-note" placeholder="记录这套方案的用途（可选）"></label></div>
+            <div class="rowline"><button id="plan-save" class="primary">保存方案</button><button id="plan-export">导出方案…</button><button id="plan-import">导入方案…</button></div>
+            <div class="manage-actions"><button id="temp-clean">清理临时文件</button><span class="hint" id="temp-note" style="display:block;margin:8px 0 0"></span></div>
+          </details>
+          <div id="out-confirm" style="display:none"><div id="out-confirm-text"></div><div class="rowline" style="margin-top:10px"><input type="text" id="out-suffix" placeholder="新后缀，例如（预览版-定稿）"><button id="out-overwrite" class="danger">覆盖已有产物</button><button id="out-rename" class="primary">另存一份</button><button id="out-cancel">取消</button></div></div>
+        </div>
+<details class="card protection-card"><summary><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z"/><path d="m8 12 3 3 5-6"/></svg>前置页保护<span class="protection-caption">封面 / 扉页 / 签字页</span></summary><div class="protection-content">
+          <h4>前置页识别与保护</h4>
+          <div class="hint">封面、扉页、签字页、前言和目录自动保护。识别范围不准确时，可按文档物理页序手动调整。</div>
           <div class="rowline" style="margin-bottom:10px">
-            <button id="fm-accurate">重新用 Word 校准页码</button>
+            <button id="fm-accurate">校准真实页码</button>
             <span class="hint" id="fm-accurate-note" style="margin:0">
               现在是「估算」（按分页符数）——排版用的空段和回车不换页，会数多。
               点这个按钮让 Word/WPS 真排一遍，读出每段真正在哪一页（和你状态栏的 3/26 一个口径）。</span>
@@ -226,14 +432,15 @@
           <table class="grid" id="fm-table">
             <tr><th>页面</th><th>识别结果</th><th>保护范围</th><th style="width:110px"></th></tr>
           </table>
-        </div>
-
-        <div class="card">
-          <h4>这套方案调用的功能（勾选 + 拖动排序）</h4>
-          <div class="rowline" style="margin-bottom:8px">
+        </div></details>
+</div>
+        <div class="card steps-card">
+          <div class="card-heading"><h4><span class="section-num">02</span>处理步骤</h4><span class="count-pill" id="selected-count">已选 1 项</span></div>
+          <div class="hint">勾选需要的功能，拖动左侧手柄调整执行顺序。</div>
+          <div class="rowline step-tools">
             <button id="select-all">全选</button>
-            <button id="select-none">全部取消</button>
-            <button id="add-op" class="ghost">＋ 新增功能…</button>
+            <button id="select-none">取消选择</button>
+            <button id="add-op" class="ghost">＋ 添加功能</button>
           </div>
           <div id="steps"></div>
         </div>
@@ -247,7 +454,7 @@
       <!-- ==================== 页面二：表格款式 ==================== -->
       <div class="panel" id="panel-style">
         <div class="card">
-          <h4>表格模板（点选一张样图，看右边预览）</h4>
+          <h4>选择表格款式</h4>
           <div class="hint">样图按模板参数现画：框线粗细、三线表、表头加粗居中、长文本列左对齐。</div>
           <div id="style-current" class="hint"
                style="padding:8px 10px;background:#f6f8fc;border-radius:8px;margin-bottom:10px"></div>
@@ -259,12 +466,12 @@
           <div id="previews"></div>
         </div>
         <div class="card">
-          <h4>表格清单（勾选参与；每张表可以单独指定用哪个模板）</h4>
+          <h4>文档中的表格</h4>
           <div class="hint" id="tables-hint">先在顶栏导入报告</div>
           <div id="tables"></div>
         </div>
         <div class="card">
-          <h4>应用</h4>
+          <h4>加入执行方案</h4>
           <div class="hint" id="tpl-plan" style="margin-bottom:10px"></div>
           <div id="tpl-confirm" style="display:none;margin-bottom:10px;padding:10px 12px;
                border:1px solid #f0c9a0;background:#fff8ef;border-radius:8px">
@@ -288,7 +495,7 @@
       <!-- ==================== 页面三：文档数据外置 ==================== -->
       <div class="panel" id="panel-extdata">
         <div class="card">
-          <h4>数据外置，一句话：把文档里会变的数字搬到 Excel，改完再写回文档</h4>
+          <h4>把文档数据交给 Excel 管理</h4>
           <div class="hint">这里**独立导入报告**（跟顶栏的批量清单不相通），可以一份也可以多份。</div>
           <div class="rowline">
             <button id="ext-import">导入报告（可多选）…</button>
@@ -323,7 +530,7 @@
       <!-- ==================== 页面四：替换规则 ==================== -->
       <div class="panel" id="panel-replacer">
         <div class="card">
-          <h4>替换规则（文本 / 文字格式 / 段落格式，可存多套，选一套挂进执行方案）</h4>
+          <h4>管理替换规则</h4>
           <div class="hint">执行方案里**同时只挂一套**替换规则 —— 下面「加入执行方案」会自动替换掉旧的那套。</div>
           <div class="rowline" style="margin-bottom:10px">
             <button id="rule-create" class="primary">创建替换规则</button>
@@ -338,8 +545,8 @@
       <!-- ==================== 上下标字典 ==================== -->
       <div class="panel" id="panel-subs">
         <div class="card">
-          <h4>上下标字典（智能上下标）—— 直接在这里改，不用碰 JSON</h4>
-          <div class="hint">
+          <h4>管理上下标字典</h4>
+<details class="dictionary-help"><summary>如何设置逐字符规则与正则规则？</summary>          <div class="hint">
             <b>逐字符（N/S/B）</b>：左边写死一串字，右边逐个字符标格式 ——
             <code>N</code> 正常、<code>S</code> 上标、<code>B</code> 下标。
             例：写 <b>m2</b> + <b>NS</b> = m 正常、2 上标（最常用，字典里 20 多条都是这种）。<br>
@@ -352,6 +559,7 @@
             <code>Qpl</code> + <code>NBB</code> = Q 正常、p 下标、l 下标。
             只写一部分（如 <code>mm2</code> + <code>NNS</code>）也可以，长度对得上就行。
           </div>
+</details>
           <div class="rowline" style="margin-bottom:10px">
             <button id="subs-save" class="primary">保存字典</button>
             <button id="subs-reset">恢复默认字典</button>
@@ -384,36 +592,40 @@
       </div>
 
       <!-- ==================== 页面五：这是什么 ==================== -->
-      <div class="panel" id="panel-about">
-        <div class="card">
-          <h4>这是什么</h4>
-          <p>不依赖 Word/WPS/VBA 的 Word 文档批量规范化工具：直接读写 .docx 的 OOXML
-             （zip + XML，只用 Python 标准库）。</p>
-          <p><b>推荐流程</b>：顶栏导入报告（可多份）→「执行方案」页选/调方案（勾功能、排序、
-             指定前置区）→ 点「运行此方案」出临时版（标蓝，进临时文件夹）→ 满意后点顶栏
-             「出预览版」核对或直接「出正式版」（自动变黑 + 字体合规 + 体检）。</p>
-          <p>文件不会被覆盖：结果另存为「某报告（预览版）.docx /（正式版）.docx」。</p>
-          <p><b>体检 AUDIT</b> = 重新打开写出的文件、独立复算"通体黑 + 字体合格"，末行 AUDIT=PASS/FAIL
-             —— 正式版跑完自动做，不信工具自己的汇报。</p>
-        </div>
-      </div>
+      <div class="panel" id="panel-about"><div class="card">
+        <div class="help-hero"><span class="eyebrow">A BETTER DOCUMENT, STEP BY STEP</span><h3>整理文档，也可以很从容。</h3><p>批量处理 Word 报告：统一排版、整理表格、替换内容，让每份交付更规范。</p></div>
+        <div class="help-step"><span>01</span><div><h4>导入文档</h4><p>点击上方「导入文档」选择 .docx 报告，可一次加入多份。点击文件名切换当前工作文档。</p></div></div>
+        <div class="help-step"><span>02</span><div><h4>组合处理步骤</h4><p>选择已有方案，或勾选功能并拖动调整顺序。表格模板与替换规则可加入方案，一起执行。</p></div></div>
+        <div class="help-step"><span>03</span><div><h4>先检查，再处理</h4><p>「检查改动」先计算修改内容；「运行方案」生成临时版，改动标蓝，便于在 Word 中核对。</p></div></div>
+        <div class="help-step"><span>04</span><div><h4>确认后交付</h4><p>「预览版」保留蓝色改动；「正式版」统一颜色和字体，并自动检查。结果另存为新文件，原始文档保留。</p></div></div>
+        <div class="fmtbox" style="margin-top:18px"><h4>本机使用说明</h4><p style="margin:0">常规整理功能可独立处理 .docx。真实页码校准和 PDF 导出需要本机安装 Word 或 WPS。<br>快捷键：<code>Ctrl + O</code> 导入文档，<code>Ctrl + Enter</code> 运行方案，<code>Esc</code> 关闭弹窗。</p></div>
+      </div></div>
     </div>
   </section>
 
-  <aside id="right">
-    <h3>预览</h3>
-    <div id="preview">跑一次就会生成文件，这里出现下载链接；下载后用 Word 打开看效果。</div>
-    <h3>改动报告</h3>
-    <div id="report">（还没跑）</div>
+  <aside id="right" aria-label="处理结果">
+    <div class="inspector-heading"><h2>处理结果</h2><span id="activity" data-state="idle" role="status">等待开始</span></div>
+    <div class="inspector-stats"><div><small>工作文档</small><strong id="stat-docs">0</strong><span>份</span></div><div><small>处理步骤</small><strong id="stat-steps">1</strong><span>项</span></div></div>
+    <h3>生成的文件</h3><div id="preview" aria-live="polite"><div class="output-empty"><div class="output-icon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></div><b>还没有生成文件</b><p>运行方案后，处理好的文档<br>会出现在这里。</p></div></div>
+    <div class="report-heading"><h3>改动报告</h3><button id="report-toggle" class="ghost" title="显示或收起改动报告">收起</button></div>
+    <div id="report" class="report-empty" role="status">运行方案后，查看逐项改动记录。</div>
+    <div class="inspector-footnote"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z"/><path d="m8 12 3 3 5-6"/></svg><span>改动标蓝，便于逐项核对。<br>正式版自动检查字体和颜色。</span></div>
   </aside>
 </main>
+<div id="logbar"><button id="log-toggle" class="ghost" aria-expanded="false" aria-controls="log"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>运行日志</button><span id="log-latest">文档工作台已就绪</span><span id="log-count">0 条</span></div>
+<div id="log" role="log" aria-live="off"></div>
+<footer id="status"><span id="st-file">未导入文档</span><span id="st-recipe">执行方案：空</span><span id="st-last">上次：—</span></footer>
+<div id="toast" role="alert"></div>
 
-<div id="log"></div>
-<div id="status">
-  <span id="st-file">未选文件</span>
-  <span id="st-recipe">执行方案：空</span>
-  <span id="st-last">上次：—</span>
-</div>
+
+<div id="pdf-dialog" class="modal"><div class="box" style="width:510px">
+  <h4>导出哪一版 PDF？</h4>
+  <p class="hint" id="pdf-summary"></p>
+  <label class="pdf-choice"><input type="radio" name="pdf-edition" value="formal" checked><span><b>正式版 PDF</b><small>按当前方案处理，统一字体与颜色并体检，适合最终交付。</small></span></label>
+  <label class="pdf-choice"><input type="radio" name="pdf-edition" value="verify"><span><b>预览版 PDF</b><small>按当前方案处理，保留蓝色改动标记，适合检查与核对。</small></span></label>
+  <p class="hint" style="margin:18px 0">将生成所选版本的文档再转换。原始报告保留，同名 PDF 自动另存。</p>
+  <div class="rowline" style="justify-content:flex-end"><button id="pdf-cancel">取消</button><button id="pdf-confirm" class="primary">生成 PDF</button></div>
+</div></div>
 
 <!-- 选文件 -->
 <div id="picker" class="modal"><div class="box">
@@ -534,6 +746,80 @@ const state = {files: [], file: null, steps: [], plans: [], planName: '',
                subs: null, tplConfirmFor: null, fmAccurate: {}, fmBlockPages: {},
                lastOut: null};
 
+
+const PAGE_INFO = {
+  plan: ['执行方案', '选好处理步骤，检查改动，再生成交付文档。', 'DOCUMENT WORKSPACE'],
+  style: ['表格款式', '选择一套清晰的表格款式，为报告统一视觉语言。', 'TABLE STYLES'],
+  extdata: ['文档数据外置', '把会变化的数字放进 Excel，更新后同步回文档。', 'DOCUMENT DATA'],
+  replacer: ['替换规则', '统一文本、字体和段落格式，保存为可复用的规则。', 'REPLACEMENT RULES'],
+  subs: ['上下标字典', '整理单位与符号的书写方式，让专业表达更规范。', 'TYPE & SYMBOLS'],
+  about: ['使用指南', '从导入到交付，了解每一步该怎么做。', 'GETTING STARTED']
+};
+let toastTimer;
+function setActivity(kind, text) {
+  $('activity').dataset.state = kind;
+  $('activity').textContent = text;
+}
+function syncWorkspace() {
+  const docs = targetFiles().length;
+  const steps = state.steps.filter(s => s.on).length;
+  $('document-count').textContent = docs + ' 份文档';
+  $('stat-docs').textContent = docs;
+  $('stat-steps').textContent = steps;
+  $('selected-count').textContent = '已选 ' + steps + ' 项';
+  $('empty-start').hidden = !!docs;
+  $('flow-import').classList.toggle('current', !docs);
+  $('flow-import').classList.toggle('done', !!docs);
+  $('flow-plan').classList.toggle('current', !!docs);
+  ['preview-btn','formal','plan-run','plan-dry'].forEach(id => {
+    $(id).disabled = !docs || !steps || !!state.busy || !!state.loadingFile;
+  });
+  $('pdf').disabled = !docs || !!state.busy || !!state.loadingFile;
+  const plan = state.plans.find(p => p.name === $('plan-select').value);
+  $('plan-delete').disabled = !plan || !!plan.builtin;
+}
+function updateWorkspaceTitle(tab) {
+  const info = PAGE_INFO[tab] || PAGE_INFO.plan;
+  $('workspace-title').textContent = info[0];
+  $('workspace-desc').textContent = info[1];
+  $('workspace-eyebrow').textContent = info[2];
+  document.querySelectorAll('#tabs button').forEach(b => {
+    if (b.dataset.tab === tab) b.setAttribute('aria-current','page');
+    else b.removeAttribute('aria-current');
+  });
+  $('panels').scrollTop = 0;
+}
+function resetPreview() {
+  $('preview').innerHTML = "<div class=\"output-empty\"><div class=\"output-icon\"><svg class=\"ico\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z\"/><path d=\"M14 3v6h6M8 13h8M8 17h5\"/></svg></div><b>还没有生成文件</b><p>运行方案后，处理好的文档<br>会出现在这里。</p></div>";
+  $('report').textContent = '运行方案后，查看逐项改动记录。';
+  setActivity('idle', '等待开始');
+}
+function renderGeneratedFiles(downloads, mode, outDir) {
+  const holder = $('preview');
+  holder.replaceChildren();
+  const heading = document.createElement('div');
+  heading.className = 'output-success';
+  heading.innerHTML = "<svg class=\"ico\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m4 12 5 5L20 6\"/></svg>";
+  const label = document.createElement('span');
+  label.textContent = '已生成 ' + downloads.length + ' 份文档';
+  heading.appendChild(label); holder.appendChild(heading);
+  const kind = document.createElement('p'); kind.className = 'output-kind';
+  kind.textContent = outDir ? '临时版 · 改动标蓝，供你核对' : mode === 'formal' ? '正式版 · 查看下方体检报告' : '预览版 · 改动标蓝，供你核对';
+  holder.appendChild(kind);
+  downloads.forEach(name => {
+    const link = document.createElement('a');
+    link.href = '/api/download?name=' + encodeURIComponent(name);
+    link.download = name; link.className = 'result-file';
+    link.innerHTML = "<svg class=\"ico\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z\"/><path d=\"M14 3v6h6M8 13h8M8 17h5\"/></svg>";
+    const text = document.createElement('span'); text.textContent = name;
+    link.appendChild(text); holder.appendChild(link);
+  });
+  const location = document.createElement('details'); location.className = 'output-location';
+  const summary = document.createElement('summary'); summary.textContent = '查看保存位置';
+  const text = document.createElement('p'); text.textContent = outDir || (state.file || '').split('\\').slice(0,-1).join('\\');
+  location.append(summary,text); holder.appendChild(location);
+}
+
 /* ---------------------------------------------------------------- 基础 */
 function log(text, cls) {
   const row = document.createElement('div');
@@ -541,6 +827,14 @@ function log(text, cls) {
   row.textContent = '[' + new Date().toTimeString().slice(0, 8) + '] ' + text;
   $('log').appendChild(row);
   $('log').scrollTop = $('log').scrollHeight;
+  $('log-latest').textContent = text;
+  $('log-count').textContent = $('log').children.length + ' 条';
+  if (cls === 'err') {
+    $('toast').textContent = text;
+    $('toast').classList.add('on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => $('toast').classList.remove('on'), 6500);
+  }
 }
 async function api(url, options) {
   const response = await fetch(url, options);
@@ -566,7 +860,7 @@ function renderFiles() {
   state.files.forEach((path, i) => {
     const chip = document.createElement('span');
     chip.className = 'filechip' + (path === state.file ? ' on' : '');
-    chip.textContent = path.split('\\').pop();
+    const name = document.createElement('span'); name.className = 'file-name'; name.textContent = path.split('\\').pop(); chip.appendChild(name);
     chip.title = path;
     chip.addEventListener('click', () => { choose(path); });
     const x = document.createElement('span');
@@ -581,6 +875,8 @@ function renderFiles() {
     chip.appendChild(x);
     holder.appendChild(chip);
   });
+  if (!state.files.length) holder.innerHTML = '<span class="docbar-empty">还没有导入文档，先选择一份 .docx 报告</span>';
+  syncWorkspace();
   $('st-file').textContent = state.files.length
     ? ('文件：' + state.files.length + ' 份（当前：' + (state.file ? state.file.split('\\').pop() : '—')
        + '，原文件不会被改）')
@@ -685,23 +981,36 @@ async function browse(dir) {
 }
 
 async function choose(path) {
+  const seq = state.chooseSeq = (state.chooseSeq || 0)+1;
   state.file = path;
   state.lastOut = null;
-  renderFiles();
-  $('preview').textContent = '跑一次就会生成文件，这里出现下载链接；下载后用 Word 打开看效果。';
-  $('report').textContent = '（还没跑）';
-  log('当前文件：' + path);
-  await loadTables();
-  await loadFrontmatter();
-  await fillStyleFileSelect();
+  state.fmInfo = null;
+  state.loadingFile = true;
+  renderFiles(); renderFrontmatter(); resetPreview();
+  setActivity('busy','读取文档');
+  log('当前文档：'+path);
+  try {
+    await loadTables(); await loadFrontmatter(); await fillStyleFileSelect();
+  } finally {
+    if (seq === state.chooseSeq) {
+      state.loadingFile = false;
+      syncWorkspace(); setActivity('idle','可运行');
+    }
+  }
 }
 
 /* ---------------------------------------------------------------- 功能清单 */
 async function loadSteps() {
   const data = await api('/api/steps');
-  state.steps = data.steps.map(step => ({op: step.op, label: (data.labels || {})[step.op] || step.op,
+  const previous=state.steps || [];
+  const catalog = data.steps.map(step => ({op: step.op, label: (data.labels || {})[step.op] || step.op,
                                          note: step.note, params: step.params,
                                          on: step.op === 'captions'}));
+  state.stepCatalog = JSON.parse(JSON.stringify(catalog));
+  const previousOps=new Set(previous.map(step=>step.op));
+  state.steps=previous.length
+    ? previous.map(step=>({...step})).concat(catalog.filter(step=>!previousOps.has(step.op)).map(step=>({...step,on:false})))
+    : catalog;
   renderSteps();
 }
 function renderSteps() {
@@ -709,14 +1018,14 @@ function renderSteps() {
   holder.textContent = '';
   state.steps.forEach((step, index) => {
     const row = document.createElement('label');
-    row.className = 'step';
+    row.className = 'step' + (step.on ? ' selected' : '');
     row.draggable = true;
     row.innerHTML = '<span class="grip">⣿</span>'
       + '<input type="checkbox" ' + (step.on ? 'checked' : '') + '>'
       + '<span><span class="name">' + (step.alias || step.label) + '</span>'
       + '<span class="note">' + step.note + '</span></span>';
     row.querySelector('input').addEventListener('change', e => {
-      step.on = e.target.checked; renderRecipe();
+      step.on = e.target.checked; row.classList.toggle('selected', step.on); renderRecipe();
     });
     row.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', index); row.classList.add('dragging'); });
     row.addEventListener('dragend', () => row.classList.remove('dragging'));
@@ -753,6 +1062,7 @@ function chosenSteps() {
   return out;
 }
 function renderRecipe() {
+  syncWorkspace();
   const chosen = state.steps.filter(s => s.on);
   $('st-recipe').textContent = '执行方案：'
     + (chosen.length ? chosen.map(s => s.alias || s.label).join(' → ') : '空');
@@ -772,7 +1082,7 @@ async function loadPlans() {
   const keep = select.value;
   select.textContent = '';
   const blank = document.createElement('option');
-  blank.value = ''; blank.textContent = '（选择已保存的方案）';
+  blank.value = ''; blank.textContent = '选择一套已有方案…';
   select.appendChild(blank);
   data.plans.forEach(plan => {
     const option = document.createElement('option');
@@ -781,7 +1091,8 @@ async function loadPlans() {
     select.appendChild(option);
   });
   if (keep && data.plans.some(p => p.name === keep)) select.value = keep;
-  showPlanDesc();
+  showPlanDesc(state.plans.find(p => p.name === select.value));
+  syncWorkspace();
 }
 $('plan-refresh').addEventListener('click', async () => {
   await loadPlans(); await loadSteps(); await loadRules();
@@ -790,6 +1101,7 @@ $('plan-refresh').addEventListener('click', async () => {
 $('plan-select').addEventListener('change', () => {
   const plan = state.plans.find(p => p.name === $('plan-select').value);
   if (plan) { applyPlan(plan); showPlanDesc(plan); }
+  syncWorkspace();
 });
 function stepSummary(step) {
   const params = step.params || {};
@@ -818,20 +1130,34 @@ function showPlanDesc(plan) {
     return alias + extra;
   });
   holder.textContent = (plan.note ? plan.note + '　—　' : '—　') + (steps.length ? steps.join(' → ') : '（空）');
+  const snapshots=(plan.steps || []).filter(item=>typeof item==='object' && item.params && (item.params.rules_data || item.params.styles_data));
+  if (snapshots.length) holder.textContent+=' · 已包含配套规则，无需重新配置';
 }
 function applyPlan(plan) {
   const wanted = plan.steps || [];
-  state.steps.forEach(step => {
-    const hit = wanted.find(item => (item.op || item) === step.op);
-    step.on = !!hit;
-    if (hit && hit.params) step.params = Object.assign({}, step.params, hit.params);
-    if (hit && hit.label) step.alias = hit.label; else delete step.alias;
+  const catalog = state.stepCatalog || state.steps;
+  const selected = wanted.map(item => {
+    item = typeof item === 'string' ? {op:item} : item;
+    const prototype = catalog.find(step => step.op === item.op);
+    if (!prototype) throw new Error('本程序未安装方案功能：' + item.op);
+    return {...prototype, params:JSON.parse(JSON.stringify(item.params || prototype.params || {})),
+            on:true, alias:item.label || undefined};
   });
+  const ops = new Set(selected.map(step=>step.op));
+  state.steps = selected.concat(catalog.filter(step=>!ops.has(step.op)).map(step=>({...step,on:false,params:JSON.parse(JSON.stringify(step.params || {}))})));
   state.planName = plan.name;
+  state.fontRules = plan.font_rules_data || null;
+  const tableStep=selected.find(step=>step.op==='tablestyle');
+  if (tableStep) {
+    state.template=tableStep.params.style || null;
+    state.uniform=!!tableStep.params.uniform;
+    $('uniform').checked=state.uniform;
+    state.tableStyle=Object.fromEntries((tableStep.params.mapping || []).filter(row=>row.index!==undefined).map(row=>[row.index,row.none?'（不套用）':row.style]));
+  }
   $('plan-name').value = plan.name;
   $('plan-note').value = plan.note || '';
   renderSteps();
-  log('已选中执行方案：' + plan.name + '（' + (plan.steps || []).map(s => s.label || s.op).join(' → ') + '）');
+  log('已载入方案及保存的执行顺序：' + plan.name);
 }
 $('plan-delete').addEventListener('click', async () => {
   const name = $('plan-select').value;
@@ -852,22 +1178,25 @@ $('plan-save').addEventListener('click', async () => {
   try {
     const data = await api('/api/plans/save', {method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name: name, steps: steps, note: $('plan-note').value.trim()})});
+      body: JSON.stringify({name: name, steps: steps, note: $('plan-note').value.trim(),font_rules_data:state.fontRules || null})});
     state.planName = name; log(data.text); loadPlans();
   } catch (error) { log('保存失败：' + error.message, 'err'); }
 });
-$('plan-export').addEventListener('click', () => {
+$('plan-export').addEventListener('click', async () => {
   const steps = chosenSteps();
-  if (!steps.length) { log('先勾几个功能再导出', 'err'); return; }
-  const blob = new Blob([JSON.stringify(
-    {name: $('plan-name').value.trim() || '执行方案',
-     note: $('plan-note').value.trim(), steps: steps}, null, 2)],
-    {type: 'application/json'});
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = ($('plan-name').value.trim() || '执行方案') + '.json';
-  link.click();
-  URL.revokeObjectURL(link.href);
+  if (!steps.length) { log('先选择方案功能再导出', 'err'); return; }
+  $('plan-export').disabled = true;
+  try {
+    const data = await api('/api/plans/export',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:$('plan-name').value.trim() || '执行方案',note:$('plan-note').value.trim(),steps,
+                           font_rules_data:state.fontRules || null})});
+    const link = document.createElement('a');
+    link.href='/api/download?name='+encodeURIComponent(data.download);
+    link.download=data.download;
+    document.body.appendChild(link); link.click(); link.remove();
+    log(data.text);
+  } catch(error) { log('方案导出失败：'+error.message,'err'); }
+  finally { $('plan-export').disabled=false; }
 });
 $('plan-import').addEventListener('click', () => {
   const input = document.createElement('input');
@@ -881,10 +1210,14 @@ $('plan-import').addEventListener('click', () => {
         const steps = data.steps || [];
         if (!steps.length) throw new Error('文件里没有 steps');
         const name = (data.name || file.name.replace(/\.json$/i, '')).slice(0, 40);
-        await api('/api/plans/save', {method: 'POST',
+        const saved=await api('/api/plans/import', {method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({name: name, steps: steps, note: data.note || ''})});
-        log('已导入执行方案：' + name); loadPlans();
+          body: JSON.stringify({data:{...data,name:name}})});
+        await loadPlans();
+        $('plan-select').value=saved.name;
+        const loaded=state.plans.find(plan=>plan.name===saved.name);
+        if (loaded) { applyPlan(loaded); showPlanDesc(loaded); }
+        log('方案已导入，执行顺序和内嵌规则已恢复：' + saved.name);
       } catch (error) { log('导入失败：' + error.message, 'err'); }
     };
     reader.readAsText(file);
@@ -902,7 +1235,7 @@ function blockPagesFor(path) {
 }
 async function runOne(path, mode, outPath, extra) {
   const payload = Object.assign({path: path, steps: chosenSteps(), mode: mode,
-                                out: outPath || null}, extra || {});
+                                out: outPath || null, font_rules_data:state.fontRules || null}, extra || {});
   const bp = blockPagesFor(path);
   if (bp) payload.block_pages = bp;
   return api('/api/run', {method: 'POST',
@@ -914,8 +1247,10 @@ async function runMany(mode, outDir) {
   if (!files.length) { log('先在顶栏导入报告', 'err'); return; }
   if (!chosenSteps().length) { log('执行方案是空的 —— 至少勾一个功能', 'err'); return; }
   const buttons = ['preview-btn', 'formal', 'plan-run', 'plan-dry'].map($);
-  buttons.forEach(b => b.disabled = true);
-  $('report').textContent = '正在跑…';
+  state.busy = true;
+  syncWorkspace();
+  setActivity('busy', '正在处理');
+  $('report').textContent = '正在处理文档，请稍候…';
   const downloads = [];
   const conflicts = [];      // 重名的产物：先问一句，不自作主张（用户 2026-09-30）
   try {
@@ -930,25 +1265,22 @@ async function runMany(mode, outDir) {
       if (data.download) downloads.push(data.download);
       if (data.report.audit) log('体检：' + (data.report.audit.verdict === 'PASS' ? 'AUDIT=PASS' : 'AUDIT=FAIL'));
     }
-    if (conflicts.length) { askOutConflicts(conflicts, mode, outDir, downloads); return; }
+    if (conflicts.length) { setActivity('idle', '等待确认'); askOutConflicts(conflicts, mode, outDir, downloads); return; }
     $('st-last').textContent = '上次：' + (outDir ? '临时版' : mode);
     if (downloads.length) {
-      $('preview').innerHTML = '<b>生成了 ' + downloads.length + ' 份新文件</b>'
-        + '<br><span style="color:#8a97a8">你的原文件一个字都没动（工具永远不覆盖原件）。</span>'
-        + (outDir ? ('<br>新文件在：' + outDir) : '<br>点下面的按钮下载')
-        + '<br><br>' + downloadsHtml(downloads,
-            outDir ? '临时版（改动处标蓝）也在这个文件夹里，满意后再出预览版/正式版'
-                   : '下载后用 Word 打开看效果')
-        + '<br><br><span style="color:#8a97a8">对比时注意别打开错了：'
-        + '原文件打开还是老样子，套了样式的新文件才是改过的。</span>';
+      renderGeneratedFiles(downloads, mode, outDir);
     } else {
       $('preview').textContent = '没有需要改的地方（也没写文件）';
     }
     if (outDir) await loadTemp();
+    setActivity('done', '处理完成');
+    $('flow-check').classList.add('done');
+    $('flow-export').classList.toggle('done', !outDir);
   } catch (error) {
+    setActivity('error', '处理失败');
     $('report').textContent = '出错：' + error.message;
     log('出错：' + error.message, 'err');
-  } finally { buttons.forEach(b => b.disabled = false); }
+  } finally { state.busy = false; syncWorkspace(); }
 }
 $('plan-run').addEventListener('click', async () => {
   if (!state.tempDir) await loadTemp();
@@ -958,16 +1290,20 @@ $('plan-run').addEventListener('click', async () => {
 $('plan-dry').addEventListener('click', async () => {
   const files = targetFiles();
   if (!files.length) { log('先导入报告', 'err'); return; }
+  state.busy = true; syncWorkspace(); setActivity('busy', '正在检查');
   try {
-    const dryPayload = {path: files[0], steps: chosenSteps(), mode: 'verify', dry_run: true};
+    const dryPayload = {path: files[0], steps: chosenSteps(), mode: 'verify', dry_run: true,font_rules_data:state.fontRules || null};
     const dryBp = blockPagesFor(files[0]);
     if (dryBp) dryPayload.block_pages = dryBp;
     const data = await api('/api/run', {method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(dryPayload)});
     $('report').textContent = data.text;
+    setActivity('done', '检查完成');
+    $('flow-check').classList.add('done');
     log('dry-run（第一份）：' + (data.report.out || '没有要改的'));
-  } catch (error) { log('出错：' + error.message, 'err'); }
+  } catch (error) { setActivity('error', '检查失败'); log('出错：' + error.message, 'err'); }
+  finally { state.busy = false; syncWorkspace(); }
 });
 $('preview-btn').addEventListener('click', () => runMany('verify', null));
 $('formal').addEventListener('click', () => runMany('formal', null));
@@ -1043,37 +1379,32 @@ $('temp-clean').addEventListener('click', async () => {
 /* ---------------------------------------------------------------- 前置区 */
 const FM_ROWS = [['cover', '封面'], ['title', '扉页'], ['signature', '签字页'],
                   ['preface', '前言'], ['toc', '目录']];
-async function loadFrontmatter(accurate) {
-  if (!state.file) { state.fmInfo = null; renderFrontmatter(); return; }
-  // 默认真实页码（用户 2026-09-30：要的就是 Word 状态栏那个口径）；
-  // 校准过的文件不重复起 Word。
-  const useAccurate = (accurate === undefined) ? true : !!accurate;
-  if (useAccurate && state.fmAccurate[state.file]) { renderFrontmatter(); return; }
-  const note = $('fm-accurate-note');
-  if (note) note.innerHTML = '正在用 Word 排版并读页码…（几秒）';
+async function loadFrontmatter(accurate=true,force=false) {
+  if (!state.file) { state.fmInfo=null; renderFrontmatter(); return; }
+  const path=state.file;
+  const seq=state.fmSeq=(state.fmSeq || 0)+1;
+  const note=$('fm-accurate-note');
+  if (note) note.textContent='正在读取真实页码并识别前置页…';
   try {
-    const url = '/api/frontmatter?accurate=' + (useAccurate ? '1' : '0')
-      + '&path=' + encodeURIComponent(state.file);
-    const data = await api(url);
-    state.fmInfo = data.info;
-    if (data.accurate) state.fmAccurate[state.file] = true;
-    // 真实页码缓存下来，供"一键整理"的空白页判定用（见 blockPagesFor）
-    if (data.accurate && data.block_pages) state.fmBlockPages[state.file] = data.block_pages;
-    if (note) {
-      const who = (data.renderer && data.renderer.renderer) || 'Word/WPS';
-      const total = (data.renderer && data.renderer.pages);
-      note.innerHTML = data.accurate
-        ? '✅ 已用 <b>' + who + '</b> 校准（全文 ' + total + ' 页）—— 下表的页码就是你状态栏那个口径'
-        : '当前是<b>估算</b>（按分页符数）—— 排版空段/回车不换页，会数多；点上面的按钮用 Word 校准';
-    }
-  } catch (error) {
-    state.fmInfo = null;
-    log('前置区识别失败：' + error.message, 'err');
-    if (note) note.innerHTML = '⚠ ' + error.message + '（先用估算口径）';
+    const data=await api('/api/frontmatter?accurate='+(accurate?'1':'0')+'&force='+(force?'1':'0')+'&path='+encodeURIComponent(path));
+    if (state.file!==path || seq!==state.fmSeq) return;
+    state.fmInfo=data.info;
+    if (data.accurate && data.block_pages) state.fmBlockPages[path]=data.block_pages;
+    else delete state.fmBlockPages[path];
+    state.fmAccurate[path]=!!data.accurate;
+    if (note) note.textContent=data.accurate
+      ? '已校准真实页码：全文 '+data.renderer.pages+' 页。下表显示文档的物理页序。'
+      : (data.warning || '当前按文档结构估算前置页，可点击校准读取真实页码。');
+    if (data.accurate) log('前置页识别完成：真实页码 '+data.renderer.pages+' 页');
+  } catch(error) {
+    if (state.file!==path || seq!==state.fmSeq) return;
+    state.fmInfo=null;
+    if (note) note.textContent='前置页读取失败：'+error.message;
+    log('前置页读取失败：'+error.message,'err');
   }
   renderFrontmatter();
 }
-$('fm-accurate').addEventListener('click', () => loadFrontmatter(true));
+$('fm-accurate').addEventListener('click',()=>loadFrontmatter(true,true));
 function effectiveFmPages() {
   return Math.max(state.fmPages.cover || 0, state.fmPages.title || 0,
                   state.fmPages.signature || 0);
@@ -1449,6 +1780,7 @@ function attachRule(name) {
   step.on = true;
   step.alias = '替换规则（' + name + '）';
   step.params = Object.assign({}, step.params, {rules: name, scope: 'all'});
+  delete step.params.rules_data;
   renderSteps();
   log('已把替换规则「' + name + '」挂进执行方案（同一时刻只有这一套）');
 }
@@ -1674,23 +2006,43 @@ $('add-op').addEventListener('click', async () => {
     log('插件指南已显示在右侧（往下滚）：新功能 = ops/ 下一个模块 + STEPS 登记一行');
   } catch (error) { log('读不到指南：' + error.message, 'err'); }
 });
-$('pdf').addEventListener('click', async () => {
-  const files = targetFiles();
-  if (!files.length) { log('先在顶栏导入报告', 'err'); return; }
-  const downloads = [];
-  for (const path of files) {
-    log('导出 PDF：' + path.split('\\').pop());
-    try {
-      const data = await api('/api/pdf', {method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: path})});
-      $('report').textContent = data.text;
+$('pdf').addEventListener('click',()=>{
+  const files=targetFiles();
+  if (!files.length) { log('先导入需要转换的文档','err'); return; }
+  $('pdf-summary').textContent='将处理当前 '+files.length+' 份工作文档，使用当前执行方案。';
+  $('pdf-dialog').classList.add('on');
+});
+$('pdf-cancel').addEventListener('click',()=>$('pdf-dialog').classList.remove('on'));
+$('pdf-confirm').addEventListener('click',async()=>{
+  const files=targetFiles();
+  const mode=document.querySelector('input[name="pdf-edition"]:checked').value;
+  const steps=JSON.parse(JSON.stringify(chosenSteps()));
+  const fontRules=state.fontRules || null;
+  const edition=mode==='formal'?'正式版':'预览版';
+  $('pdf-dialog').classList.remove('on');
+  state.busy=true; syncWorkspace();
+  const started=Date.now();
+  let current=0;
+  const timer=setInterval(()=>setActivity('busy','PDF '+current+'/'+files.length+' · '+Math.floor((Date.now()-started)/1000)+' 秒'),1000);
+  const downloads=[];
+  try {
+    for (const path of files) {
+      current++;
+      setActivity('busy','正在生成 '+current+'/'+files.length);
+      $('report').textContent='正在按当前方案生成'+edition+'文档，再转换 PDF。请稍候…';
+      const data=await api('/api/pdf',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({path,mode,steps,font_rules_data:fontRules,hidden:true})});
+      $('report').textContent=data.text;
       if (data.download) downloads.push(data.download);
-    } catch (error) { log('导出 PDF 出错：' + error.message, 'err'); }
-  }
-  if (downloads.length) {
-    $('preview').innerHTML = 'PDF 已生成：<br><br>' + downloadsHtml(downloads);
-  }
+      log(edition+' PDF 已生成：'+data.download);
+    }
+    renderGeneratedFiles(downloads,mode,null);
+    $('preview').querySelector('.output-kind').textContent=edition+' PDF · 点击文件名下载';
+    setActivity('done','PDF 已完成');
+  } catch(error) {
+    $('report').textContent='PDF 导出失败：'+error.message;
+    setActivity('error','导出失败'); log('PDF 导出失败：'+error.message,'err');
+  } finally { clearInterval(timer); state.busy=false; syncWorkspace(); }
 });
 $('quit').addEventListener('click', async () => {
   await api('/api/shutdown', {method: 'POST'});
@@ -1704,12 +2056,43 @@ document.querySelectorAll('#tabs button').forEach(button => {
     button.classList.add('on');
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
     $('panel-' + button.dataset.tab).classList.add('on');
+    updateWorkspaceTitle(button.dataset.tab);
     if (button.dataset.tab === 'plan') { loadPlans(); }
     if (button.dataset.tab === 'style') { loadPreviews(); fillStyleFileSelect(); }
     if (button.dataset.tab === 'replacer') { loadRules(); }
     if (button.dataset.tab === 'subs') { loadSubs(); }
   });
 });
+
+
+$('start-import').addEventListener('click', () => $('import-files').click());
+$('log-toggle').addEventListener('click', () => {
+  const open = document.body.classList.toggle('log-open');
+  $('log-toggle').setAttribute('aria-expanded', String(open));
+  if (open) $('log').scrollTop = $('log').scrollHeight;
+});
+$('report-toggle').addEventListener('click', () => {
+  const collapsed = document.body.classList.toggle('report-collapsed');
+  $('report-toggle').textContent = collapsed ? '展开' : '收起';
+});
+$('inspector-toggle').addEventListener('click', () => {
+  const show = document.body.classList.toggle('show-inspector');
+  $('inspector-toggle').setAttribute('aria-expanded', String(show));
+});
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key.toLowerCase() === 'o') { e.preventDefault(); $('import-files').click(); }
+  if (e.ctrlKey && e.key === 'Enter' && !document.querySelector('.modal.on')) {
+    e.preventDefault(); if (!$('plan-run').disabled) $('plan-run').click();
+  }
+});
+new MutationObserver(() => {
+  const text = $('report').textContent;
+  $('report').classList.toggle('report-empty', !text || text === '运行方案后，查看逐项改动记录。');
+  if (text.startsWith('出错：')) setActivity('error','处理失败');
+}).observe($('report'), {childList: true, characterData: true, subtree: true});
+new MutationObserver(() => syncWorkspace()).observe($('plan-select'), {childList: true});
+renderFiles();
+syncWorkspace();
 
 /* ---------------------------------------------------------------- 启动 */
 // 页面版本自检：服务端的页面文件变了就自动刷新一次
