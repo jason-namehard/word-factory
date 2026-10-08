@@ -364,7 +364,12 @@ table.grid th { font-size: 11px; }
 
 .pdf-choice { display:flex; gap:12px; padding:16px; margin:10px 0; border:1px solid #e1e7f1; border-radius:9px; cursor:pointer; }
 .pdf-choice:has(input:checked) { background:#f4f7fd; border-color:#b6c9ef; }
-.pdf-choice input { flex-shrink:0; margin-top:4px; }
+/* 单选框自己画：WebView2 里 UA 默认外观会给它套一圈很淡的方块，很难看 */
+.pdf-choice input[type=radio] { appearance:none; -webkit-appearance:none; flex:none; width:16px; height:16px; min-height:0; margin:3px 0 0; padding:0; border:1.5px solid #b9c4d4; border-radius:50%; background:#fff; cursor:pointer; }
+.pdf-choice input[type=radio]:checked { border-color:var(--blue); background:var(--blue); box-shadow:inset 0 0 0 3px #fff; }
+.pdf-choice input[type=radio]:focus-visible { outline:2px solid #3469df46; outline-offset:2px; }
+.pdf-choice.na { opacity:.55; cursor:not-allowed; }
+.pdf-choice.na input[type=radio] { cursor:not-allowed; }
 .pdf-choice b { display:block; font-size:13px; color:#536d93; }
 .pdf-choice small { display:block; font-size:12px; color:#8e9aac; margin-top:5px; line-height:1.8; }
 
@@ -623,22 +628,24 @@ table.grid th { font-size: 11px; }
 <div id="toast" role="alert"></div>
 
 
-<div id="pdf-dialog" class="modal"><div class="box" style="width:510px">
-  <h4>导出哪一版 PDF？</h4>
+<div id="pdf-dialog" class="modal"><div class="box" style="width:530px">
+  <h4>把哪一版转成 PDF？</h4>
   <p class="hint" id="pdf-summary"></p>
-  <label class="pdf-choice"><input type="radio" name="pdf-edition" value="formal" checked><span><b>正式版 PDF</b><small>按当前方案处理，统一字体与颜色并体检，适合最终交付。</small></span></label>
-  <label class="pdf-choice"><input type="radio" name="pdf-edition" value="verify"><span><b>预览版 PDF</b><small>按当前方案处理，保留蓝色改动标记，适合检查与核对。</small></span></label>
-  <p class="hint" style="margin:18px 0">将生成所选版本的文档再转换。原始报告保留，同名 PDF 自动另存。</p>
-  <div class="rowline" style="justify-content:flex-end"><button id="pdf-cancel">取消</button><button id="pdf-confirm" class="primary">生成 PDF</button></div>
+  <label class="pdf-choice" id="pdf-choice-formal"><input type="radio" name="pdf-edition" value="formal" checked><span><b>正式版 PDF</b><small>把手上的「正式版」文档直接转成 PDF，适合最终交付。</small></span></label>
+  <label class="pdf-choice" id="pdf-choice-verify"><input type="radio" name="pdf-edition" value="verify"><span><b>预览版 PDF</b><small>把手上的「预览版」文档直接转成 PDF，保留蓝色改动标记，适合检查核对。</small></span></label>
+  <p class="hint" style="margin:18px 0" id="pdf-note">直接用已经生成的那份文档转换，**不会重跑方案**；原报告与那份文档都不会被动。</p>
+  <div class="rowline" style="justify-content:flex-end"><button id="pdf-cancel">取消</button><button id="pdf-confirm" class="primary">转成 PDF</button></div>
 </div></div>
 
-<!-- 产物已生成：弹窗告诉用户，并给"打开文件 / 打开所在位置 / 什么都不做"（用户 2026-10-08 要的） -->
+<!-- 产物已生成：弹窗告诉用户，并给"打开文件 / 打开所在位置"（右上角 × = 什么都不做） -->
 <div id="done-dialog" class="modal"><div class="box" style="width:580px">
-  <h4 id="done-title">已生成</h4>
+  <div class="rowline" style="margin-bottom:8px">
+    <h4 style="margin:0;flex:1" id="done-title">已生成</h4>
+    <button id="done-close" title="关闭（什么都不做）">✕</button>
+  </div>
   <p class="hint" id="done-summary"></p>
   <div id="done-list" class="done-list"></div>
   <p class="hint" style="margin:14px 0 0">你的原文件一个字都没动；产物和原文件放在同一个文件夹。</p>
-  <div class="rowline" style="justify-content:flex-end"><button id="done-close">什么都不做</button></div>
 </div></div>
 
 <!-- 选文件 -->
@@ -758,6 +765,9 @@ const state = {files: [], file: null, steps: [], plans: [], planName: '',
                template: null, tempDir: '', tempFiles: [], fmPages: {cover: 0, title: 0, signature: 0},
                extFiles: [], rule: {text: [], font: [], para: []}, docFormats: null,
                subs: null, tplConfirmFor: null, fmAccurate: {}, fmBlockPages: {},
+               // 每份工作文档"已经导出过哪几版"：{源文件路径: {verify|formal|temp: 产物文件名}}
+               // 导 PDF 只转这些已经生成好的文档（用户 2026-10-08：别自己重跑一遍方案）
+               outputs: {},
                lastOut: null};
 
 
@@ -858,6 +868,12 @@ async function api(url, options) {
 }
 /* 产物生成之后的确认弹窗：告诉用户"已经好了"，并给三个选择。
    （用户 2026-10-08：以前导完 PDF 一点提示都没有，还得自己去翻文件夹） */
+function rememberOutput(sourcePath, kind, name) {
+  // 记下"这份工作文档已经导出过哪一版"，导 PDF 时只转已经生成好的
+  if (!sourcePath || !name) return;
+  const bucket = state.outputs[sourcePath] || (state.outputs[sourcePath] = {});
+  bucket[kind] = name;
+}
 async function revealFile(name, action) {
   try {
     const data = await api('/api/reveal', {method: 'POST',
@@ -1309,7 +1325,10 @@ async function runMany(mode, outDir) {
       const data = await runOne(path, mode, outPath);
       if (data.conflict) { conflicts.push({path: path, conflict: data.conflict}); continue; }
       $('report').textContent = data.text;
-      if (data.download) downloads.push(data.download);
+      if (data.download) {
+        downloads.push(data.download);
+        rememberOutput(path, outDir ? 'temp' : mode, data.download);
+      }
       if (data.report.audit) log('体检：' + (data.report.audit.verdict === 'PASS' ? 'AUDIT=PASS' : 'AUDIT=FAIL'));
     }
     if (conflicts.length) { setActivity('idle', '等待确认'); askOutConflicts(conflicts, mode, outDir, downloads); return; }
@@ -1396,7 +1415,10 @@ async function resumeOut(overwrite, suffix) {
                               overwrite ? {allow_overwrite: true} : {suffix: suffix});
     if (data.conflict) { log('还是重名：' + data.conflict.name, 'err'); return; }
     $('report').textContent = data.text;
-    if (data.download) outPending.downloads.push(data.download);
+    if (data.download) {
+      outPending.downloads.push(data.download);
+      rememberOutput(item.path, outPending.outDir ? 'temp' : outPending.mode, data.download);
+    }
     log((overwrite ? '已覆盖 ' : '已另存 ') + data.report.out);
   } catch (error) {
     log('出错：' + error.message, 'err');
@@ -2060,16 +2082,64 @@ $('add-op').addEventListener('click', async () => {
 $('pdf').addEventListener('click',()=>{
   const files=targetFiles();
   if (!files.length) { log('先导入需要转换的文档','err'); return; }
-  $('pdf-summary').textContent='将处理当前 '+files.length+' 份工作文档，使用当前执行方案。';
+  $('pdf-summary').textContent='将处理当前 '+files.length+' 份工作文档，用的是你**已经导出**的那一版文档。';
+  refreshPdfChoices();
   $('pdf-dialog').classList.add('on');
 });
+/* 这一版出没出过？出过才让选（用户 2026-10-08：没出正式版就该提示"需要先导出正式版报告"） */
+function missingEditions(key) {
+  return targetFiles().filter(path => !(state.outputs[path] && state.outputs[path][key]));
+}
+function refreshPdfChoices() {
+  const keys = {formal: 'formal', verify: 'verify'};
+  let firstOk = null;
+  ['formal', 'verify'].forEach(name => {
+    const key = keys[name];
+    const missing = missingEditions(key).length;
+    const card = $('pdf-choice-' + name);
+    const radio = card.querySelector('input');
+    radio.disabled = missing > 0;
+    card.classList.toggle('na', missing > 0);
+    let note = card.querySelector('.na-note');
+    if (missing > 0) {
+      if (!note) {
+        note = document.createElement('small');
+        note.className = 'na-note';
+        note.style.color = '#c2705c';
+        note.style.marginTop = '4px';
+        card.querySelector('span').appendChild(note);
+      }
+      note.textContent = '还没导出过' + (name === 'formal' ? '正式版' : '预览版')
+        + (missing < targetFiles().length ? '（有 ' + missing + ' 份工作文档还没有）' : '')
+        + ' —— 先在右边点「' + (name === 'formal' ? '正式版' : '预览版') + '」生成一次再来转';
+    } else if (note) {
+      note.remove();
+    }
+    if (missing === 0 && !firstOk) firstOk = radio;
+  });
+  const checked = document.querySelector('input[name="pdf-edition"]:checked');
+  if (checked && checked.disabled) {
+    (firstOk || document.querySelector('input[name="pdf-edition"]:not(:disabled)') || checked).checked = true;
+  }
+}
 $('pdf-cancel').addEventListener('click',()=>$('pdf-dialog').classList.remove('on'));
 $('pdf-confirm').addEventListener('click',async()=>{
   const files=targetFiles();
   const mode=document.querySelector('input[name="pdf-edition"]:checked').value;
-  const steps=JSON.parse(JSON.stringify(chosenSteps()));
-  const fontRules=state.fontRules || null;
   const edition=mode==='formal'?'正式版':'预览版';
+  const missing=missingEditions(mode);
+  if (missing.length) {
+    // **先提示，不硬跑**：还没导出这一版就明说需要先导出（用户 2026-10-08 的要求）
+    const text='需要先导出'+edition+'报告：' + missing.map(p => p.split('\\').pop()).join('、')
+      + ' 还没有生成过' + edition + '。请先点「'+edition+'」生成一次，再来转 PDF。';
+    log(text, 'err');
+    $('pdf-note').textContent = text;
+    $('pdf-note').style.color = '#c2705c';
+    return;
+  }
+  $('pdf-note').style.color = '';
+  $('pdf-note').textContent = '直接用已经生成的那份文档转换，**不会重跑方案**；原报告与那份文档都不会被动。';
+  const names=files.map(path=>state.outputs[path][mode]);
   $('pdf-dialog').classList.remove('on');
   state.busy=true; syncWorkspace();
   const started=Date.now();
@@ -2077,12 +2147,12 @@ $('pdf-confirm').addEventListener('click',async()=>{
   const timer=setInterval(()=>setActivity('busy','PDF '+current+'/'+files.length+' · '+Math.floor((Date.now()-started)/1000)+' 秒'),1000);
   const downloads=[];
   try {
-    for (const path of files) {
+    for (const name of names) {
       current++;
-      setActivity('busy','正在生成 '+current+'/'+files.length);
-      $('report').textContent='正在按当前方案生成'+edition+'文档，再转换 PDF。请稍候…';
+      setActivity('busy','正在转换 '+current+'/'+names.length);
+      $('report').textContent='正在把'+edition+'文档转成 PDF，请稍候…';
       const data=await api('/api/pdf',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({path,mode,steps,font_rules_data:fontRules,hidden:true})});
+        body:JSON.stringify({document:name,mode:mode,hidden:true})});
       $('report').textContent=data.text;
       if (data.download) downloads.push(data.download);
       log(edition+' PDF 已生成：'+data.download);

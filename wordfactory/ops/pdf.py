@@ -177,23 +177,30 @@ def _pdf_page_count(path):
 
 
 def _export_with_com(plan_info, timeout, visible):
-    from .. import officecom
+    from .. import doclinks, officecom
     first = plan_info.get('prog_id') or 'Word.Application'
     candidates = [first] + [prog_id for _name, prog_id in _word_prog_ids() if prog_id != first]
+    # 文档里若有指向网络共享的图表外链，Word 打开时会干等 SMB 超时（实测 40 秒+）——
+    # 换成"外链改指向本地空文件"的**临时副本**再转（版式一样，图是缓存数据画的），用完即删。
+    temp_path = doclinks.neutralized_copy(plan_info['file'])
+    target = temp_path or plan_info['file']
 
     def convert(session):
-        document = session.open(plan_info['file'])
+        document = session.open(target)
         document.Repaginate()                    # 先重排，页数才准
         pages = int(document.ComputeStatistics(WD_STATISTIC_PAGES))
         document.ExportAsFixedFormat(os.path.abspath(plan_info['out']), WD_EXPORT_FORMAT_PDF)
         actual = 'wps' if session.prog_id != 'Word.Application' else 'word'
         return {'renderer': actual, 'prog_id': session.prog_id, 'kind': 'com',
-                'pages': pages, 'pages_pdf': pages}
+                'pages': pages, 'pages_pdf': pages,
+                'links_neutralized': bool(temp_path)}
 
     try:
         return officecom.run(convert, candidates, timeout=timeout)
     except officecom.OfficeError as error:
         raise PdfError(u'PDF 导出失败：%s' % error) from error
+    finally:
+        doclinks.discard(temp_path)
 
 
 def _export_with_soffice(plan_info, timeout):

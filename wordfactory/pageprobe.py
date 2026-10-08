@@ -24,7 +24,6 @@
 """
 
 import os
-import re
 import threading
 
 #: wdActiveEndPageNumber —— Range 在哪一页
@@ -67,91 +66,11 @@ _CACHE_LOCK = threading.Lock()
 #: 上次成功的渲染器（进程内记着）—— 下次先试它，别每次都拿 Word 去撞墙
 _PREFERRED = []
 
-#: 外链指向"网络位置"的样子：UNC（\\机器\共享）或 http(s)。这类链接会让 Word 干等
-#: SMB/HTTP 超时（2026-10-08 实测那份报告 >40 秒没返回，而 WPS 3 秒就开好了）。
-_NETWORK_TARGET = re.compile(r'^\s*(?:file:///)?(?:\\\\|//|https?://)', re.I)
-
 
 def fingerprint(path):
     import hashlib
     with open(path, 'rb') as handle:
         return hashlib.sha256(handle.read()).hexdigest()
-
-
-def _network_ole_links(path):
-    """文档里指向**网络位置**的 oleObject 外链有几个。
-
-    为什么只认 ``oleObject``：那是"图表数据来自外部 xlsm"这类链接，**不影响版式**
-    （图用的是缓存数据画出来的）；而外链的图片（image）动不得 —— 换了会让版面变。
-    """
-    import zipfile
-    count = 0
-    try:
-        with zipfile.ZipFile(path) as archive:
-            for name in archive.namelist():
-                if not name.endswith(u".rels"):
-                    continue
-                text = archive.read(name).decode(u"utf-8", u"replace")
-                for tag in re.findall(r'<Relationship[^>]*>', text):
-                    if u'TargetMode="External"' not in tag or u"oleObject" not in tag:
-                        continue
-                    target = re.search(r'Target="([^"]*)"', tag)
-                    if target and _NETWORK_TARGET.match(target.group(1)):
-                        count += 1
-    except Exception:                      # noqa: BLE001 - 读不动就当没有，别拖累主流程
-        return 0
-    return count
-
-
-def _neutralized_copy(path):
-    """给排版引擎一份"网络外链改指向本地不存在文件"的**临时副本**；没有网络外链就返回 None。
-
-    为什么要这样：实测那份报告的图表链到 ``\\\\Bf-230206\\…\\欧峪水库.xlsm``（别人机器上的共享），
-    Word 打开时会一直等 SMB 超时 —— **40 秒都回不来**，于是"读不到真实页码 → 退回估算口径
-    → 空白页删不掉"。把外链指向本地不存在的文件之后，Word **7.9 秒**就开好了，
-    页码与 WPS（本来不受影响）**完全一致**（都是 31 页）—— 因为图是从缓存数据画的，版式没变。
-
-    副本落在数据目录的「临时文件」里（系统 Temp 会被 Office 当成"不安全位置"进受保护视图），
-    用完即删。
-    """
-    if not _network_ole_links(path):
-        return None
-    import shutil
-    import tempfile
-    import zipfile
-    from . import paths
-    dead = u"file:///C:/__wordfactory_no_such_file__.xlsm"
-    folder = paths.temp_dir()
-    handle, temp_path = tempfile.mkstemp(prefix=u"页码探测-", suffix=u".docx", dir=folder)
-    os.close(handle)
-    try:
-        with zipfile.ZipFile(path) as source, \
-                zipfile.ZipFile(temp_path, u"w", zipfile.ZIP_DEFLATED) as target:
-            for item in source.infolist():
-                data = source.read(item.filename)
-                if item.filename.endswith(u".rels"):
-                    text = data.decode(u"utf-8", u"replace")
-                    text = re.sub(
-                        r'(<Relationship[^>]*TargetMode="External"[^>]*oleObject[^>]*Target=")[^"]*(")',
-                        lambda m: m.group(1) + dead + m.group(2), text)
-                    text = re.sub(
-                        r'(<Relationship[^>]*oleObject[^>]*Target=")[^"]*("[^>]*TargetMode="External")',
-                        lambda m: m.group(1) + dead + m.group(2), text)
-                    data = text.encode(u"utf-8")
-                target.writestr(item, data)
-    except Exception:                      # noqa: BLE001 - 复制失败就退回用原件
-        try:
-            os.remove(temp_path)
-        except OSError:
-            pass
-        return None
-    if _network_ole_links(temp_path):
-        try:
-            os.remove(temp_path)
-        except OSError:
-            pass
-        return None                        # 没改干净就别用它，免得白等
-    return temp_path
 
 
 def _candidates(renderer, network_links):
@@ -181,7 +100,7 @@ def probe(path, blocks=60, renderer=None, timeout=60, block_starts=None, force=F
     结果按"文件内容指纹"缓存（``force=True`` 强制重探）：同一份文件在一轮里
     会被问好几次（前置区、运行前、导 PDF），没必要每次都起一遍 Office。
     """
-    from . import officecom
+    from . import doclinks, officecom
     import copy
     path = os.path.abspath(path)
     if not os.path.isfile(path):
@@ -192,7 +111,7 @@ def probe(path, blocks=60, renderer=None, timeout=60, block_starts=None, force=F
         cached = _PROBE_CACHE.get(key)
     if cached is not None and not force:
         return copy.deepcopy(cached)
-    network_links = _network_ole_links(path)
+    network_links = doclinks.network_ole_links(path)
     candidates = _candidates(renderer, network_links)
 
     def make_read(target):
@@ -221,7 +140,7 @@ def probe(path, blocks=60, renderer=None, timeout=60, block_starts=None, force=F
                     "network_links": network_links}
         return read
 
-    temp_path = _neutralized_copy(path)
+    temp_path = doclinks.neutralized_copy(path)
     errors = []
     try:
         # 有网络外链时**用那份改过链接的副本**排版（版式一样，但 Word 不会再去等网络）
@@ -239,11 +158,7 @@ def probe(path, blocks=60, renderer=None, timeout=60, block_starts=None, force=F
             _PREFERRED[:] = [result["renderer"]]
             return result
     finally:
-        if temp_path:
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
+        doclinks.discard(temp_path)
     raise PageProbeError(u"读取真实页码失败：%s" % u"；".join(errors))
 
 

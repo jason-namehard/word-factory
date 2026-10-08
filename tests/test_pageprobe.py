@@ -14,7 +14,7 @@ import tempfile
 import unittest
 import zipfile
 
-from wordfactory import pageprobe
+from wordfactory import doclinks, pageprobe
 
 from . import fixtures
 
@@ -47,23 +47,23 @@ class NetworkLinkCase(unittest.TestCase):
 
     def test_network_ole_link_is_detected(self):
         self.build({u"word/charts/_rels/chart1.xml.rels": CHART_RELS})
-        self.assertEqual(pageprobe._network_ole_links(self.path), 1)
+        self.assertEqual(doclinks.network_ole_links(self.path), 1)
 
     def test_local_rel_is_not_a_network_link(self):
         self.build({u"word/_rels/x.xml.rels": IMAGE_RELS_LOCAL})
-        self.assertEqual(pageprobe._network_ole_links(self.path), 0)
+        self.assertEqual(doclinks.network_ole_links(self.path), 0)
 
     def test_plain_document_has_no_network_links(self):
         self.build({})
-        self.assertEqual(pageprobe._network_ole_links(self.path), 0)
+        self.assertEqual(doclinks.network_ole_links(self.path), 0)
 
     def test_neutralized_copy_rewrites_only_the_network_ole_link(self):
         self.build({u"word/charts/_rels/chart1.xml.rels": CHART_RELS,
                     u"word/_rels/x.xml.rels": IMAGE_RELS_LOCAL})
-        copy_path = pageprobe._neutralized_copy(self.path)
+        copy_path = doclinks.neutralized_copy(self.path)
         try:
             self.assertIsNotNone(copy_path, u"有网络外链时才该生成副本")
-            self.assertEqual(pageprobe._network_ole_links(copy_path), 0,
+            self.assertEqual(doclinks.network_ole_links(copy_path), 0,
                              u"副本里不能再有网络外链（否则 Word 还是会去等网络）")
             with zipfile.ZipFile(copy_path) as archive:
                 text = archive.read("word/_rels/x.xml.rels").decode("utf-8")
@@ -77,7 +77,7 @@ class NetworkLinkCase(unittest.TestCase):
 
     def test_no_copy_is_made_when_there_is_nothing_to_fix(self):
         self.build({})
-        self.assertIsNone(pageprobe._neutralized_copy(self.path),
+        self.assertIsNone(doclinks.neutralized_copy(self.path),
                           u"没有网络外链就别多此一举造副本")
 
     def test_candidate_order_prefers_wps_for_linked_documents(self):

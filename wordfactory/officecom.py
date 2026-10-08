@@ -1,25 +1,40 @@
 # -*- coding: utf-8 -*-
 """Word/WPS 的 COM 会话：**每次都自己起一个私有实例，用完保证关干净**。
 
-这个模块存在的唯一理由，是把"跟 Office 打交道"的几条硬规矩收在一处 —— 每条都是踩出来的：
+这个模块存在的理由，是把"跟 Office 打交道"的几条硬规矩收在一处。**最后两条是 2026-10-09
+那次事故之后加的**（详见下面第 4 条），优先级高于前面所有便利性考虑。
 
-1. **绝不借用用户已经开着的 Office**。旧写法先 ``GetActiveObject`` 找现成实例，看着聪明，
-   实际是个坑：机器上只要有一个**自动化残留**的 Word/WPS（没有窗口、卡在某个状态），
-   我们就会连上去，然后 ``Documents.Open`` 一直不返回 —— 实测整整 **60 秒超时**。
-   后果是"读不到真实页码 → 退回按分页符估算"，**首页/扉页与目录之间那两只空白页就再也删不掉**
-   （2026-10-08 用户报的"页码一个都不对"就是这条链）。
-   ``DispatchEx`` 实测能拿到**新鲜实例**（新进程、``Version`` 秒回），所以只用它，不碰别人的。
+1. **绝不借用用户已经开着的 Office**：旧写法先 ``GetActiveObject`` 找现成实例，机器上只要有一个
+   卡住的自动化残留实例，``Documents.Open`` 就永远不返回（实测 60 秒超时）→ 读不到真实页码 →
+   退回估算口径 → 空白页删不掉。只用 ``DispatchEx`` 起自己的实例。
 
-2. **自己起的实例必须死透**。反复起、关不干净会攒下一堆没有窗口的 WINWORD/wps 进程
-   （实测机器上攒了 **24 个 WINWORD + 32 个 wps**），越攒越慢，而且下一次 Dispatch
-   可能就连到这些僵尸上 —— 正反馈。所以：起之前先拍一张进程快照，起完 diff 出"我们那个 pid"，
-   ``Quit`` 之后再等几秒，**还活着就按 pid 结束它自己**（只动自己起的那个）。
+2. **自己起的实例必须死透**：反复起、关不干净会攒下一堆没有窗口的 WINWORD/wps（实测 24+32 个）。
 
-3. **超时保护不做"每次调用套一层线程"**（2026-10-08 踩到）：COM 必须**在发起调用的那个线程里**
-   ``CoInitialize``，换个线程调就是 ``尚未调用 CoInitialize``（还跨了套间）。
-   所以限时放在**整件事**上（``run(timeout=…)`` 起一个工作线程 + ``join``）；
-   万一真卡住，就**按 pid 杀掉我们自己起的实例** —— 进程一死，卡住的那个 COM 调用
-   立刻以 RPC 错误返回，工作线程自己就结束了（不会留幽灵线程）。
+3. **超时保护不做"每次调用套一层线程"**：COM 必须在发起调用的线程里 ``CoInitialize``。
+   限时放在整件事上（``run(timeout=…)`` 起工作线程 + ``join``）；真卡住就结束我们自己起的实例
+   —— 进程一死，卡住的 COM 调用立刻以 RPC 错误返回。
+
+4. **⚠️ 结束进程是"三道闸 + 只动自己 diff 出来的 pid"，绝不能扫全机**（2026-10-09 血的事故）：
+
+   那次的事故链：``_is_office_app()`` 写成 ``(not name) or (name in 白名单)`` —— 把"读不到映像名"
+   当成了"这是我们起的 Office"。系统/受保护进程（Secure System、Registry、csrss…）
+   ``OpenProcess`` 必然被拒（error 5）→ 全部被误判成"我们的"；再叠加
+   ``_sweep_late_strays()`` 拿 ``_process_ids() - before`` 当候选集（``_process_ids()`` 失败时
+   返回空集 → 候选集变成**全机进程**）→ ``taskkill /T`` 连进程树一起杀 → 杀到会话宿主
+   （sihost/svchost）→ **整个 Windows 外壳重建**（explorer、开始菜单、搜索、剪贴板全没了）。
+   当晚同型事件 5 次。
+
+   现在（**任何一条不满足就跳过，并记录原因**）：
+
+   * 候选集**只能**是 ``DispatchEx`` 前后 diff 出来的 pid —— **不许**扫"全机新进程差集"，
+     也不许从端口/名字反查 pid；
+   * 闸① 映像名读得到、且在严格白名单里（``winword.exe`` / ``wps.exe`` …）；
+   * 闸② 完整映像**路径**与本次期望一致（本次起 Word 就只认 ``winword.exe`` 所在的那个目录）；
+   * 闸③ 进程**创建时间晚于**本次会话开始时间；
+   * 附加：进程没有可见窗口（用户自己开着的 Office 一定有窗口 → 绝不误伤）。
+   * ``_process_ids()`` 失败一律返回 ``None`` 并**放弃本轮所有清理**（绝不返回空集）；
+   * 登记表**按轮**存在、随轮结束清空，不跨会话累积；
+   * 真杀之前**再核一遍**三道闸，并打印 pid / 映像名 / 完整路径 / 创建时间供人工核对。
 
 对外接口：``Session(prog_id) / .open(path) / .close()`` 和 ``run(callback, prog_ids, timeout)``。
 """
@@ -30,65 +45,109 @@ import time
 
 #: 整件事（起实例 + 打开文档 + 读页码/导 PDF）的默认预算（秒）
 DEFAULT_TIMEOUT = 90.0
-#: 自己起的实例 ``Quit`` 之后再等它退出多久，还没走就强制结束
+#: 自己起的实例 ``Quit`` 之后再等它退出多久，还没走才考虑强制结束
 QUIT_GRACE = 8.0
 
 _LOCK = threading.RLock()
-#: 我们起过、还没确认退出的进程 id（超时兜底就是靠它精确清理，绝不误伤别人的 Office）
-_OUR_PIDS = set()
+
+#: Office 应用本体的可执行文件名 —— **严格白名单**。读不到名字 ≠ 是我们的人（事故根因）。
+_OFFICE_EXES = frozenset((u"winword.exe", u"wps.exe", u"et.exe", u"wpp.exe",
+                          u"wpspdf.exe", u"excel.exe"))
+
+#: 本次会话"期望的映像名"：起 Word 就只认 winword.exe，起 WPS 就只认 wps.exe。
+_EXPECTED_IMAGE = {
+    u"Word.Application": u"winword.exe",
+    u"KWPS.Application": u"wps.exe",
+    u"WPS.Application": u"wps.exe",
+}
+
+#: 关进程前的三道闸 + "没有可见窗口"，逐条写清楚（出问题时要能对着日志说出为什么放过/为什么杀）
+_QUERY_LIMITED_INFORMATION = 0x1000
 
 
 class OfficeError(Exception):
     """起 Office / 用它干活失败（人话）。"""
 
 
+# --------------------------------------------------------------------------- 进程信息
 def _process_ids():
-    """当前所有进程 id（用 psapi，不依赖 psutil）。"""
+    """当前所有进程 id 的集合；**失败返回 None**。
+
+    ⚠️ 绝不返回空集：调用方拿它做"差集"时，空集会把候选集放大成"全机所有进程"，
+    2026-10-09 的事故就是被这个放大的。
+    """
     import ctypes
     ids = (ctypes.c_ulong * 8192)()
     size = ctypes.c_ulong()
-    if ctypes.windll.psapi.EnumProcesses(ids, ctypes.sizeof(ids), ctypes.byref(size)):
-        count = size.value // ctypes.sizeof(ctypes.c_ulong)
-        return set(ids[:count])
-    return set()
+    try:
+        ok = ctypes.windll.psapi.EnumProcesses(ids, ctypes.sizeof(ids), ctypes.byref(size))
+    except Exception:                          # noqa: BLE001
+        return None
+    if not ok:
+        return None
+    count = size.value // ctypes.sizeof(ctypes.c_ulong)
+    if count <= 0:
+        return None
+    return set(ids[:count])
 
 
-#: 只清"Office 应用本体"的进程：``DispatchEx`` 有时会连带拉起共享的辅助服务
-#: （云同步之类），那些不是我们的、也不该由我们结束。
-_OFFICE_EXES = ("winword.exe", "wps.exe", "et.exe", "wpp.exe", "wpspdf.exe", "excel.exe")
+def _process_info(pid):
+    """``(映像名小写, 完整路径, 创建时间戳)`` —— 任一项读不到就给 ``""`` / ``0.0``。
 
-
-def _image_name(pid):
-    """进程的可执行文件名（小写）；拿不到返回空串。**不调外部命令**（免得弹窗）。"""
+    **读不到就是读不到**：调用方必须把它当成"不是我们的"，跳过。
+    """
     import ctypes
     from ctypes import wintypes
     kernel32 = ctypes.windll.kernel32
-    handle = kernel32.OpenProcess(0x1000, False, int(pid))   # QUERY_LIMITED_INFORMATION
+    try:
+        handle = kernel32.OpenProcess(_QUERY_LIMITED_INFORMATION, False, int(pid))
+    except Exception:                          # noqa: BLE001
+        return u"", u"", 0.0
     if not handle:
-        return u""
+        return u"", u"", 0.0
     try:
         size = wintypes.DWORD(1024)
         buffer = ctypes.create_unicode_buffer(1024)
+        path = u""
         if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
-            return os.path.basename(buffer.value).lower()
+            path = buffer.value or u""
+        created = 0.0
+        creation = wintypes.FILETIME()
+        exit_time = wintypes.FILETIME()
+        kernel = wintypes.FILETIME()
+        user = wintypes.FILETIME()
+        if kernel32.GetProcessTimes(handle, ctypes.byref(creation), ctypes.byref(exit_time),
+                                    ctypes.byref(kernel), ctypes.byref(user)):
+            ticks = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+            if ticks:
+                # FILETIME 是 1601-01-01 起的 100ns
+                created = ticks / 10000000.0 - 11644473600.0
+        return os.path.basename(path).lower(), path, created
     except Exception:                          # noqa: BLE001
-        pass
+        return u"", u"", 0.0
     finally:
-        kernel32.CloseHandle(handle)
-    return u""
+        try:
+            kernel32.CloseHandle(handle)
+        except Exception:                      # noqa: BLE001
+            pass
+
+
+def _image_name(pid):
+    return _process_info(pid)[0]
 
 
 def _is_office_app(pid):
+    """**严格白名单**：只有"名字读得到"**且**"在白名单里"才算。
+
+    读不到名字（系统/受保护进程必然如此）一律 **False** —— 事故就出在这行原来写的
+    ``(not name) or (name in _OFFICE_EXES)``，把"读不到"当成了"是我们的"。
+    """
     name = _image_name(pid)
-    return (not name) or (name in _OFFICE_EXES)
+    return bool(name) and (name in _OFFICE_EXES)
 
 
 def _has_visible_window(pid):
-    """这个进程有没有**可见的**顶层窗口？
-
-    用户自己开着的 Word/WPS 一定有窗口；我们那些自动化实例没有 —— 收尾清理时**只清没窗口的**，
-    这样绝不会误伤用户正在用的 Office。
-    """
+    """这个进程有没有**可见的**顶层窗口？（用户自己开着的 Office 一定有 → 不许动）"""
     import ctypes
     user32 = ctypes.windll.user32
     result = [False]
@@ -110,43 +169,90 @@ def _has_visible_window(pid):
     return result[0]
 
 
-def _terminate(pid):
-    """按 **pid** 结束我们自己起的那个 Office 进程。
+def _gate_reason(pid, prog_id, started_at, expected_dir):
+    """三道闸 + 附加检查；返回 ``None`` 表示**全过**，否则返回"为什么跳过"（人话）。"""
+    alive = _process_ids()
+    if alive is None:
+        return u"拿不到进程表（不赌，跳过）"
+    if int(pid) not in alive:
+        return u"进程已经退出了"
+    name, path, created = _process_info(pid)
+    if not name:
+        return u"读不到映像名（多半是系统/受保护进程）"
+    if name not in _OFFICE_EXES:
+        return u"映像名 %s 不在白名单" % name
+    expected_name = _EXPECTED_IMAGE.get(prog_id)
+    if expected_name and name != expected_name:
+        return u"映像名 %s 与本次启动的 %s 不符" % (name, expected_name)
+    if not path:
+        return u"读不到完整路径"
+    if not expected_dir:
+        return u"拿不到期望目录（无法核对路径）"
+    if os.path.dirname(os.path.normcase(path)) != expected_dir:
+        return u"路径不在本次 Office 的安装目录里：%s" % path
+    if not created:
+        return u"读不到创建时间"
+    if created <= float(started_at):
+        return u"创建时间早于本次会话开始（不是我起的）"
+    if _has_visible_window(pid):
+        return u"有可见窗口（用户自己开着的 Office，不许动）"
+    return None
 
-    * 只动**应用本体**（WINWORD/wps/…）：``DispatchEx`` 有时会连带拉起共享辅助服务，
-      那不是我们的东西，不能顺手关掉；
-    * 走 :mod:`wordfactory.subproc`：打包成 exe 之后，直接 ``subprocess`` 起 ``taskkill``
-      会**闪一个黑色终端窗口**（用户 2026-10-08 报的"点导出 PDF 频繁弹窗"就是它）。
-    * 绝不用 ``/IM 名字`` 那种批量杀法。
+
+def _verified_pids(candidates, prog_id, started_at):
+    """从候选里挑出**全过闸**的 pid；返回 ``(verified, expected_dir, skipped)``。
+
+    ``candidates`` **只允许**是 DispatchEx 前后 diff 出来的集合。
     """
+    expected_name = _EXPECTED_IMAGE.get(prog_id)
+    expected_dir = u""
+    for pid in sorted(candidates):
+        name, path, _created = _process_info(pid)
+        if name == expected_name and path:
+            expected_dir = os.path.dirname(os.path.normcase(path))
+            break
+    verified = set()
+    skipped = []
+    for pid in sorted(candidates):
+        reason = _gate_reason(pid, prog_id, started_at, expected_dir)
+        if reason:
+            skipped.append((pid, reason))
+            continue
+        verified.add(pid)
+    return verified, expected_dir, skipped
+
+
+def _terminate(pid, prog_id, started_at, expected_dir):
+    """结束**已经验证过**的 pid。杀之前**再核一遍**三道闸，并打印详情供人工核对。"""
     from . import subproc
-    if not _is_office_app(pid):
-        return
+    reason = _gate_reason(pid, prog_id, started_at, expected_dir)
+    if reason:
+        print(u"[word工厂] 清理跳过 pid=%s：%s" % (pid, reason))
+        return False
+    name, path, created = _process_info(pid)
+    print(u"[word工厂] 结束自己起的 Office 进程：pid=%s 映像=%s 路径=%s 创建时间=%s"
+          % (pid, name, path, time.strftime(u"%Y-%m-%d %H:%M:%S", time.localtime(created))))
     try:
-        subproc.run(["taskkill", "/PID", str(int(pid)), "/T", "/F"],
+        # 走 subproc：exe（无控制台）里裸 subprocess 起 taskkill 会弹一个终端窗口
+        subproc.run(["taskkill", "/PID", str(int(pid)), "/F"],
                     capture_output=True, timeout=30)
     except Exception:                          # noqa: BLE001 - 收尾失败不该再抛
-        pass
+        return False
+    return True
 
 
-def _register_ours(pids):
-    with _LOCK:
-        _OUR_PIDS.update(pids)
+def kill_registered(registry):
+    """结束登记表里**仍然全过闸**的进程（超时兜底的唯一入口）；返回被杀 pid 列表。
 
-
-def _forget_ours(pids):
-    with _LOCK:
-        _OUR_PIDS.difference_update(pids)
-
-
-def terminate_leftovers():
-    """把"我们起过、还没退出"的实例全结束掉（超时兜底；返回结束掉的 pid 列表）。"""
-    with _LOCK:
-        left = set(_OUR_PIDS)
-    for pid in sorted(left):
-        _terminate(pid)
-    _forget_ours(left)
-    return sorted(left)
+    ``registry``：``{pid: (prog_id, started_at, expected_dir)}`` —— **按轮**存在，
+    调用完即清空，绝不跨会话累积。
+    """
+    killed = []
+    for pid, context in sorted(registry.items()):
+        if _terminate(pid, *context):
+            killed.append(pid)
+    registry.clear()
+    return killed
 
 
 def _create_app(prog_id):
@@ -158,21 +264,36 @@ def _create_app(prog_id):
 class Session:
     """一个私有 Office 实例的生命周期。用 ``with`` 或者记得 ``close()``。"""
 
-    def __init__(self, prog_id):
+    def __init__(self, prog_id, registry=None):
         self.prog_id = prog_id
-        self.pids = set()
+        self.started_at = time.time()
+        self.registry = registry if registry is not None else {}
+        self.expected_dir = u""
+        self.pids = set()                      # **只装"三道闸全过"的 pid**
+        self.cleanup_log = []
         self._killed = set()
         self.documents = []
         before = _process_ids()
-        self._before = before
+        if before is None:
+            self.cleanup_log.append(u"起会话时拿不到进程快照 → 本轮不做任何清理")
         try:
             self.app = _create_app(prog_id)
-            self.pids = _process_ids() - before          # 这次新起来的进程 = 我们的
-            _register_ours(self.pids)                    # 先登记，超时才找得到它
+            after = _process_ids()
+            if before is not None and after is not None:
+                verified, expected_dir, skipped = _verified_pids(
+                    after - before, prog_id, self.started_at)
+                self.pids = verified
+                self.expected_dir = expected_dir
+                for pid in verified:
+                    self.registry[pid] = (prog_id, self.started_at, expected_dir)
+                for pid, reason in skipped:
+                    self.cleanup_log.append(u"不处理 pid=%s：%s" % (pid, reason))
+            elif before is not None:
+                self.cleanup_log.append(u"起完拿不到进程快照 → 本轮不做任何清理")
             self._configure_private()
             self._health_check()
         except Exception:
-            self._kill_our_processes()                   # 起坏了也别留残留
+            self._kill_verified()              # 起坏了也别留残留（同样三道闸）
             raise
 
     # ------------------------------------------------------------------ 配置
@@ -214,22 +335,32 @@ class Session:
         return document
 
     # ------------------------------------------------------------------ 收尾
-    def _kill(self, pid):
-        """结束一个我们自己起的 pid（同一个 pid 只动手一次）。"""
-        if pid in self._killed:
-            return
-        self._killed.add(pid)
-        _forget_ours({pid})
-        _terminate(pid)
-
-    def _kill_our_processes(self):
-        for pid in sorted(self.pids & _process_ids()):
-            self._kill(pid)
-        _forget_ours(self.pids)
+    def _kill_verified(self):
+        """只结束**已验证**的 pid（同一 pid 只动手一次），逐个再核三道闸。"""
+        for pid in sorted(self.pids):
+            if pid in self._killed:
+                continue
+            self._killed.add(pid)
+            if _terminate(pid, self.prog_id, self.started_at, self.expected_dir):
+                self.registry.pop(pid, None)
         self.pids = set()
 
+    def _wait_gone(self, grace):
+        deadline = time.time() + grace
+        while time.time() < deadline:
+            alive = _process_ids()
+            if alive is None:
+                return                         # 查不到就别急着杀，宁可留残留
+            if not (self.pids & alive):
+                return
+            time.sleep(0.3)
+
     def close(self):
-        """关掉我们打开的文档 → ``Quit`` 我们起的实例 → **确认它真没了**。"""
+        """关掉我们打开的文档 → ``Quit`` 我们起的实例 → **确认它真没了**。
+
+        清理**只**处理 :attr:`pids` 里那些"diff 出来且三道闸全过"的 pid。
+        这里**没有**任何"扫全机新进程"的兜底 —— 那种兜底会误伤系统进程（2026-10-09 事故）。
+        """
         for document in reversed(self.documents):
             try:
                 document.Close(0)            # wdDoNotSaveChanges
@@ -240,28 +371,8 @@ class Session:
             self.app.Quit(0)
         except Exception:                    # noqa: BLE001
             pass
-        deadline = time.time() + QUIT_GRACE
-        while time.time() < deadline:
-            if not (self.pids & _process_ids()):
-                break
-            time.sleep(0.3)
-        self._kill_our_processes()
-        self._sweep_late_strays()
-
-    def _sweep_late_strays(self):
-        """最后扫一遍：**起会话之后**新冒出来、**没有可见窗口**的 Office 本体也清掉。
-
-        为什么要这一手：WPS 有时"慢半拍"再起一个子孙进程（差集是在起会话那一刻拍的，
-        抓不到它）。判据卡得很死 —— 只清**没窗口**的，用户自己开着的 Office 绝不误伤。
-        """
-        try:
-            candidates = _process_ids() - getattr(self, "_before", set())
-        except Exception:                    # noqa: BLE001
-            return
-        for pid in sorted(candidates):
-            if not _is_office_app(pid) or _has_visible_window(pid):
-                continue
-            self._kill(pid)
+        self._wait_gone(QUIT_GRACE)
+        self._kill_verified()
 
     def __enter__(self):
         return self
@@ -276,17 +387,18 @@ def run(callback, prog_ids, timeout=DEFAULT_TIMEOUT, per_candidate=None):
 
     ``callback(session)`` 里想干什么都行（读页码、导 PDF）。预算有两层：
 
-    * ``per_candidate``：**单个候选**的预算。卡住就换下一个候选。
-      不分开的话，一个卡住的 Word 会把整轮预算吃光、连带 WPS 那一轮也轮不到
-      （2026-10-08 实测：某报告让 Word 干等 SMB 超时 40 秒以上，而 WPS 3 秒就开好了）。
+    * ``per_candidate``：**单个候选**的预算。卡住就换下一个候选 —— 不然一个卡住的 Word
+      会把整轮预算吃光，连 WPS 那一轮都轮不到（实测某报告让 Word 干等 SMB 超时 40 秒+）。
     * ``timeout``：**整件事**的预算（所有候选加起来）。
 
-    超时/失败都**按 pid 清掉我们自己起的实例**（进程一死，卡住的调用立刻以 RPC 错误返回）。
+    超时兜底：结束**本**轮登记表里、仍全过三道闸的进程（进程一死，卡住的调用立刻以
+    RPC 错误返回）。登记表只在这一轮里存在，用完即清。
     """
     prog_ids = list(prog_ids)
     if per_candidate is None:
         per_candidate = max(15.0, float(timeout) / max(1, len(prog_ids)))
     result = {}
+    registry = {}                          # **按轮**的登记表：{pid: (prog_id, started_at, dir)}
 
     def attempt(prog_id, budget):
         """试一个候选；返回 (成功?, 错误文本)。"""
@@ -300,10 +412,11 @@ def run(callback, prog_ids, timeout=DEFAULT_TIMEOUT, per_candidate=None):
                 pythoncom.CoInitialize()     # COM 必须在自己这个线程里初始化
                 initialized = True
                 with _LOCK:                  # 锁只保护"起会话"那一小段，干活时不占锁
-                    session = Session(prog_id)
+                    session = Session(prog_id, registry)
                 box["value"] = callback(session)
             except Exception as error:       # noqa: BLE001 - 换下一个候选
                 box["error"] = u"%s: %s: %s" % (prog_id, type(error).__name__, error)
+                box["cleanup_log"] = getattr(session, "cleanup_log", []) if session else []
             finally:
                 if session is not None:
                     try:
@@ -320,8 +433,8 @@ def run(callback, prog_ids, timeout=DEFAULT_TIMEOUT, per_candidate=None):
         thread.start()
         thread.join(budget)
         if thread.is_alive():
-            killed = terminate_leftovers()
-            return False, u"%s: 超过 %.0f 秒没完成（已清掉自己起的实例 %s）" % (
+            killed = kill_registered(registry)     # 只动登记表里全过闸的那些
+            return False, u"%s: 超过 %.0f 秒没完成（已结束自己起的实例 %s）" % (
                 prog_id, budget, killed or u"（无）")
         if "error" in box:
             return False, box["error"]
@@ -330,15 +443,18 @@ def run(callback, prog_ids, timeout=DEFAULT_TIMEOUT, per_candidate=None):
         result["value"] = box["value"]
         return True, u""
 
-    errors = []
-    deadline = time.time() + float(timeout)
-    for prog_id in prog_ids:
-        left = deadline - time.time()
-        if left <= 0.1:                      # 整轮预算真的用完了，别再起新实例
-            errors.append(u"%s: 整轮预算（%.0f 秒）用完，没轮到它" % (prog_id, float(timeout)))
-            break
-        ok, message = attempt(prog_id, min(float(per_candidate), left))
-        if ok:
-            return result["value"]
-        errors.append(message)
-    raise OfficeError(u"；".join(errors))
+    try:
+        errors = []
+        deadline = time.time() + float(timeout)
+        for prog_id in prog_ids:
+            left = deadline - time.time()
+            if left <= 0.1:                  # 整轮预算真的用完了，别再起新实例
+                errors.append(u"%s: 整轮预算（%.0f 秒）用完，没轮到它" % (prog_id, float(timeout)))
+                break
+            ok, message = attempt(prog_id, min(float(per_candidate), left))
+            if ok:
+                return result["value"]
+            errors.append(message)
+        raise OfficeError(u"；".join(errors))
+    finally:
+        registry.clear()                     # 登记表不跨轮存活

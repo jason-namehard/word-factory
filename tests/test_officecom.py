@@ -1,30 +1,278 @@
 # -*- coding: utf-8 -*-
-"""Word/WPS COM 会话的纪律（2026-10-08 用户报"页码全不对、还特别慢"之后重写）。
+"""Word/WPS COM 会话的纪律 —— 重点是**结束进程这件事绝不能再伤人**。
 
-两条必须钉死的规矩：
+⚠️ 2026-10-09 事故（本文件的由来）：``_is_office_app()`` 原来写成
+``(not name) or (name in _OFFICE_EXES)`` —— 读不到映像名（系统/受保护进程必然读不到）
+被当成"这是我们起的 Office"；又叠加"扫全机新进程差集"的兜底 + ``taskkill /T``，
+结果把会话宿主（sihost/svchost）连树杀掉 → **整个 Windows 外壳重建**（当晚 5 次）。
 
-1. **每次都自己起私有实例**（``DispatchEx``），**绝不**去借用用户已经开着的 Office ——
-   实测：机器上只要有一个自动化残留的 Word，连上去之后 ``Documents.Open`` 不返回，
-   整整 60 秒超时 → 读不到真实页码 → 首页/目录旁那两只空白页就删不掉。
-2. **自己起的实例必须死透**：``Quit`` 之后还活着就按 pid 结束它自己 ——
-   实测攒了 24 个 WINWORD + 32 个 wps 没有窗口的残留进程，越攒越慢。
+现在必须守住的：
+1. 读不到映像名 → **不是我们的**，跳过；
+2. 白名单外的进程（svchost / explorer / sihost…）→ 跳过；
+3. 白名单内**且**路径在本次 Office 目录里**且**创建时间晚于本次会话开始 → 才是我们的，才允许结束；
+4. 候选集**只能**是 DispatchEx 前后 diff 出来的 pid（不许扫全机）；
+5. ``_process_ids()`` 失败返回 ``None`` 并放弃本轮清理（绝不返回空集）；
+6. 真的结束进程时打印 pid / 映像名 / 完整路径 / 创建时间，供人工核对。
+
+测试里**一律打桩**，绝不真的调 taskkill。
 """
 
+import ctypes
+import time
 import unittest
 from unittest.mock import patch
 
 from wordfactory import officecom
+from wordfactory import subproc as subproc_module
+
+WINWORD_DIR = r"C:\Program Files\Microsoft Office\Root\Office16"
+WINWORD = WINWORD_DIR + r"\WINWORD.EXE"
 
 
-class FakeApp(object):
-    """假装是 Word/WPS 的 Application 对象（只实现我们用到的那点东西）。"""
+class ProcessInfoCase(unittest.TestCase):
+    """闸门本身：三道闸逐条单独验。"""
 
-    def __init__(self):
-        self.Version = "16.0"
-        self.quitted = False
+    def setUp(self):
+        self.started = 1000.0
+        self.expected_dir = WINWORD_DIR.lower()
+        self.info = {}
+        self._patch = patch.object(officecom, "_process_info",
+                                   side_effect=lambda pid: self.info.get(pid, (u"", u"", 0.0)))
+        self._patch.start()
+        self.addCleanup(self._patch.stop)
+        self._window = patch.object(officecom, "_has_visible_window", return_value=False)
+        self._window.start()
+        self.addCleanup(self._window.stop)
+        # 闸门口会先看"这个 pid 还在不在"——测试里统一让它们都"在"
+        self._alive = patch.object(officecom, "_process_ids",
+                                  return_value=set(range(1, 1000)))
+        self._alive.start()
+        self.addCleanup(self._alive.stop)
 
-    def Quit(self, *_args):
-        self.quitted = True
+    def reason(self, pid, prog_id=u"Word.Application", created=1001.0, name=u"winword.exe",
+               path=WINWORD, expected_dir=None):
+        self.info[pid] = (name, path, created)
+        return officecom._gate_reason(pid, prog_id, self.started,
+                                     self.expected_dir if expected_dir is None else expected_dir)
+
+    def test_gate_one_unreadable_image_name_is_not_ours(self):
+        """**事故根因**：读不到映像名（Secure System / Registry / csrss 必然读不到）→ 跳过。"""
+        self.assertFalse(officecom._is_office_app(204))
+        reason = self.reason(204, name=u"", path=u"", created=0.0)
+        self.assertIsNotNone(reason, u"读不到名字的 pid 绝不能过闸")
+        self.assertIn(u"读不到映像名", reason)
+
+    def test_gate_one_whitelist_only(self):
+        for name in (u"svchost.exe", u"explorer.exe", u"sihost.exe", u"csrss.exe",
+                     u"python.exe", u"taskkill.exe"):
+            self.assertFalse(officecom._is_office_app(4), name)
+            reason = self.reason(4, name=name, path=r"C:\Windows\System32\%s" % name)
+            self.assertIn(u"白名单", reason, u"%s 不该过闸" % name)
+
+    def test_gate_two_path_must_be_this_office(self):
+        """名字对但路径不对（别处的同名程序）→ 跳过。"""
+        reason = self.reason(5, path=r"D:\别人的目录\WINWORD.EXE")
+        self.assertIn(u"路径", reason)
+
+    def test_gate_two_no_expected_dir_means_no_kill(self):
+        reason = self.reason(7, path=WINWORD, expected_dir=u"")
+        self.assertIn(u"期望目录", reason)
+
+    def test_gate_three_creation_time_must_be_after_the_session(self):
+        reason = self.reason(8, created=999.0)
+        self.assertIn(u"创建时间早于", reason)
+        reason = self.reason(8, created=0.0)
+        self.assertIn(u"创建时间", reason)
+
+    def test_a_pid_with_a_visible_window_is_never_killed(self):
+        """用户自己开着的 Office（有窗口）绝不许动。"""
+        self.info[9] = (u"winword.exe", WINWORD, 1001.0)
+        with patch.object(officecom, "_has_visible_window", return_value=True):
+            reason = officecom._gate_reason(9, u"Word.Application", self.started,
+                                            self.expected_dir)
+        self.assertIn(u"可见窗口", reason)
+
+    def test_the_good_case_passes_all_gates(self):
+        self.assertIsNone(self.reason(10))
+
+    def test_wrong_office_binary_for_this_session_is_skipped(self):
+        """本次起的是 Word，就不要去动 wps.exe（名字在白名单里也不能杀）。"""
+        reason = self.reason(11, prog_id=u"Word.Application", name=u"wps.exe",
+                             path=r"D:\wps\WPS Office\12.1\office6\wps.exe")
+        self.assertIn(u"不符", reason)
+
+
+class VerifiedCandidateCase(unittest.TestCase):
+    """候选集只会来自 diff；混合一批系统 pid 时，只有我们的那个留下。"""
+
+    def test_only_the_verified_office_pid_survives(self):
+        started = time.time()
+        info = {
+            100: (u"winword.exe", WINWORD, started + 1),
+            200: (u"", u"", 0.0),                       # 读不到名字（系统进程）
+            300: (u"svchost.exe", r"C:\Windows\System32\svchost.exe", started + 1),
+            400: (u"explorer.exe", r"C:\Windows\explorer.exe", started + 1),
+            500: (u"WINWORD.EXE".lower(), WINWORD, started - 5),   # 比会话还老
+        }
+        with patch.object(officecom, "_process_info", side_effect=lambda pid: info.get(pid, (u"", u"", 0.0))), \
+             patch.object(officecom, "_has_visible_window", return_value=False), \
+             patch.object(officecom, "_process_ids", return_value=set(info)):
+            verified, expected_dir, skipped = officecom._verified_pids(
+                set(info), u"Word.Application", started)
+        self.assertEqual(verified, {100}, u"只有 100 是我们的")
+        self.assertEqual(expected_dir, WINWORD_DIR.lower())
+        self.assertEqual({pid for pid, _r in skipped}, {200, 300, 400, 500})
+
+
+class KillCase(unittest.TestCase):
+    """真杀之前：再核一遍闸门 + 打印详情；测试里 subproc 全打桩。"""
+
+    def setUp(self):
+        self.started = time.time()
+        self.calls = []
+        self._run = patch.object(subproc_module, "run",
+                                 side_effect=lambda cmd, **kw: self.calls.append(cmd))
+        self._run.start()
+        self.addCleanup(self._run.stop)
+        self._alive = patch.object(officecom, "_process_ids",
+                                   return_value=set(range(1, 10000)))
+        self._alive.start()
+        self.addCleanup(self._alive.stop)
+
+    def test_a_verified_pid_is_terminated_without_tree_flag(self):
+        info = {66: (u"winword.exe", WINWORD, self.started + 1)}
+        with patch.object(officecom, "_process_info", side_effect=lambda pid: info[pid]), \
+             patch.object(officecom, "_has_visible_window", return_value=False):
+            ok = officecom._terminate(66, u"Word.Application", self.started,
+                                      WINWORD_DIR.lower())
+        self.assertTrue(ok)
+        self.assertEqual(len(self.calls), 1)
+        command = self.calls[0]
+        self.assertEqual(command[0], "taskkill")
+        self.assertIn("66", command)
+        self.assertNotIn("/T", command,
+                         u"绝不用 /T：事故里正是连「子孙整棵树」一起杀才端掉会话宿主的")
+
+    def test_an_unreadable_pid_is_never_terminated(self):
+        with patch.object(officecom, "_process_info", return_value=(u"", u"", 0.0)):
+            ok = officecom._terminate(204, u"Word.Application", self.started,
+                                      WINWORD_DIR.lower())
+        self.assertFalse(ok)
+        self.assertEqual(self.calls, [], u"读不到信息的 pid 一律不许动手")
+
+    def test_a_system_process_is_never_terminated(self):
+        info = {300: (u"svchost.exe", r"C:\Windows\System32\svchost.exe", self.started + 1)}
+        with patch.object(officecom, "_process_info", side_effect=lambda pid: info[pid]):
+            ok = officecom._terminate(300, u"Word.Application", self.started,
+                                      WINWORD_DIR.lower())
+        self.assertFalse(ok)
+        self.assertEqual(self.calls, [])
+
+    def test_kill_registered_clears_the_registry(self):
+        info = {66: (u"winword.exe", WINWORD, self.started + 1)}
+        registry = {66: (u"Word.Application", self.started, WINWORD_DIR.lower()),
+                    204: (u"Word.Application", self.started, WINWORD_DIR.lower())}
+        with patch.object(officecom, "_process_info",
+                          side_effect=lambda pid: info.get(pid, (u"", u"", 0.0))), \
+             patch.object(officecom, "_has_visible_window", return_value=False):
+            killed = officecom.kill_registered(registry)
+        self.assertEqual(killed, [66], u"只有全过闸的那个被杀")
+        self.assertEqual(registry, {}, u"登记表用完即清（不跨会话累积）")
+
+
+class NoMachineWideSweepCase(unittest.TestCase):
+    """把"扫全机"那套彻底拿掉：没有兜底扫描、没有模块级登记表。"""
+
+    def test_there_is_no_machine_wide_sweep(self):
+        self.assertFalse(hasattr(officecom, "_sweep_late_strays"),
+                         u"扫全机新进程差集的兜底必须删掉（它会误伤系统进程）")
+        self.assertFalse(hasattr(officecom, "terminate_leftovers"))
+        self.assertFalse(hasattr(officecom, "_OUR_PIDS"),
+                         u"模块级登记表不许存在（会跨会话累积）")
+
+    def test_process_ids_returns_none_when_the_api_fails(self):
+        class BrokenPsapi(object):
+            def EnumProcesses(self, *args):
+                return 0
+
+        class BrokenWindll(object):
+            psapi = BrokenPsapi()
+
+        with patch.object(ctypes, "windll", BrokenWindll()):
+            self.assertIsNone(officecom._process_ids(),
+                              u"拿不到进程表必须是 None —— 空集会放大成「全机进程」")
+
+    def test_process_ids_returns_none_when_the_call_raises(self):
+        class BoomPsapi(object):
+            def EnumProcesses(self, *args):
+                raise OSError(u"拒绝访问")
+
+        class BoomWindll(object):
+            psapi = BoomPsapi()
+
+        with patch.object(ctypes, "windll", BoomWindll()):
+            self.assertIsNone(officecom._process_ids())
+
+
+class SessionCase(unittest.TestCase):
+    """会话层：拿不到快照就不清理；只动 diff 出来的、过了闸的 pid。"""
+
+    def setUp(self):
+        self.calls = []
+        self._run = patch.object(subproc_module, "run",
+                                 side_effect=lambda cmd, **kw: self.calls.append(cmd))
+        self._run.start()
+        self.addCleanup(self._run.stop)
+        self._grace = patch.object(officecom, "QUIT_GRACE", 0)
+        self._grace.start()
+        self.addCleanup(self._grace.stop)
+
+    def test_no_snapshot_means_no_cleanup_at_all(self):
+        class App(object):
+            Version = "16.0"
+
+            def Quit(self, *_args):
+                pass
+
+        with patch.object(officecom, "_create_app", return_value=App()), \
+             patch.object(officecom, "_process_ids", return_value=None):
+            session = officecom.Session(u"Word.Application")
+        self.assertEqual(session.pids, set())
+        self.assertTrue(any(u"不做任何清理" in line for line in session.cleanup_log))
+        session.close()
+        self.assertEqual(self.calls, [], u"拿不到进程表就一个都不许杀")
+
+    def test_only_the_diffed_and_gated_pid_is_killed(self):
+        started = {}
+        info = {}
+
+        class App(object):
+            Version = "16.0"
+
+            def Quit(self, *_args):
+                pass
+
+        def fake_create(prog_id):
+            # 起实例"顺便"让系统里多出一个系统进程和一个我们的 Office 进程
+            info[8001] = (u"winword.exe", WINWORD, time.time() + 1)
+            info[8002] = (u"", u"", 0.0)
+            return App()
+
+        def fake_ids():
+            return {1, 2, 8001, 8002} if info else {1, 2}
+
+        with patch.object(officecom, "_create_app", side_effect=fake_create), \
+             patch.object(officecom, "_process_ids", side_effect=fake_ids), \
+             patch.object(officecom, "_process_info",
+                          side_effect=lambda pid: info.get(pid, (u"", u"", 0.0))), \
+             patch.object(officecom, "_has_visible_window", return_value=False):
+            session = officecom.Session(u"Word.Application")
+            started["pids"] = set(session.pids)
+            session.close()
+        self.assertEqual(started["pids"], {8001}, u"只有我们的那个进候选")
+        self.assertEqual(len(self.calls), 1)
+        self.assertIn("8001", self.calls[0])
+        self.assertNotIn("8002", self.calls[0], u"系统进程绝不许碰")
 
 
 class RunCase(unittest.TestCase):
@@ -39,7 +287,7 @@ class RunCase(unittest.TestCase):
         closed = []
 
         class Session(object):
-            def __init__(self, prog_id):
+            def __init__(self, prog_id, registry=None):
                 self.prog_id = prog_id
 
             def close(self):
@@ -55,154 +303,45 @@ class RunCase(unittest.TestCase):
         self.assertEqual(result["pages"], 31)
         self.assertEqual(closed, ["Word.Application", "KWPS.Application"])
 
-
-class SessionCase(unittest.TestCase):
-    def test_we_always_create_our_own_instance(self):
-        """**不借别人的**：起手就是自己起一个（DispatchEx），不去连现成的 Office。"""
-        made = []
-
-        def fake_create(prog_id):
-            made.append(prog_id)
-            return FakeApp()
-
-        with patch.object(officecom, "_create_app", fake_create), \
-             patch.object(officecom, "_process_ids", return_value={1, 2, 4242}):
-            session = officecom.Session("Word.Application")
-        self.assertEqual(made, ["Word.Application"])
-        self.assertEqual(session.pids, set(), u"快照没变化时不该把别人的进程算成自己的")
-        session.close()
-
-    def test_close_quits_our_own_instance(self):
+    def test_a_hanging_run_only_kills_registered_and_gated_pids(self):
+        """超时兜底只动**本轮登记表**里、**仍过闸**的进程。"""
+        calls = []
         state = {"ids": set()}
-        app = FakeApp()
+        info = {9001: (u"winword.exe", WINWORD, time.time() + 1),
+                9002: (u"", u"", 0.0)}
 
-        def quit_and_die(*_args):
-            app.quitted = True
-            state["ids"] = set()          # Quit 之后进程真的退了
+        class App(object):
+            Version = "16.0"
 
-        app.Quit = quit_and_die
+            def Quit(self, *_args):
+                pass
 
-        def fake_create(prog_id):
-            state["ids"] = {555}          # "起了一个新进程"
-            return app
-
-        with patch.object(officecom, "_create_app", fake_create), \
-             patch.object(officecom, "_process_ids", lambda: set(state["ids"])):
-            session = officecom.Session("Word.Application")
-            self.assertEqual(session.pids, {555}, u"新起来的那个进程才算我们的")
-            session.close()
-        self.assertTrue(app.quitted, u"自己起的实例必须 Quit")
-
-    def test_a_stubborn_instance_is_killed_by_pid(self):
-        """``Quit`` 之后还赖着不走 → 按 **pid** 结束它自己（绝不用 /IM 名字）。"""
-        state = {"ids": set()}
-        app = FakeApp()                   # 它的 Quit 什么都不做（赖着不走）
-        killed = []
+        def fake_ids():
+            return set(state["ids"])
 
         def fake_create(prog_id):
-            state["ids"] = {666}
-            return app
+            # 起实例"顺便"让机器上多出两个系统 pid + 我们那个 Office pid
+            state["ids"] = {1, 2, 9001, 9002}
+            return App()
 
-        with patch.object(officecom, "_create_app", fake_create), \
-             patch.object(officecom, "_process_ids", lambda: set(state["ids"])), \
-             patch.object(officecom, "_terminate",
-                          side_effect=lambda pid: killed.append(pid)), \
-             patch.object(officecom, "QUIT_GRACE", 0):
-            session = officecom.Session("Word.Application")
-            session.close()
-        self.assertEqual(killed, [666])
+        with patch.object(officecom, "_create_app", side_effect=fake_create), \
+             patch.object(officecom, "_process_ids", side_effect=fake_ids), \
+             patch.object(officecom, "_process_info",
+                          side_effect=lambda pid: info.get(pid, (u"", u"", 0.0))), \
+             patch.object(officecom, "_has_visible_window", return_value=False), \
+             patch.object(subproc_module, "run",
+                          side_effect=lambda cmd, **kw: calls.append(cmd)):
 
-    def test_open_is_read_only_and_not_added_to_recent(self):
-        state = {"ids": set()}
-        app = FakeApp()
-        opened = {}
+            def hangs(session):
+                time.sleep(5)
+                return {"pages": 1}
 
-        class Documents(object):
-            Count = 0
-
-            def Open(self, path, confirm, readonly, add_recent):
-                opened.update({"confirm": confirm, "readonly": readonly,
-                               "add_recent": add_recent})
-                return "DOC"
-
-        app.Documents = Documents()
-
-        def fake_create(prog_id):
-            state["ids"] = {777}
-            return app
-
-        with patch.object(officecom, "_create_app", fake_create), \
-             patch.object(officecom, "_process_ids", lambda: set(state["ids"])):
-            session = officecom.Session("Word.Application")
-            session.open(u"C:\\tmp\\报告.docx")
-        self.assertTrue(opened["readonly"], u"一律只读打开")
-        self.assertFalse(opened["add_recent"], u"别往用户的「最近使用的文档」里塞")
-
-    def test_a_hanging_instance_is_cleaned_up_by_pid(self):
-        """卡住时按 **pid** 清掉我们自己起的实例 —— 不做"每次调用套一层线程"
-        （那样 COM 会跑到没 ``CoInitialize`` 的线程上，报"尚未调用 CoInitialize"）。"""
-        state = {"ids": set()}
-        app = FakeApp()
-        killed = []
-
-        def fake_create(prog_id):
-            state["ids"] = {888}              # 我们起了一个实例
-            return app
-
-        def hanging_callback(session):
-            import time
-            time.sleep(5)                     # 假装卡在 Documents.Open 上
-            return {"pages": 1}
-
-        with patch.object(officecom, "_create_app", fake_create), \
-             patch.object(officecom, "_process_ids", lambda: set(state["ids"])), \
-             patch.object(officecom, "_terminate",
-                          side_effect=lambda pid: killed.append(pid)), \
-             patch.object(officecom, "_OUR_PIDS", set()):
             with self.assertRaises(officecom.OfficeError) as caught:
-                officecom.run(hanging_callback, ["Word.Application"], timeout=0.6)
+                officecom.run(hangs, ["Word.Application"], timeout=0.6)
         self.assertIn(u"没完成", str(caught.exception))
-        self.assertEqual(killed, [888], u"超时必须清掉自己起的实例，不能留残留")
-
-    def test_leftover_registry_only_holds_processes_we_started(self):
-        """超时清理只动"我们起过"的 pid —— 用户自己开的 Word 绝不能被牵连。"""
-        state = {"ids": set()}
-        app = FakeApp()
-
-        def fake_create(prog_id):
-            state["ids"] = {1111}
-            return app
-
-        with patch.object(officecom, "_create_app", fake_create), \
-             patch.object(officecom, "_process_ids", lambda: set(state["ids"])), \
-             patch.object(officecom, "_OUR_PIDS", set()) as registry:
-            session = officecom.Session("Word.Application")
-            self.assertIn(1111, officecom._OUR_PIDS)
-            session.close()
-            self.assertEqual(officecom._OUR_PIDS, set(),
-                             u"正常关掉之后不该再留在待清理名单里")
+        self.assertEqual(len(calls), 1, u"只杀我们那个，系统进程不动")
+        self.assertIn("9001", calls[0])
 
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class OfficeProcessFilterCase(unittest.TestCase):
-    """收尾清理只动**Office 应用本体**：``DispatchEx`` 有时会连带拉起共享辅助服务
-    （云同步之类），那不是我们的东西。"""
-
-    def test_only_office_apps_are_terminated(self):
-        with patch.object(officecom, "_image_name", return_value="wpscloudsvr.exe"):
-            self.assertFalse(officecom._is_office_app(4321))
-        with patch.object(officecom, "_image_name", return_value="winword.exe"):
-            self.assertTrue(officecom._is_office_app(4321))
-        with patch.object(officecom, "_image_name", return_value="wps.exe"):
-            self.assertTrue(officecom._is_office_app(4321))
-
-    def test_a_non_office_process_is_not_terminated(self):
-        """不是 Office 本体的进程（辅助服务）一个都不许动。"""
-        from wordfactory import subproc as subproc_module
-        with patch.object(officecom, "_is_office_app", return_value=False), \
-             patch.object(subproc_module, "run") as fake_run:
-            officecom._terminate(999)
-        self.assertEqual(fake_run.call_count, 0, u"不是 Office 本体的进程不许动")

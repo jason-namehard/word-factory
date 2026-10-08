@@ -615,3 +615,48 @@ class TestOutputConflictAsks(unittest.TestCase):
         self.assertIn(u"（预览版-定稿）", other["report"]["out"])
         self.assertTrue(os.path.exists(first["report"]["out"]),
                         u"原产物还在，没被顶掉")
+
+
+class TestPdfFromExistingDocument(GuiCase):
+    """导 PDF 走"**已经生成好的**那份文档"，而不是自己再跑一遍方案（用户 2026-10-08 要求）。
+
+    用户原话："它根本不是基于已经生成的预览版或者正式版转成 PDF，而是自己单独跑一遍
+    预览版的流程……是否有办法可以基于现成的 word 去转成 PDF？"
+    以及："当我没有出预览版或者正式版的时候，它会提示我……选择正式版 PDF 就会提示，
+    需要先导出正式版报告。"
+    """
+
+    def test_pdf_from_a_document_we_never_made_is_refused_with_words(self):
+        """还没出过这一版 → 明说"需要先导出正式版报告"，不能默默去跑一遍方案。"""
+        try:
+            self.post("/api/pdf", {"document": u"没生成过（正式版）.docx",
+                                   "mode": "formal", "hidden": True})
+        except urllib.error.HTTPError as caught:
+            message = caught.read().decode("utf-8")
+            self.assertIn(u"先出预览版 / 正式版", message)
+        else:
+            self.fail(u"没生成过的文档居然让转了")
+
+    def test_pdf_converts_the_produced_document_directly(self):
+        renderers = [item["name"] for item in
+                     __import__("wordfactory.ops.pdf", fromlist=["pdf"]).detect_renderers()
+                     if item["available"]]
+        if not renderers:
+            self.skipTest(u"本机没有 PDF 渲染器")
+        # 先像界面那样"出一版正式版"，拿到产物名（走的就是 allow_download 白名单）
+        run, _status = self.post("/api/run", {"path": self.path, "steps": [],
+                                              "mode": "formal"})
+        name = run["download"]
+        payload, status = self.post("/api/pdf", {"document": name, "mode": "formal",
+                                                "hidden": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"], payload.get("error"))
+        report = payload["report"]
+        self.assertTrue(report.get("from_existing"), u"要标出「这是直接转现成的」")
+        self.assertEqual(report["source_document"], run["report"]["out"])
+        self.assertEqual(os.path.dirname(payload["report"]["out"]),
+                         os.path.dirname(run["report"]["out"]),
+                         u"PDF 与原文档放同一个文件夹")
+        self.assertTrue(payload["download"].endswith(u".pdf"))
+        with open(payload["report"]["out"], "rb") as handle:
+            self.assertTrue(handle.read(5).startswith(b"%PDF-"))

@@ -487,18 +487,94 @@ class Handler(BaseHTTPRequestHandler):
                     "sizes": sorted(sizes, key=lambda v: float(v) if v.replace(".", u"").isdigit() else 0),
                     "aligns": sorted(aligns), "colors": sorted(colors)})
 
-    def _pdf(self):
-        """Apply the chosen plan and edition before rendering, never the original."""
+    def _produced_document(self, name):
+        """把"界面说要转的那个产物"解析成真实路径（只认下载白名单里的，别的拒绝）。"""
+        if not name:
+            return None
+        with _LOCK:
+            path = _DOWNLOADS.get(os.path.basename(name))
+        if not path or not os.path.isfile(path):
+            raise PipelineError(
+                u"找不到刚生成的文档：%s —— 请先出预览版 / 正式版，再转 PDF" % name)
+        return path
+
+    def _pdf_from_document(self, docx_path, edition, mode, data):
+        """**直接**把已经生成好的 Word 产物转成 PDF（不重跑方案）。
+
+        用户 2026-10-08：'它根本不是基于已经生成的预览版/正式版转成 PDF，而是自己单独跑一遍
+        预览版的流程' —— 说得对，而且那样又慢又容易让人以为白跑了一遍。现在直接转。
+        """
         from ..ops import pdf as pdf_op
-        from .. import fonts
+        import shutil
+        import tempfile
+        requested = data.get('out') or os.path.splitext(docx_path)[0] + u'.pdf'
+        if os.path.abspath(requested) == os.path.abspath(docx_path):
+            raise PipelineError(u'输出不能与输入相同')
+        out = requested
+        if not data.get('allow_overwrite'):
+            index = 2
+            while os.path.exists(out):
+                out = os.path.splitext(requested)[0] + u'-' + str(index) + u'.pdf'
+                index += 1
+        os.makedirs(TEMP_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=u'pdf-', dir=TEMP_DIR,
+                                         ignore_cleanup_errors=True) as directory:
+            # 在副本上转：排版引擎绝不会碰到用户目录里的那个 docx
+            staged = os.path.join(directory, os.path.basename(docx_path))
+            shutil.copyfile(docx_path, staged)
+            rendered = os.path.join(directory, u'out.pdf')
+            report = pdf_op.export(staged, rendered, prefer=data.get('renderer') or None,
+                                   timeout=int(data.get('timeout') or 120), visible=False)
+            # 先写目标盘上的临时文件再原子替换（exe 在 E 盘、报告在 C 盘/U 盘也不会半截）
+            with tempfile.NamedTemporaryFile(prefix=u'.wordfactory-pdf-', suffix=u'.pdf',
+                                             dir=os.path.dirname(os.path.abspath(out)),
+                                             delete=False) as handle:
+                commit_path = handle.name
+            try:
+                shutil.copyfile(rendered, commit_path)
+                if os.path.exists(out) and not data.get('allow_overwrite'):
+                    raise PipelineError(u'目标 PDF 已存在，请重试以另存新文件')
+                os.replace(commit_path, out)
+            finally:
+                if os.path.exists(commit_path):
+                    os.unlink(commit_path)
+        report.update({'file': docx_path, 'source_document': docx_path, 'out': out,
+                       'edition': edition, 'mode': mode, 'from_existing': True,
+                       'bytes': os.path.getsize(out)})
+        download = allow_download(out)
+        text = (u'已把%s文档直接转成 PDF（**没有重跑方案**）：\n%s\n\n'
+                u'原报告与此前的 %s 文档都没被动。'
+                % (edition, pdf_op.format_report(report), edition))
+        self._json({'ok': True, 'report': report, 'download': download, 'text': text})
+
+    def _pdf(self):
+        """导出 PDF。
+
+        **两条入口**（用户 2026-10-08 的要求）：
+
+        * ``document``：界面**已经生成好的**预览版/正式版 docx（下载白名单里的名字）
+          → **直接转**。又快又符合直觉（"我已经出过了，为什么还要再跑一遍"）；
+        * 老口径（``path`` + ``steps``）：没给出成品时按当前方案先生成再转 —— 保留给命令行、
+          以及"还没出过这一版"的兼容路径。
+        """
+        from ..ops import pdf as pdf_op
         import tempfile
         data = self._body_json()
-        path = data.get('path') or ''
-        if not os.path.isfile(path): raise PipelineError('文件不存在：%s' % path)
         mode = data.get('mode') or 'formal'
-        if mode not in ('formal','verify'): raise PipelineError('PDF 版本只能是预览版或正式版')
-        stem = re.sub(r'（(?:临时|预览版|正式版)）$', '', os.path.splitext(path)[0])
+        if mode not in ('formal', 'verify'):
+            raise PipelineError('PDF 版本只能是预览版或正式版')
         edition = '正式版' if mode == 'formal' else '预览版'
+        produced = self._produced_document(data.get('document'))
+        if produced:
+            return self._pdf_from_document(produced, edition, mode, data)
+        path = data.get('path') or ''
+        if not os.path.isfile(path):
+            if data.get('document'):
+                raise PipelineError(
+                    u'找不到刚生成的文档：%s —— 需要先导出%s报告' % (data.get('document'), edition))
+            raise PipelineError('文件不存在：%s' % path)
+        stem = re.sub(r'（(?:临时|预览版|正式版)）$', '', os.path.splitext(path)[0])
         requested = data.get('out') or stem+'（'+edition+'）.pdf'
         if os.path.abspath(requested)==os.path.abspath(path): raise PipelineError('输出不能与输入相同')
         out = requested
