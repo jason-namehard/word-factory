@@ -185,3 +185,24 @@ class SessionCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OfficeProcessFilterCase(unittest.TestCase):
+    """收尾清理只动**Office 应用本体**：``DispatchEx`` 有时会连带拉起共享辅助服务
+    （云同步之类），那不是我们的东西。"""
+
+    def test_only_office_apps_are_terminated(self):
+        with patch.object(officecom, "_image_name", return_value="wpscloudsvr.exe"):
+            self.assertFalse(officecom._is_office_app(4321))
+        with patch.object(officecom, "_image_name", return_value="winword.exe"):
+            self.assertTrue(officecom._is_office_app(4321))
+        with patch.object(officecom, "_image_name", return_value="wps.exe"):
+            self.assertTrue(officecom._is_office_app(4321))
+
+    def test_a_non_office_process_is_not_terminated(self):
+        """不是 Office 本体的进程（辅助服务）一个都不许动。"""
+        from wordfactory import subproc as subproc_module
+        with patch.object(officecom, "_is_office_app", return_value=False), \
+             patch.object(subproc_module, "run") as fake_run:
+            officecom._terminate(999)
+        self.assertEqual(fake_run.call_count, 0, u"不是 Office 本体的进程不许动")

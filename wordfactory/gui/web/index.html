@@ -289,6 +289,11 @@ body.log-open #log { height: 125px; overflow: auto; border-top: 1px solid #edf0f
 #st-last { margin-left: auto; flex-shrink: 0; }
 #toast { position: fixed; right: 25px; bottom: 75px; max-width: 350px; padding: 13px 17px; border: 1px solid #ecd8d0; border-radius: 10px; color: #ad7868; background: #fffaf7; font-size: 12px; box-shadow: 0 5px 25px #5d382b12; opacity: 0; pointer-events: none; transform: translateY(8px); transition: opacity .15s, transform .15s; z-index: 50; }
 #toast.on { opacity: 1; transform: translateY(0); }
+/* 「已生成」弹窗里的文件行：名字 + 打开文件 / 打开所在位置 */
+#done-list { margin-top: 6px; max-height: 300px; overflow: auto; }
+#done-list .done-row { display: flex; align-items: center; gap: 8px; padding: 9px 11px; margin-bottom: 7px; border: 1px solid #eee6e1; border-radius: 9px; background: #fffdfc; }
+#done-list .done-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: #4b5563; }
+#done-list button { flex: none; }
 
 @media (max-width: 1200px) {
   #sidebar { width: 164px; padding-left: 9px; padding-right: 9px; }
@@ -627,6 +632,15 @@ table.grid th { font-size: 11px; }
   <div class="rowline" style="justify-content:flex-end"><button id="pdf-cancel">取消</button><button id="pdf-confirm" class="primary">生成 PDF</button></div>
 </div></div>
 
+<!-- 产物已生成：弹窗告诉用户，并给"打开文件 / 打开所在位置 / 什么都不做"（用户 2026-10-08 要的） -->
+<div id="done-dialog" class="modal"><div class="box" style="width:580px">
+  <h4 id="done-title">已生成</h4>
+  <p class="hint" id="done-summary"></p>
+  <div id="done-list" class="done-list"></div>
+  <p class="hint" style="margin:14px 0 0">你的原文件一个字都没动；产物和原文件放在同一个文件夹。</p>
+  <div class="rowline" style="justify-content:flex-end"><button id="done-close">什么都不做</button></div>
+</div></div>
+
 <!-- 选文件 -->
 <div id="picker" class="modal"><div class="box">
   <div class="rowline" style="margin-bottom:8px">
@@ -842,6 +856,39 @@ async function api(url, options) {
   if (!data.ok) throw new Error(data.error || ('HTTP ' + response.status));
   return data;
 }
+/* 产物生成之后的确认弹窗：告诉用户"已经好了"，并给三个选择。
+   （用户 2026-10-08：以前导完 PDF 一点提示都没有，还得自己去翻文件夹） */
+async function revealFile(name, action) {
+  try {
+    const data = await api('/api/reveal', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name, action: action})});
+    log(data.text || '已打开');
+  } catch (error) {
+    log('打开失败：' + error.message, 'err');
+  }
+}
+function showDoneDialog(downloads, title) {
+  const list = (downloads || []).filter(Boolean);
+  if (!list.length) return;
+  const holder = $('done-list');
+  holder.replaceChildren();
+  $('done-title').textContent = title || '已生成';
+  $('done-summary').textContent = '共 ' + list.length + ' 个文件：';
+  list.forEach(name => {
+    const row = document.createElement('div'); row.className = 'done-row';
+    const label = document.createElement('span'); label.className = 'done-name';
+    label.textContent = name; label.title = name;
+    const openBtn = document.createElement('button'); openBtn.textContent = '打开文件';
+    openBtn.addEventListener('click', () => revealFile(name, 'open'));
+    const folderBtn = document.createElement('button'); folderBtn.textContent = '打开所在位置';
+    folderBtn.addEventListener('click', () => revealFile(name, 'folder'));
+    row.append(label, openBtn, folderBtn);
+    holder.appendChild(row);
+  });
+  $('done-dialog').classList.add('on');
+}
+$('done-close').addEventListener('click', () => $('done-dialog').classList.remove('on'));
 function downloadsHtml(downloads, hint) {
   const list = (downloads || []).filter(Boolean);
   if (!list.length) return '';
@@ -1269,6 +1316,9 @@ async function runMany(mode, outDir) {
     $('st-last').textContent = '上次：' + (outDir ? '临时版' : mode);
     if (downloads.length) {
       renderGeneratedFiles(downloads, mode, outDir);
+      // 弹窗问一句：打开文件 / 打开所在位置 / 什么都不做（用户 2026-10-08 要的）
+      showDoneDialog(downloads, outDir ? '临时版已生成'
+        : (mode === 'formal' ? '正式版已生成' : '预览版已生成'));
     } else {
       $('preview').textContent = '没有需要改的地方（也没写文件）';
     }
@@ -1359,6 +1409,7 @@ async function resumeOut(overwrite, suffix) {
   if (downloads.length) {
     $('preview').innerHTML = '已生成 ' + downloads.length + ' 份：<br><br>'
       + downloadsHtml(downloads, '你的原文件没被动；重名的按你的选择处理了');
+    showDoneDialog(downloads, outPending && outPending.mode === 'formal' ? '正式版已生成' : '预览版已生成');
   }
 }
 
@@ -2038,6 +2089,7 @@ $('pdf-confirm').addEventListener('click',async()=>{
     }
     renderGeneratedFiles(downloads,mode,null);
     $('preview').querySelector('.output-kind').textContent=edition+' PDF · 点击文件名下载';
+    showDoneDialog(downloads, edition + ' PDF 已生成');
     setActivity('done','PDF 已完成');
   } catch(error) {
     $('report').textContent='PDF 导出失败：'+error.message;

@@ -189,6 +189,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._pdf()
             elif path == "/api/extdata":
                 self._extdata()
+            elif path == "/api/reveal":
+                self._reveal()
             elif path == "/api/plans/export":
                 self._plan_export()
             elif path == "/api/plans/import":
@@ -538,6 +540,29 @@ class Handler(BaseHTTPRequestHandler):
         text='已按当前方案生成%s，再转换为 PDF。\n原始报告保持不变。\n\n%s\n\n文档处理：\n%s' % (
             edition,pdf_op.format_report(report),document_text)
         self._json({'ok':True,'report':report,'download':download,'text':text})
+
+    def _reveal(self):
+        """产物生成之后的"打开文件 / 打开文件所在位置"（用户 2026-10-08 要的）。
+
+        **只认本次跑出来的文件**（``_DOWNLOADS`` 白名单：`allow_download` 登记过的），
+        否则这个接口就等于"随便开本机任何文件"，不能给。
+        """
+        from .. import subproc
+        data = self._body_json()
+        name = data.get("name") or u""
+        action = data.get("action") or u"open"
+        with _LOCK:
+            path = _DOWNLOADS.get(os.path.basename(name))
+        if not path or not os.path.exists(path):
+            raise PipelineError(u"找不到刚生成的文件：%s（可能已被移走或改名）" % name)
+        if action == u"folder":
+            # 资源管理器定位到该文件（选中的是它，不是把目录打开就完事）
+            subproc.popen(["explorer", "/select,", path])
+            text = u"已在资源管理器中定位：%s" % path
+        else:
+            os.startfile(path)                 # noqa: S606 - 只开白名单里的产物
+            text = u"已用默认程序打开：%s" % path
+        self._json({"ok": True, "path": path, "action": action, "text": text})
 
     def _extdata(self):
         """文档数据外置更新：``gen`` 生成外置数据表 + 配方，``rebuild`` 按数据表重建，

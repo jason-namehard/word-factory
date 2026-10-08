@@ -197,11 +197,13 @@ def _export_with_com(plan_info, timeout, visible):
 
 
 def _export_with_soffice(plan_info, timeout):
+    from .. import subproc
     out_dir = os.path.dirname(plan_info["out"]) or "."
     command = ["soffice", "--headless", "--norestore", "--convert-to", "pdf",
                "--outdir", out_dir, plan_info["file"]]
     try:
-        finished = subprocess.run(command, capture_output=True, timeout=timeout)
+        # 走 subproc：exe（无控制台）里直接 subprocess 会闪一个黑窗口
+        finished = subproc.run(command, capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         raise PdfError(u"LibreOffice 导出超过 %d 秒，已中止" % timeout)
     if finished.returncode != 0:

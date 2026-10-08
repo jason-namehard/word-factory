@@ -53,12 +53,78 @@ def _process_ids():
     return set()
 
 
-def _terminate(pid):
-    """按 **pid** 结束我们自己起的那个进程（``/T`` 连子孙一起；绝不用 ``/IM 名字``）。"""
-    import subprocess
+#: 只清"Office 应用本体"的进程：``DispatchEx`` 有时会连带拉起共享的辅助服务
+#: （云同步之类），那些不是我们的、也不该由我们结束。
+_OFFICE_EXES = ("winword.exe", "wps.exe", "et.exe", "wpp.exe", "wpspdf.exe", "excel.exe")
+
+
+def _image_name(pid):
+    """进程的可执行文件名（小写）；拿不到返回空串。**不调外部命令**（免得弹窗）。"""
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.OpenProcess(0x1000, False, int(pid))   # QUERY_LIMITED_INFORMATION
+    if not handle:
+        return u""
     try:
-        subprocess.run(["taskkill", "/PID", str(int(pid)), "/T", "/F"],
-                       capture_output=True, timeout=30)
+        size = wintypes.DWORD(1024)
+        buffer = ctypes.create_unicode_buffer(1024)
+        if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+            return os.path.basename(buffer.value).lower()
+    except Exception:                          # noqa: BLE001
+        pass
+    finally:
+        kernel32.CloseHandle(handle)
+    return u""
+
+
+def _is_office_app(pid):
+    name = _image_name(pid)
+    return (not name) or (name in _OFFICE_EXES)
+
+
+def _has_visible_window(pid):
+    """这个进程有没有**可见的**顶层窗口？
+
+    用户自己开着的 Word/WPS 一定有窗口；我们那些自动化实例没有 —— 收尾清理时**只清没窗口的**，
+    这样绝不会误伤用户正在用的 Office。
+    """
+    import ctypes
+    user32 = ctypes.windll.user32
+    result = [False]
+
+    def callback(hwnd, _lparam):
+        if user32.IsWindowVisible(hwnd):
+            owner = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            if owner.value == int(pid):
+                result[0] = True
+                return False
+        return True
+
+    try:
+        user32.EnumWindows(ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p,
+                                              ctypes.c_void_p)(callback), None)
+    except Exception:                          # noqa: BLE001 - 查不了就当"有窗口"，宁可不杀
+        return True
+    return result[0]
+
+
+def _terminate(pid):
+    """按 **pid** 结束我们自己起的那个 Office 进程。
+
+    * 只动**应用本体**（WINWORD/wps/…）：``DispatchEx`` 有时会连带拉起共享辅助服务，
+      那不是我们的东西，不能顺手关掉；
+    * 走 :mod:`wordfactory.subproc`：打包成 exe 之后，直接 ``subprocess`` 起 ``taskkill``
+      会**闪一个黑色终端窗口**（用户 2026-10-08 报的"点导出 PDF 频繁弹窗"就是它）。
+    * 绝不用 ``/IM 名字`` 那种批量杀法。
+    """
+    from . import subproc
+    if not _is_office_app(pid):
+        return
+    try:
+        subproc.run(["taskkill", "/PID", str(int(pid)), "/T", "/F"],
+                    capture_output=True, timeout=30)
     except Exception:                          # noqa: BLE001 - 收尾失败不该再抛
         pass
 
@@ -95,8 +161,10 @@ class Session:
     def __init__(self, prog_id):
         self.prog_id = prog_id
         self.pids = set()
+        self._killed = set()
         self.documents = []
         before = _process_ids()
+        self._before = before
         try:
             self.app = _create_app(prog_id)
             self.pids = _process_ids() - before          # 这次新起来的进程 = 我们的
@@ -146,10 +214,17 @@ class Session:
         return document
 
     # ------------------------------------------------------------------ 收尾
+    def _kill(self, pid):
+        """结束一个我们自己起的 pid（同一个 pid 只动手一次）。"""
+        if pid in self._killed:
+            return
+        self._killed.add(pid)
+        _forget_ours({pid})
+        _terminate(pid)
+
     def _kill_our_processes(self):
-        alive = self.pids & _process_ids()
-        for pid in sorted(alive):
-            _terminate(pid)
+        for pid in sorted(self.pids & _process_ids()):
+            self._kill(pid)
         _forget_ours(self.pids)
         self.pids = set()
 
@@ -168,10 +243,25 @@ class Session:
         deadline = time.time() + QUIT_GRACE
         while time.time() < deadline:
             if not (self.pids & _process_ids()):
-                _forget_ours(self.pids)
-                return
+                break
             time.sleep(0.3)
         self._kill_our_processes()
+        self._sweep_late_strays()
+
+    def _sweep_late_strays(self):
+        """最后扫一遍：**起会话之后**新冒出来、**没有可见窗口**的 Office 本体也清掉。
+
+        为什么要这一手：WPS 有时"慢半拍"再起一个子孙进程（差集是在起会话那一刻拍的，
+        抓不到它）。判据卡得很死 —— 只清**没窗口**的，用户自己开着的 Office 绝不误伤。
+        """
+        try:
+            candidates = _process_ids() - getattr(self, "_before", set())
+        except Exception:                    # noqa: BLE001
+            return
+        for pid in sorted(candidates):
+            if not _is_office_app(pid) or _has_visible_window(pid):
+                continue
+            self._kill(pid)
 
     def __enter__(self):
         return self
