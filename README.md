@@ -69,12 +69,16 @@
 
 ```
 wordfactory/        代码（纯标准库；不装任何第三方包）
-  gui/               本地 Web 界面（stdlib http.server + 前端页面）
+  desktop.py         桌面版入口（pywebview 原生窗口，产品入口）
+  gui/               窗口里那套界面（stdlib http.server + 静态页；不是产品线，见下）
   ops/               算子（宏）：题注 / 上下标 / 表格 / 文本 / 整理 / PDF
-  pipeline.py        配方引擎（GUI 与命令行共用）
+  pipeline.py        配方引擎（界面与命令行共用）
+word工厂.py          源码方式起桌面窗口
+打包 word工厂.bat     打成 dist_onefile\word工厂.exe（单文件）
+build_exe_onefile.spec  PyInstaller 打包配置（只保留单文件这一份）
 docs/                规格、架构、验收策略、未决问题
-gui-prototype/       GUI 布局设计稿（SVG 原型，定稿用的，不参与运行）
 reference/           VBA 宏原件（只读参考，不参与运行）
+dist_onefile/        打包产物：word工厂.exe + word工厂数据\（重建即生成）
 tests/               单测与差分测试夹具
 tmp/                 临时件（不入库）
 ```
@@ -478,12 +482,15 @@ python -m venv .buildenv && .buildenv\Scripts\python.exe -m pip install pywebvie
 .buildenv\Scripts\python.exe -m PyInstaller build_exe_onefile.spec --noconfirm --distpath dist_onefile --workpath build_onefile
 ```
 
-产出**两种**（同一份代码，只是打包形状不同）：
+产出**只有一个**（用户 2026-10-17：「软件线也只保留最新版本，历史更新版本清理掉」）：
 
 | 产物 | 大小 | 说明 |
 |---|---|---|
 | `dist_onefile\word工厂.exe` | ~15 MB | **一个文件**，拷到 U 盘就能用（首次启动慢几秒，要先解包） |
-| `dist\word工厂\` | ~28 MB | 文件夹版（exe + `_internal\`），启动快；整个文件夹拷走 |
+
+> 早先还打过一份 onedir 的「文件夹版」`dist\word工厂\`（同一版本的另一形状，
+> 启动快但要多拷一个目录），2026-10-17 按"只留最新版本"清掉了，打包配置 `build_exe.spec`
+> 一并移除；`打包 word工厂.bat` 现在**只打单文件**。
 
 * **一个原生窗口，不弹浏览器**：`wordfactory/desktop.py` 用 **pywebview**（系统自带
   Edge WebView2 内核）开窗口，窗口里就是原来那套五页界面（**按钮和布局一个字没改**）；
@@ -643,33 +650,30 @@ WPS 有时慢半拍再起一个子孙进程，差集抓不到。用户自己开�
 其余注意：exe **没有数字签名**，360/杀软可能拦一次（放行即可）；文件在 U 盘上打开时
 若被安全策略划进"受保护视图"，Word/WPS 可能拒绝自动化 —— 那是 Office 的策略，不是工具的问题。
 
-**源码/命令行仍在**（引擎 + REST + 静态页三层没动，桌面窗口只是最外面那层壳）：
+**源码入口仍在**（引擎 + REST + 静态页三层没动，桌面窗口只是最外面那层壳）：
 
 ```bash
-python word工厂.py                            # 源码方式起桌面窗口（没装 pywebview 时退回浏览器）
-python -m wordfactory.cli gui                 # 老口径：起服务 + 开浏览器，默认 http://127.0.0.1:8765
-python -m wordfactory.cli gui --port 9000 --no-browser
+python word工厂.py                 # 源码方式起桌面窗口（没装 pywebview 时自动退回浏览器）
+python -m wordfactory.cli captions "文档.docx" --dry-run   # 引擎的命令行（不进界面，见上面各节）
 ```
 
-浏览器里能干的事：
+⚠️ **产品线只有桌面 exe 这一条**（用户 2026-10-17）。早先那条"双击 .cmd 起本地服务 + 开浏览器"
+的 **web 线**已经按用户要求清掉：`启动 word 工厂.cmd`、桌面上的 `word 工厂.lnk` 快捷方式、
+`gui-prototype/`（界面设计稿）都不在项目里了 —— 清单与恢复办法见
+`E:\Zspace\archive\20261017_wordfactory_清理归档\README.txt`。
 
-- **选文件**：对话框顶部有**盘符栏**（C:/D:/E:…），能挑到任何盘里的 `.docx`；
-  点背板或按 **Esc** 关闭。
-- **左边勾功能**：勾选 + 拖动排序；「**全选 / 全部取消**」一键切换；
-  「**管理执行方案…**」打开方案管理页。
-- **执行方案页**：给当前勾选+顺序**起名保存**，列表一眼看到所有方案（出厂 4 套 + 自己存的），
-  每套带步骤小标签，可**载入 / 删除 / 导出到文件 / 从文件导入**。
-- **表格款式页**：点模板 + 按表头勾选要套款的表（数据源 = `tablestyle list` 的同一份清单）。
-- **文档数据外置页**：`① 生成外置数据`（识别高亮/占位符 → 写「XX外置数据.xlsx」）→
-  在 Excel 里改数值 → `② 按数据表更新`。生成后会自动把当前文件切到带配方的那份，接着跑②不会找错文件。
-- **右上角一排**：dry-run / 出验证版 / 出正式版 / 体检 AUDIT / **导出 PDF** / 退出。
-- 右边：**预览**（下载链接）+ **改动报告**；底部：运行日志 + 状态条。
+### 为什么 web 页面还在（架构说明，**不是**产品线）
 
-**界面是临时形态，后面要升级成桌面 exe**（用户 2026-09-26 明确）。所以架构上刻意做成
-"**引擎 + REST 接口 + 静态页**"三层：`wordfactory/pipeline.py` 与各算子不碰界面，
-GUI 只是 `http.server` 上的一层薄壳（只绑 127.0.0.1、下载走白名单、退出即关服务）。
-换桌面壳（pywebview / Tauri / Electron 打包同一个服务）时**引擎和接口一行不用改**。
-布局也不是拍脑袋定的：先用 `gui-prototype/index.html`（SVG 拖拽设计稿）排到用户满意，再照它写成真界面。
+界面从浏览器搬进了原生窗口，但**渲染的还是同一份静态页**：桌面壳（`wordfactory/desktop.py`
++ pywebview）只是把 `127.0.0.1` 上的那个页面装进窗口。所以
+`wordfactory/gui/`（`server.py` + `web/index.html`）**不能删** —— 它就是窗口里那套界面，
+也是"模块化"的那一层：改界面的 CSS/文案不用碰引擎。
+`python -m wordfactory.cli gui` 这条命令保留着，但**只是内部调试用**（产品入口是 `word工厂.exe`）。
+
+界面的功能都在 exe 里：**选文件**（顶部盘符栏，能挑任何盘的 `.docx`）→ **左边勾功能 + 拖动排序**
+（全选/全部取消、执行方案存取名）→ **执行方案页**（载入/删除/导出/导入）→
+**表格款式页**（按表头勾表）→ **文档数据外置页**（生成外置数据 → 在 Excel 里改 → 按数据表更新）→
+**顶栏**（预览版 / 正式版 / PDF / 体检 AUDIT / 退出）→ 右下**预览 + 改动报告**，底部运行日志与状态条。
 
 ## 状态
 

@@ -1,16 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
-r"""PyInstaller 打包配置：**word工厂 单文件版**（`word工厂.exe` 一个文件）。
+r"""PyInstaller 打包配置：**word工厂**（桌面版，单文件 `word工厂.exe`）。
 
-与 `build_exe.spec`（onedir）的区别只有最后一步：这里用 ``EXE(... a.binaries, a.datas ...)``
 把依赖一起塞进 exe，不再出 `_internal\` 目录 —— 用户要的"一个 exe 拷到 U 盘就能用"。
+（早先另有一份 onedir 的 `build_exe.spec`／`dist\word工厂\`，2026-10-17 按
+"只保留最新版本"清掉了，所以这里是**唯一**的打包配置。）
 
 * 代价：每次启动要把依赖解到临时目录（首次启动慢几秒）；
 * **数据目录仍在 exe 旁边**：`paths.py` 用的是 ``sys.executable`` 的目录（不是解压目录），
   所以 `word工厂数据\` 会出现在**用户把 exe 放的那个文件夹**里，不会随退出消失。
 
-用法（项目根）：
+用法（项目根）：双击 `打包 word工厂.bat`，或
     .buildenv\Scripts\python.exe -m PyInstaller build_exe_onefile.spec --noconfirm ^
-        --distpath dist --workpath build
+        --distpath dist_onefile --workpath build_onefile
 """
 
 import os

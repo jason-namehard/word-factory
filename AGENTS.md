@@ -61,8 +61,14 @@
 
 ## 二、其他常驻条目
 
+* **产品线只有桌面 exe 这一条**（用户 2026-10-17）：`dist_onefile\word工厂.exe`（单文件，
+  双击 `打包 word工厂.bat` 重建，那是**唯一**的打包配置 `build_exe_onefile.spec`）。
+  早先的"web 线"（`启动 word 工厂.cmd` 起服务+开浏览器、桌面快捷方式、`gui-prototype/` 设计稿）
+  与 onedir 的"文件夹版"（`dist\word工厂\`、`build_exe.spec`）都已按用户要求清掉，
+  **不要再把它们加回来**。`wordfactory/gui/`（server + 静态页）**不能删** ——
+  桌面窗口里渲染的就是它（架构说明见 README「为什么 web 页面还在」）；
+  `python -m wordfactory.cli gui` 只作内部调试用。
 * **【MUST】改完必须实测**：本项目的"实测"= 真跑一遍 + 用 Word/WPS 打开产物读值
   （XML 绿 ≠ 渲染对，内存改过 ≠ 落盘正确）；exe 相关的改动**必须在打包后的 exe 里再验一遍**
   （很多坑只在无控制台/冻结环境暴露）。
-* 交付形态：桌面版 exe 优先；重建双击 `打包 word工厂.bat`；
-  数据目录在 exe 旁边的 `word工厂数据\`。
+* 交付形态：桌面版 exe 优先；数据目录在 exe 旁边的 `word工厂数据\`。

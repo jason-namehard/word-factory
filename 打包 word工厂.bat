@@ -2,7 +2,7 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 echo ============================================================
-echo  word工厂 打包（桌面版 exe）
+echo  word工厂 打包（桌面版 exe，单文件）
 echo ============================================================
 if not exist ".buildenv\Scripts\python.exe" (
   echo [1/2] 第一次打包,正在建打包环境 .buildenv ...
@@ -14,15 +14,11 @@ if not exist ".buildenv\Scripts\python.exe" (
   ".buildenv\Scripts\python.exe" -m pip install pywebview pywin32 pyinstaller || goto :fail
 )
 echo [2/2] 开始打包 ...
-echo   a) 单文件版 -> dist_onefile\word工厂.exe
 ".buildenv\Scripts\python.exe" -m PyInstaller build_exe_onefile.spec --noconfirm --distpath dist_onefile --workpath build_onefile || goto :fail
-echo   b) 文件夹版 -> dist\word工厂\word工厂.exe
-".buildenv\Scripts\python.exe" -m PyInstaller build_exe.spec --noconfirm --distpath dist --workpath build || goto :fail
 echo.
-echo 打包完成:
-echo   单文件: dist_onefile\word工厂.exe      (拷这一个文件到 U 盘即可)
-echo   文件夹: dist\word工厂\                 (整个文件夹拷走; 启动更快)
-echo 首次运行会在 exe 旁边自动建「word工厂数据」文件夹(规则/方案/临时文件都在那里)。
+echo 打包完成: dist_onefile\word工厂.exe
+echo 把这一个文件拷到 U 盘即可;首次运行会在它旁边自动建「word工厂数据」文件夹
+echo (规则/方案/临时文件/清理审计日志都在那里)。
 pause
 exit /b 0
 
